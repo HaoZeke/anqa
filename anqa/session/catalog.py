@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..harness.ref import SessionRef
-from ..harness.registry import adapter, ref_from_path, require_adapter
+from ..harness.registry import adapter, harness_product, ref_from_path, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
 from .mtime_export import (
     default_catalog_snapshot,
@@ -167,6 +167,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         "outcome": meta.turn_outcome or "",
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
+        "harnessLabel": harness_product(meta.harness),
         "taskId": meta.task_id or "",
         "gitRepo": meta.git_repo or "",
         "runDir": meta.run_dir or "",
@@ -275,6 +276,7 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "outcome",
     "harness",
     "harnessVersion",
+    "harnessLabel",
     "taskId",
     "gitRepo",
     "runDir",

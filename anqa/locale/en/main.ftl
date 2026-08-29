@@ -1463,6 +1463,7 @@ export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 
 ui-catalog = Catalog
+ui-harness = Harness
 
 ui-control-socket-attach-failed = Control owner not reachable
 

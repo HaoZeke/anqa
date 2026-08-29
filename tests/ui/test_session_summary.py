@@ -252,6 +252,7 @@ class TestBuildSessionSummary:
             session_id="badge",
             session_dir=session_dir,
             title="Badge session",
+            harness="grok",
             model_id="grok-4.5",
             turn_outcome="completed",
             duration_seconds=120,
@@ -265,6 +266,7 @@ class TestBuildSessionSummary:
         chips = lines[1]
         assert "complete" in chips
         assert "completed" not in chips
+        assert "Grok Build" in chips
         assert "grok-4.5" in chips
         assert "2m" in chips
         assert "Context usage" in plain

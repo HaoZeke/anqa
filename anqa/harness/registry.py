@@ -49,6 +49,16 @@ def adapter(harness_id: str) -> HarnessAdapter | None:
     return None
 
 
+def harness_product(harness_id: str) -> str:
+    """Product name for *harness_id* (``OpenCode``), else the id."""
+    item = adapter(harness_id)
+    if item is not None:
+        name = (item.product or "").strip()
+        if name:
+            return name
+    return (harness_id or "").strip()
+
+
 def enabled_host_ids() -> frozenset[str]:
     """Registered adapter ids minus ``[catalog].ignore``."""
     from ..config import load_app_config
@@ -243,6 +253,7 @@ __all__ = [
     "adapter_watch_basenames",
     "adapter_watch_hits",
     "adapters",
+    "harness_product",
     "enabled_host_adapters",
     "enabled_host_ids",
     "host_adapters",

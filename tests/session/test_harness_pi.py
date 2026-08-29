@@ -8,7 +8,7 @@ from pathlib import Path
 
 from anqa.harness.pi import PI_HARNESS_ID, PiAdapter
 from anqa.harness.registry import require_adapter
-from anqa.harness.views import session_timeline
+from anqa.harness.views import session_overview, session_timeline
 from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
@@ -61,6 +61,20 @@ def test_running_session_is_not_complete() -> None:
     meta = require_adapter(live).load_meta(live)
     assert meta.list_status_label() == "running"
     assert require_adapter(live).list_turn_outcome(live) == "running"
+
+
+def test_overview_stats_count_timeline_tools() -> None:
+    _install_store()
+    ref = PiAdapter().ref_for_id(_SID)
+    assert ref is not None
+    ov = session_overview(ref)
+    assert ov["meta"]["harness"] == PI_HARNESS_ID
+    assert ov["meta"]["harnessLabel"] == "Pi"
+    stats = ov["stats"]
+    types = {row["id"]: int(row["count"]) for row in stats["eventTypes"]}
+    tools = {row["id"]: int(row["count"]) for row in stats["tools"]}
+    assert types.get("tool_call", 0) >= 1
+    assert tools.get("bash", 0) >= 1
 
 
 def test_timeline_user_tool_result() -> None:

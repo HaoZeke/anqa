@@ -75,6 +75,20 @@ def test_running_session_is_not_complete() -> None:
     assert require_adapter(live).list_turn_outcome(live) == "running"
 
 
+def test_overview_stats_count_timeline_tools() -> None:
+    _install_store()
+    ref = OpenCodeAdapter().ref_for_id("ses_probe")
+    assert ref is not None
+    ov = session_overview(ref)
+    assert ov["meta"]["harness"] == OPENCODE_HARNESS_ID
+    assert ov["meta"]["harnessLabel"] == "OpenCode"
+    stats = ov["stats"]
+    types = {row["id"]: int(row["count"]) for row in stats["eventTypes"]}
+    tools = {row["id"]: int(row["count"]) for row in stats["tools"]}
+    assert types.get("tool_call", 0) >= 1
+    assert tools.get("bash", 0) >= 1
+
+
 def test_adapted_timeline_page() -> None:
     _install_store()
     ref = OpenCodeAdapter().ref_for_id("ses_probe")

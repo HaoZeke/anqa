@@ -206,6 +206,24 @@ pub fn overview_fields(
             copyable: true,
         });
     }
+    let harness = if !meta.harness_label.is_empty() {
+        meta.harness_label.clone()
+    } else {
+        meta.harness.clone()
+    };
+    if !harness.is_empty() {
+        let value = if !meta.harness_version.is_empty() {
+            format!("{harness} {}", meta.harness_version)
+        } else {
+            harness
+        };
+        out.push(OverviewField {
+            key: "harness",
+            label: "harness",
+            value,
+            copyable: true,
+        });
+    }
     if meta.tool_call_count > 0 || meta.error_count > 0 || meta.tool_failure_count > 0 {
         let value = if meta.error_count > 0 || meta.tool_failure_count > 0 {
             let errs = meta.error_count.max(meta.tool_failure_count);
@@ -2790,6 +2808,9 @@ mod tests {
         let meta = SessionMeta {
             session_id: "s1".into(),
             path: "/tmp/s1".into(),
+            harness: "opencode".into(),
+            harness_label: "OpenCode".into(),
+            harness_version: "1.18.25".into(),
             tool_call_count: 4,
             error_count: 1,
             git_repo: "anqa".into(),
@@ -2829,6 +2850,7 @@ mod tests {
             keys,
             [
                 "session",
+                "harness",
                 "tools",
                 "last_turn",
                 "messages",
@@ -2849,6 +2871,12 @@ mod tests {
                 .find(|r| r.key == "last_turn")
                 .map(|r| r.value.as_str()),
             Some("turn 1 · #11–#20")
+        );
+        assert_eq!(
+            rows.iter()
+                .find(|r| r.key == "harness")
+                .map(|r| r.value.as_str()),
+            Some("OpenCode 1.18.25")
         );
         assert_eq!(
             rows.iter()

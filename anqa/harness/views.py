@@ -13,6 +13,7 @@ from ..session.control_views import (
     MAX_CONTENT_CHARS,
     MAX_TIMELINE_LIMIT,
     SessionOverview,
+    overview_stat_counts,
     session_meta_mapping,
     timeline_event_mapping,
     turn_segment_mapping,
@@ -64,7 +65,7 @@ def _subagent_rows(ref: SessionRef, events: list[TraceEvent]) -> list[JsonValue]
 
 
 def session_overview(ref: SessionRef) -> JsonObject:
-    """``session/overview`` without host jobs / rewind / subagent dirs."""
+    """``session/overview`` for a file or database locator."""
     meta, events = _load(ref)
     meta.num_events = len(events)
     segs = segment_timeline_turns(events)
@@ -127,7 +128,7 @@ def session_overview(ref: SessionRef) -> JsonObject:
             "notes": notes_rows,
             "schema": SessionOverview.notes_schema(),
         },
-        "stats": {"eventTypes": [], "tools": []},
+        "stats": overview_stat_counts(events),
     }
 
 

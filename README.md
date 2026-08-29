@@ -134,6 +134,9 @@ Notes for a host adapter session live under
 `-P` that is not an adapter store keeps notes in that tree. File
 or database locators use `~/.anqa/notes/<harness>/<session_id>/`.
 
+The home list and the session glance show the product name (OpenCode,
+Pi, Grok Build). Filter with `harness:<id>`.
+
 The catalog lists every shipped adapter. `[catalog] ignore` drops a
 store. `[catalog.roots]` overrides a path. Details:
 [`docs/harness-adapters.md`](docs/harness-adapters.md).

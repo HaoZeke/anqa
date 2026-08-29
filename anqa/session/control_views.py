@@ -16,7 +16,7 @@ from typing import ClassVar
 from .. import event_types as et
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
-from ..harness.registry import require_adapter
+from ..harness.registry import harness_product, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..notes import load_schema, notes_snapshot
 from ..session.tagged_blocks import unwrap_for_display
@@ -151,6 +151,7 @@ def session_meta_mapping(
         "outcome": meta.turn_outcome or "",
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
+        "harnessLabel": harness_product(meta.harness),
         "createdAt": meta.created_at or "",
         "updatedAt": meta.updated_at or "",
         "numMessages": int(meta.num_messages or 0),

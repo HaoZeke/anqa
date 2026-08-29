@@ -98,6 +98,15 @@ def render_session_summary(
         head.append_text(status_chip(t("ui-subagent"), kind="unknown"))
         head.append("  ")
     head.append_text(status_chip(outcome, kind=kind))
+    harness = ""
+    hid = (meta.harness or "").strip()
+    if hid:
+        from ..harness.registry import harness_product
+
+        harness = harness_product(hid)
+    if harness:
+        head.append("  ")
+        head.append_text(status_chip(harness, kind="unknown"))
     if model and model != "—":
         head.append("  ")
         head.append_text(status_chip(model, kind="unknown"))

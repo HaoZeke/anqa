@@ -157,6 +157,7 @@ fn paint_badge(
 /// Status plus identity chips — Overview, Recent cards, and the browse bar.
 fn session_state_row(
     status: &str,
+    harness: &str,
     model: &str,
     duration: &str,
     subagent: bool,
@@ -173,6 +174,9 @@ fn session_state_row(
     .align_y(Alignment::Center);
     if subagent {
         chips = chips.push(status_chip(String::from("subagent"), "", tea));
+    }
+    if !harness.trim().is_empty() {
+        chips = chips.push(status_chip(harness.trim().to_string(), "", tea));
     }
     if !model.trim().is_empty() {
         chips = chips.push(status_chip(model.trim().to_string(), "", tea));
@@ -191,8 +195,14 @@ fn session_state_from_row(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let taken = session_duration_chip(row.duration_seconds, "");
+    let harness = if !row.harness_label.is_empty() {
+        row.harness_label.as_str()
+    } else {
+        row.harness.as_str()
+    };
     session_state_row(
         &row.status_label(),
+        harness,
         &row.model,
         &taken,
         false,
@@ -206,8 +216,14 @@ fn session_state_from_meta(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let taken = session_duration_chip(meta.duration_seconds, &meta.duration);
+    let harness = if !meta.harness_label.is_empty() {
+        meta.harness_label.as_str()
+    } else {
+        meta.harness.as_str()
+    };
     session_state_row(
         &meta.status_label(),
+        harness,
         &meta.model,
         &taken,
         meta.is_subagent(),
@@ -811,7 +827,7 @@ fn browse_session_bar<'a>(
     if let Some(o) = hud.overview() {
         row = row.push(session_state_from_meta(&o.meta, tea));
     } else if !status.is_empty() {
-        row = row.push(session_state_row(&status, "", "", false, tea, ""));
+        row = row.push(session_state_row(&status, "", "", "", false, tea, ""));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(icedtea::widget::meta(

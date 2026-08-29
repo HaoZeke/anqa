@@ -707,6 +707,7 @@ class AnqaApp(App):
         table.add_columns(
             " ",
             t("ui-title"),
+            t("ui-harness"),
             t("ui-model"),
             t("ui-status"),
             t("ui-duration"),
@@ -1549,9 +1550,13 @@ class AnqaApp(App):
         *,
         selected: bool,
     ) -> tuple[str | Text, ...]:
+        from ..harness.registry import harness_product
+
+        harness = harness_product(meta.harness) or "—"
         return (
             Text("*", style="bold green") if selected else Text(" "),
             (meta.label or meta.session_id)[:40],
+            harness,
             meta.model_display[:40],
             self._session_status_cell(meta),
             meta.duration_str,

@@ -127,9 +127,9 @@ def test_populate_session_table_adds_row(tmp_path: Path):
     host._populate_session_table_inner()
     assert len(rows_added) == 1
     cells, key = rows_added[0]
-    # sel, title, model, status, duration, context, events
-    assert len(cells) == 7
-    assert str(cells[5]) == "—"  # no context telemetry on this stub meta
+    # sel, title, harness, model, status, duration, context, events
+    assert len(cells) == 8
+    assert str(cells[6]) == "—"  # no context telemetry on this stub meta
     assert key == str(meta.session_dir)
 
 
@@ -152,6 +152,7 @@ async def test_home_table_omits_task_id_and_path_label(tmp_path: Path):
         assert t("ui-label") not in headers
         assert t("ui-session-id") not in headers
         assert t("ui-title") in headers
+        assert t("ui-harness") in headers
         assert t("ui-status") in headers
         assert t("ui-high-1") not in headers
         assert t("ui-med") not in headers

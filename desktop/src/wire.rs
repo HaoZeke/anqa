@@ -29,6 +29,8 @@ pub struct SessionListItem {
     #[serde(default)]
     pub harness_version: String,
     #[serde(default)]
+    pub harness_label: String,
+    #[serde(default)]
     pub task_id: String,
     #[serde(default)]
     pub git_repo: String,
@@ -154,6 +156,12 @@ pub struct SessionMeta {
     pub status: String,
     #[serde(default)]
     pub outcome: String,
+    #[serde(default)]
+    pub harness: String,
+    #[serde(default)]
+    pub harness_version: String,
+    #[serde(default)]
+    pub harness_label: String,
     #[serde(default)]
     pub session_kind: String,
     #[serde(default)]
