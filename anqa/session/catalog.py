@@ -471,6 +471,7 @@ class SessionCatalogCache:
         self._building = False
         self._build_done = threading.Event()
         self._build_done.set()
+        self._ref_stamps: dict[str, tuple[str, int, int, int]] = {}
         self._time = time
         # High 31 bits identify this owner instance so a restarted serve cannot
         # treat a client's leftover sinceRevision as "unchanged".
@@ -769,6 +770,83 @@ class SessionCatalogCache:
             if upserts or removed_ids:
                 self._bump_locked(upserted=upserts, removed=removed_ids)
         return list(rows), list_changed
+
+    def refresh_file_store(self, store_paths: list[Path]) -> dict[str, bool]:
+        """Remeta file/database locators whose stamp moved. Leaves others."""
+        from ..harness.registry import adapter_host_roots, enabled_host_adapters
+        from .mtime_export import ref_source_stamp
+
+        hits = {str(Path(p).expanduser()) for p in store_paths}
+        names = {Path(p).name for p in store_paths}
+        list_changed: dict[str, bool] = {}
+        with self._lock:
+            if self._building or self._rows is None:
+                return {}
+            current = list(self._rows)
+            snap_rev = self._revision
+        replacements: dict[str, JsonObject] = {}
+        appended: list[JsonObject] = []
+        drop: set[str] = set()
+        for item in enabled_host_adapters():
+            roots = [Path(raw).expanduser() for raw in adapter_host_roots(item)]
+            files = [root for root in roots if root.is_file()]
+            if not files:
+                continue
+            if not any(str(root) in hits or root.name in names for root in files):
+                continue
+            for ref in item.discover(files):
+                stamp = ref_source_stamp(ref)
+                sid = ref.session_id
+                if self._ref_stamps.get(sid) == stamp:
+                    continue
+                self._ref_stamps[sid] = stamp
+                row = catalog_row_for_ref(ref)
+                if row is None:
+                    for old in current:
+                        if str(old.get("sessionId") or "") == sid:
+                            drop.add(str(old.get("path") or sid))
+                            break
+                    else:
+                        drop.add(sid)
+                    continue
+                prior = next(
+                    (
+                        str(old.get("path") or "")
+                        for old in current
+                        if str(old.get("sessionId") or "") == sid
+                    ),
+                    "",
+                )
+                if prior:
+                    replacements[prior] = row
+                else:
+                    appended.append(row)
+        if not replacements and not appended and not drop:
+            return {}
+        upserts, removed_ids, list_changed = list_refresh_delta(
+            current, replacements, appended, drop
+        )
+        rows = [
+            replacements.get(str(row.get("path") or "").strip(), row)
+            for row in current
+            if str(row.get("sessionId") or "").strip() not in drop
+            and str(row.get("path") or "").strip() not in drop
+        ]
+        rows.extend(appended)
+        rows.sort(
+            key=lambda r: (
+                -catalog_row_sort_epoch(r),
+                str(r.get("sessionId") or ""),
+            )
+        )
+        with self._lock:
+            if self._building or self._revision != snap_rev:
+                return list_changed
+            self._rows = rows
+            self._mono = self._time.monotonic()
+            if upserts or removed_ids:
+                self._bump_locked(upserted=upserts, removed=removed_ids)
+        return list_changed
 
     def drop_subagent_rows(self) -> list[JsonObject]:
         """Remove harness child sessions from the warm snapshot.

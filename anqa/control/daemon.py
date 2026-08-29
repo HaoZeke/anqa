@@ -21,7 +21,7 @@ from ..session.catalog import (
 )
 from ..session.sources import session_dir_for_watch_path
 from ..session.subagents import session_changed_targets
-from ..session.watch import PLANE_FILE_NAMES, JournalTail
+from ..session.watch import JournalTail
 from .client import ControlClient, is_transient_unix_connect_error
 from .contract import NOTIFY_SESSION_CHANGED
 from .server import (
@@ -347,9 +347,20 @@ def control_watch_specs(cache: SessionCatalogCache) -> list[tuple[Path, bool]]:
     return specs
 
 
-# Catalog list rows only care about plane files (and notes). Workspace
-# is never subscribed; events.jsonl must not rebuild the list.
-_CATALOG_LIST_FILE_NAMES = frozenset(PLANE_FILE_NAMES)
+# Timeline-only hints: a write here must not remeta the painted list.
+_LIST_EXCLUDE_HINTS = frozenset({"events.jsonl", "chat_history.jsonl"})
+
+
+def _adapter_list_watch_names() -> frozenset[str]:
+    """Basenames from each adapter ``watch_hints`` that can change a list row."""
+    from ..harness.registry import enabled_host_adapters
+
+    names: set[str] = set()
+    for item in enabled_host_adapters():
+        names.update(item.watch_hints())
+    return frozenset(names - _LIST_EXCLUDE_HINTS)
+
+
 _CATALOG_NOISE_DIR_NAMES = frozenset(
     {
         "workspace",
@@ -381,16 +392,21 @@ def apply_fs_catalog_events(
         or any("operator_notes.toml" in p for p in paths)
     ]
     list_changed: dict[str, bool] = {}
-    list_sessions = CatalogWatchApply.session_dirs(
-        [p for p in paths if CatalogWatchApply.list_rebuild_path(Path(p))],
-        roots=roots,
-    )
+    list_hits = [p for p in paths if CatalogWatchApply.list_rebuild_path(Path(p))]
+    list_sessions = CatalogWatchApply.session_dirs(list_hits, roots=roots)
     if list_sessions:
         try:
             _rows, list_changed = cache.refresh_rows(list_sessions)
         except OSError:
             logger.debug("catalog row refresh after FS event failed", exc_info=True)
             list_changed = {session.name: True for session in list_sessions}
+    else:
+        store_files = [Path(p) for p in list_hits if Path(p).is_file()]
+        if store_files:
+            try:
+                list_changed = cache.refresh_file_store(store_files)
+            except OSError:
+                logger.debug("catalog file-store refresh after FS event failed", exc_info=True)
     for session in sessions:
         list_changed.setdefault(session.name, False)
     return sessions, notes_sessions, list_changed
@@ -428,9 +444,9 @@ class CatalogWatchApply:
     @classmethod
     def list_rebuild_path(cls, path: Path) -> bool:
         """True when a watch path can change a painted session/list field."""
-        if cls.ignore_path(path) or path.name == "events.jsonl":
+        if cls.ignore_path(path) or path.name in _LIST_EXCLUDE_HINTS:
             return False
-        return path.name in _CATALOG_LIST_FILE_NAMES
+        return path.name in _adapter_list_watch_names()
 
     @classmethod
     def session_dirs(cls, paths: list[str], *, roots: list[Path]) -> list[Path]:
