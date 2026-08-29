@@ -43,7 +43,7 @@ def small_mark() -> Text:
 
 def paths_banner(host: Path) -> str:
     """Host catalog folder line."""
-    host_bit = t("chrome-folder", label=t("ui-origin-host"), path=str(host))
+    host_bit = t("chrome-folder", label=t("ui-catalog"), path=str(host))
     return f"[dim]{host_bit}[/dim]"
 
 

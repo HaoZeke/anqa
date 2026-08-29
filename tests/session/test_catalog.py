@@ -49,7 +49,6 @@ def test_list_session_catalog_discovers_store(tmp_path: Path) -> None:
     assert row["sessionId"] == "session-catalog-a"
     assert row["path"] == str(sess.resolve())
     assert row["title"] == "Alpha review"
-    assert row["origin"] == "host"
     assert "status" in row
     assert "model" in row
 
@@ -100,8 +99,6 @@ def test_list_session_catalog_includes_host_by_default(
     ids = {r["sessionId"] for r in rows}
     assert "store-only-sess" in ids
     assert "host-sess" in ids
-    origins = {r["sessionId"]: r["origin"] for r in rows}
-    assert origins.get("host-sess") == "host"
 
     # Force off ignores the host store
     rows_store = list_session_catalog(traces_path=store, include_host=False)
@@ -143,9 +140,9 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     calls: list[str] = []
     real_row = catalog_mod.session_catalog_row
 
-    def _count_row(session_dir: Path, *, origin: str = "work", label: str | None = None):
+    def _count_row(session_dir: Path, *, label: str | None = None):
         calls.append(session_dir.name)
-        return real_row(session_dir, origin=origin, label=label)
+        return real_row(session_dir, label=label)
 
     monkeypatch.setattr(catalog_mod, "session_catalog_row", _count_row)
 
@@ -175,7 +172,6 @@ def test_catalog_scan_roots_includes_every_grok_root(
     """``[catalog.roots] grok`` may list several directory trees."""
     from anqa.config import invalidate_config_cache, parse_app_config
     from anqa.session.catalog import catalog_scan_roots
-    from anqa.session.sources import ORIGIN_HOST
 
     first = tmp_path / "grok-a"
     second = tmp_path / "grok-b"
@@ -185,7 +181,7 @@ def test_catalog_scan_roots_includes_every_grok_root(
     monkeypatch.setattr("anqa.config.load_app_config", lambda: cfg)
     invalidate_config_cache()
     roots = catalog_scan_roots()
-    host_paths = [r.path.resolve() for r in roots if r.origin == ORIGIN_HOST]
+    host_paths = [r.path.resolve() for r in roots]
     assert first.resolve() in host_paths
     assert second.resolve() in host_paths
 
@@ -227,5 +223,5 @@ def test_session_catalog_row_none_on_bad_dir(tmp_path: Path) -> None:
     empty = tmp_path / "not-a-session"
     empty.mkdir()
     missing = tmp_path / "nope"
-    assert session_catalog_row(empty, origin="work") is None
-    assert session_catalog_row(missing, origin="work") is None
+    assert session_catalog_row(empty) is None
+    assert session_catalog_row(missing) is None

@@ -283,6 +283,6 @@ def write_host_catalog_export(
     from .catalog import session_catalog_row
 
     root = Path(host_root).expanduser() if host_root is not None else default_catalog_root()
-    builder = build_row or (lambda sd: session_catalog_row(sd, origin="host"))
+    builder = build_row or session_catalog_row
     load_or_rebuild_catalog(root, dest=dest, build_row=builder)
     return Path(dest).expanduser()

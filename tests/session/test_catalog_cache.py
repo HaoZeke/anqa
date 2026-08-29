@@ -390,7 +390,7 @@ def test_refresh_rows_host_reads_events_when_tail_has_no_close(tmp_path: Path) -
 
 
 def _age_host_traces(session_dir: Path, *, seconds: float = 9 * 60) -> None:
-    """Push host stamp files behind ``HOST_INCOMPLETE_STALE_SECONDS``."""
+    """Push stamp files behind ``INCOMPLETE_STALE_SECONDS``."""
     stamp = time.time() - seconds
     names = (
         "events.jsonl",
@@ -571,7 +571,6 @@ def test_session_meta_from_catalog_row_status() -> None:
             "title": "Hello",
             "model": "grok:high",
             "status": "awaiting",
-            "origin": "host",
             "taskId": "task-9",
             "durationSeconds": 42.5,
             "numEvents": 17,
@@ -596,7 +595,6 @@ def test_session_meta_from_catalog_row_status() -> None:
     assert meta.context_tokens_used == 1200
     assert meta.context_window_tokens == 128_000
     assert "35" in meta.context_usage_compact
-    assert meta.origin == "host"
 
 
 def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> None:
@@ -608,8 +606,6 @@ def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> 
         {
             "sessionId": "019fe503-d45c-7320-904e-cfa8836c361c",
             "path": str(sess),
-            "origin": "work",
         }
     )
     assert meta is not None
-    assert meta.origin == "host"

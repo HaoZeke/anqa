@@ -101,10 +101,6 @@ def render_session_summary(
     if model and model != "—":
         head.append("  ")
         head.append_text(status_chip(model, kind="unknown"))
-    origin_chip = _origin_chip(meta.origin)
-    if origin_chip:
-        head.append("  ")
-        head.append_text(status_chip(origin_chip, kind="unknown"))
     if dur and dur != "—":
         head.append("  ")
         head.append_text(status_chip(dur, kind="unknown"))
@@ -141,15 +137,6 @@ def _outcome_face(outcome: str) -> str:
     if oc in ("success", "ok", "completed", "complete"):
         return "complete"
     return outcome
-
-
-def _origin_chip(origin: str) -> str:
-    key = (origin or "").strip().lower()
-    if key == "host":
-        return t("ui-origin-host")
-    if key == "work":
-        return t("ui-origin-work")
-    return ""
 
 
 def _turn_label_face(last: TurnSegment) -> str:

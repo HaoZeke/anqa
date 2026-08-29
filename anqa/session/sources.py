@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
-from ..harness.registry import discover_dirs
 from .subagents import drop_subagent_sessions
 
 _HOST_SKIP_DIR_NAMES = frozenset(
@@ -35,11 +34,6 @@ _HOST_SKIP_DIR_NAMES = frozenset(
         "runs",
     }
 )
-
-ORIGIN_WORK = "work"
-ORIGIN_HOST = "host"
-
-type SessionOrigin = str
 
 
 def _resolved(path: Path) -> Path:
@@ -85,27 +79,10 @@ def is_under_adapter_store(session_dir: Path) -> bool:
     return False
 
 
-def classify_session_origin(
-    session_dir: Path,
-    *,
-    host_root: Path | None = None,
-) -> SessionOrigin:
-    """Return host when *session_dir* is under an adapter store."""
-    if host_root is not None:
-        sd = _resolved(session_dir)
-        host = _resolved(host_root)
-        if sd == host or host in sd.parents:
-            return ORIGIN_HOST
-    if is_under_adapter_store(session_dir):
-        return ORIGIN_HOST
-    return ORIGIN_HOST
-
-
 @dataclass(frozen=True)
 class SessionScanRoot:
     """One directory to scan for operator-facing sessions."""
 
-    origin: SessionOrigin
     path: Path
 
 
@@ -118,26 +95,26 @@ def session_scan_roots(
     """Roots for the sessions home list.
 
     Enabled adapter stores. An explicit *traces_path* that is not already
-    one of those stores is added as another host root.
+    one of those stores is added as another catalog root.
     """
     out: list[SessionScanRoot] = []
     seen: set[str] = set()
 
-    def add(origin: SessionOrigin, path: Path) -> None:
+    def add(path: Path) -> None:
         key = str(_resolved(path))
         if key in seen:
             return
         seen.add(key)
-        out.append(SessionScanRoot(origin=origin, path=Path(path).expanduser()))
+        out.append(SessionScanRoot(path=Path(path).expanduser()))
 
     if include_host:
         if host_root is not None:
-            add(ORIGIN_HOST, Path(host_root).expanduser())
+            add(Path(host_root).expanduser())
         else:
             for root in _adapter_store_roots():
-                add(ORIGIN_HOST, root)
+                add(root)
     if traces_path is not None:
-        add(ORIGIN_HOST, Path(traces_path).expanduser())
+        add(Path(traces_path).expanduser())
     return out
 
 
@@ -281,19 +258,15 @@ def collect_host_session_dirs(root: Path) -> list[Path]:
 
 def collect_session_dirs(
     roots: list[SessionScanRoot],
-) -> list[tuple[Path, SessionOrigin]]:
-    """Find unique session directories across *roots* (first origin wins)."""
-    found: list[tuple[Path, SessionOrigin]] = []
+) -> list[Path]:
+    """Find unique session directories across *roots*."""
+    found: list[Path] = []
     seen: set[str] = set()
     for root in roots:
         path = root.path
         if not path.exists():
             continue
-        if root.origin == ORIGIN_HOST:
-            session_dirs = collect_host_session_dirs(path)
-        else:
-            session_dirs = discover_dirs(path)
-        for sd in session_dirs:
+        for sd in collect_host_session_dirs(path):
             try:
                 key = str(sd.resolve())
             except OSError:
@@ -301,17 +274,12 @@ def collect_session_dirs(
             if key in seen:
                 continue
             seen.add(key)
-            found.append((sd, root.origin))
-    kept = {str(p) for p in drop_subagent_sessions([sd for sd, _ in found])}
-    return [(sd, origin) for sd, origin in found if str(sd) in kept]
+            found.append(sd)
+    return drop_subagent_sessions(found)
 
 
 __all__ = [
-    "ORIGIN_HOST",
-    "ORIGIN_WORK",
-    "SessionOrigin",
     "SessionScanRoot",
-    "classify_session_origin",
     "collect_host_session_dirs",
     "collect_session_dirs",
     "default_catalog_root",

@@ -1462,9 +1462,7 @@ export-task-failed = Export task failed: { $exc }
 export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 
-ui-origin = Origin
-ui-origin-work = Work
-ui-origin-host = Host
+ui-catalog = Catalog
 
 ui-control-socket-attach-failed = Control owner not reachable
 

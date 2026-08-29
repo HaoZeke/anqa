@@ -79,7 +79,7 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` | Status or origin. |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status. |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:compaction` `has:doom` `has:git` `has:context` | Presence (has:plan). Counts use the written pair (plans:>=2). |
 | `has:workflow` `workflows:>=N` `has:note` `notes:>=N` `has:goal` `goals:>=N` `has:plan` `plans:>=N` `has:subagent` `subagents:>=N` `has:task` `tasks:>=N` `has:job` `jobs:>=N` `has:schedule` `schedules:>=N` `has:error` `errors:>=N` `has:failure` `failures:>=N` `has:diff` `diff:>=N` `has:compaction` `compaction:>=N` `has:doom` `doom:>=N` | Presence and count (written pairs). |
 | `in:` | Directory the session was run in. |

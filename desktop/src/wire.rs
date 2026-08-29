@@ -25,8 +25,6 @@ pub struct SessionListItem {
     #[serde(default)]
     pub outcome: String,
     #[serde(default)]
-    pub origin: String,
-    #[serde(default)]
     pub harness: String,
     #[serde(default)]
     pub harness_version: String,
@@ -156,8 +154,6 @@ pub struct SessionMeta {
     pub status: String,
     #[serde(default)]
     pub outcome: String,
-    #[serde(default)]
-    pub origin: String,
     #[serde(default)]
     pub session_kind: String,
     #[serde(default)]
@@ -731,14 +727,8 @@ impl SessionListItem {
     /// id / model / status. Path and event bodies are not included.
     pub fn haystack(&self) -> String {
         format!(
-            "{} {} {} {} {} {} {}",
-            self.session_id,
-            self.title,
-            self.label,
-            self.model,
-            self.status,
-            self.origin,
-            self.outcome
+            "{} {} {} {} {} {}",
+            self.session_id, self.title, self.label, self.model, self.status, self.outcome
         )
     }
 

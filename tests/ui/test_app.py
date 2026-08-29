@@ -127,9 +127,9 @@ def test_populate_session_table_adds_row(tmp_path: Path):
     host._populate_session_table_inner()
     assert len(rows_added) == 1
     cells, key = rows_added[0]
-    # sel, src, title, model, status, duration, context, events
-    assert len(cells) == 8
-    assert str(cells[6]) == "—"  # no context telemetry on this stub meta
+    # sel, title, model, status, duration, context, events
+    assert len(cells) == 7
+    assert str(cells[5]) == "—"  # no context telemetry on this stub meta
     assert key == str(meta.session_dir)
 
 
@@ -279,23 +279,6 @@ def test_sessions_load_gen_supersedes(tmp_path: Path) -> None:
     assert len(app._meta_only) == 1
 
 
-def test_drop_host_session_rows(tmp_path: Path) -> None:
-    """Hiding host drops origin=host rows without waiting for a full rescan."""
-    from anqa.models import SessionMeta
-    from anqa.ui.app import AnqaApp
-
-    work = tmp_path / "work"
-    work.mkdir()
-    app = AnqaApp(traces_path=work / "runs" / "traces")
-    app._meta_only = [
-        (SessionMeta(session_id="w", session_dir=tmp_path / "w", origin="work"), "w"),
-        (SessionMeta(session_id="h", session_dir=tmp_path / "h", origin="host"), "h"),
-    ]
-    app._drop_host_session_rows()
-    assert len(app._meta_only) == 1
-    assert app._meta_only[0][0].origin == "work"
-
-
 def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
     """Empty catalog must clear a prior list (not leave arbitrary rows)."""
     from anqa.models import SessionMeta
@@ -307,7 +290,7 @@ def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
     traces.mkdir(parents=True)
     app = AnqaApp(traces_path=traces)
     app._meta_only = [
-        (SessionMeta(session_id="stale", session_dir=tmp_path / "stale", origin="host"), "x"),
+        (SessionMeta(session_id="stale", session_dir=tmp_path / "stale"), "x"),
     ]
     n = app._load_sessions_sync()
     assert n == 0

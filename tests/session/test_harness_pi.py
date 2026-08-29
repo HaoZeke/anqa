@@ -39,7 +39,6 @@ def test_discover_and_meta() -> None:
     assert meta.harness == PI_HARNESS_ID
     assert meta.title == "Reply with PI_PROBE_OK"
     assert meta.model_id == "xai/grok-4.5"
-    assert meta.origin == "host"
     assert meta.tool_call_count >= 1
     assert meta.list_status_label() == "complete"
 
@@ -99,7 +98,7 @@ def test_ref_for_id_and_query() -> None:
     assert members == [f"{_SID}/{path.name}"]
     with tarfile.open(dest, "r:gz") as tf:
         assert tf.getnames() == members
-    row = CatalogQueryRow(session_id=_SID, title="x", harness="pi", origin="host")
+    row = CatalogQueryRow(session_id=_SID, title="x", harness="pi")
     assert row_matches_query(row, "harness:pi")
     assert not row_matches_query(row, "harness:opencode")
 

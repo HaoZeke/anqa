@@ -22,7 +22,6 @@ def test_filter_session_catalog_query_and_limit() -> None:
             "model": "grok",
             "status": "complete",
             "outcome": "",
-            "origin": "eval",
         },
         {
             "sessionId": "b",
@@ -32,7 +31,6 @@ def test_filter_session_catalog_query_and_limit() -> None:
             "model": "grok",
             "status": "running",
             "outcome": "",
-            "origin": "host",
         },
     ]
     full = filter_session_catalog(rows)
@@ -62,7 +60,6 @@ def test_filter_session_catalog_offset_pages() -> None:
             "model": "grok",
             "status": "complete",
             "outcome": "",
-            "origin": "eval",
         },
         {
             "sessionId": "b",
@@ -71,7 +68,6 @@ def test_filter_session_catalog_offset_pages() -> None:
             "model": "grok",
             "status": "complete",
             "outcome": "",
-            "origin": "eval",
         },
         {
             "sessionId": "c",
@@ -80,7 +76,6 @@ def test_filter_session_catalog_offset_pages() -> None:
             "model": "grok",
             "status": "complete",
             "outcome": "",
-            "origin": "eval",
         },
     ]
     first = filter_session_catalog(rows, limit=2, offset=0)
@@ -114,7 +109,6 @@ def test_filter_session_catalog_query_ignores_path() -> None:
             "model": "other",
             "status": "complete",
             "outcome": "success",
-            "origin": "host",
         },
         {
             "sessionId": "work-1",
@@ -124,7 +118,6 @@ def test_filter_session_catalog_query_ignores_path() -> None:
             "model": "other",
             "status": "running",
             "outcome": "",
-            "origin": "work",
         },
     ]
     by_path = filter_session_catalog(rows, query=".grok/sessions")
@@ -156,7 +149,6 @@ def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
                 "sessionId": session.name,
                 "path": str(session),
                 "title": "One",
-                "origin": "host",
             }
         ],
     )

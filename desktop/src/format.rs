@@ -33,16 +33,6 @@ pub fn capped_json(value: &Value, max_chars: usize) -> String {
     capped_display(&s, max_chars)
 }
 
-/// Same labels as TUI ``ui-origin-work`` / ``ui-origin-host``.
-pub fn origin_label(origin: &str) -> &'static str {
-    match origin.trim().to_ascii_lowercase().as_str() {
-        "host" => "Host",
-        "work" => "Work",
-        "" => "—",
-        _ => "—",
-    }
-}
-
 pub fn is_blank_status(status: &str) -> bool {
     let t = status.trim();
     t.is_empty() || t == "—" || t == "-" || t == "–"
@@ -3569,13 +3559,6 @@ mod tests {
         let s = capped_json(&v, 8);
         assert!(s.chars().count() <= 9);
         assert!(s.ends_with('…') || s.len() <= 8);
-    }
-
-    #[test]
-    fn origin_label_matches_tui() {
-        assert_eq!(origin_label("host"), "Host");
-        assert_eq!(origin_label("work"), "Work");
-        assert_eq!(origin_label(""), "—");
     }
 
     #[test]

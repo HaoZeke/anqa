@@ -56,7 +56,6 @@ def test_load_meta_and_timeline() -> None:
     assert meta.title == "Reply with PROBE_OK"
     assert meta.model_id == "opencode/probe-model"
     assert meta.harness_version == "1.18.25"
-    assert meta.origin == "host"
     assert meta.list_status_label() == "complete"
     events = require_adapter(probe).parse_timeline(probe)
     types = [e.event_type for e in events]
@@ -145,7 +144,7 @@ def test_stamps_and_bind_locator() -> None:
 
 
 def test_harness_query_token() -> None:
-    row = CatalogQueryRow(session_id="ses_probe", title="x", harness="opencode", origin="host")
+    row = CatalogQueryRow(session_id="ses_probe", title="x", harness="opencode")
     assert row_matches_query(row, "harness:opencode")
     assert not row_matches_query(row, "harness:grok")
 

@@ -50,8 +50,6 @@ def test_discover_host_root_uses_shallow_collector(tmp_path: Path, monkeypatch) 
     )
     found = discover([host])
     assert sess.resolve() in {p.locator.resolve() for p in found}
-    meta = load_meta(sess)
-    assert meta.origin == "host"
 
 
 def test_looks_like_true_and_false(tmp_path: Path) -> None:
@@ -69,7 +67,6 @@ def test_load_meta_returns_session_meta(tmp_path: Path) -> None:
     meta = load_meta(sd)
     assert isinstance(meta, SessionMeta)
     assert meta.session_id == "meta-sid"
-    assert meta.origin == "host"
     assert meta.harness == "grok"
 
 

@@ -247,7 +247,7 @@ class TestBuildSessionSummary:
         assert len(starts) == 4
         assert len(set(starts)) == 1, starts
 
-    def test_badge_row_is_status_model_origin_duration(self, session_dir):
+    def test_badge_row_is_status_model_duration(self, session_dir):
         meta = SessionMeta(
             session_id="badge",
             session_dir=session_dir,
@@ -255,7 +255,6 @@ class TestBuildSessionSummary:
             model_id="grok-4.5",
             turn_outcome="completed",
             duration_seconds=120,
-            origin="host",
             context_window_usage_pct=35,
             context_tokens_used=178996,
             context_window_tokens=500000,
@@ -267,7 +266,6 @@ class TestBuildSessionSummary:
         assert "complete" in chips
         assert "completed" not in chips
         assert "grok-4.5" in chips
-        assert "Host" in chips
         assert "2m" in chips
         assert "Context usage" in plain
         assert "Context tokens" not in plain

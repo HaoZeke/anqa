@@ -942,7 +942,7 @@ pub fn card_marks_from_overview(
 
 /// Keep overview-patched status when a quiet catalog refresh sends a blank label.
 fn catalog_row_key(row: &SessionRow) -> String {
-    crate::desktop::notice_row_key(&row.origin, &row.session_id)
+    crate::desktop::notice_row_key(&row.session_id)
 }
 
 pub fn patch_catalog_delta(
@@ -1022,9 +1022,6 @@ pub fn patch_list_row_from_meta(rows: &mut [SessionRow], session_id: &str, meta:
     if !meta.model.is_empty() {
         row.model = meta.model.clone();
     }
-    if !meta.origin.is_empty() {
-        row.origin = meta.origin.clone();
-    }
     if meta.duration_seconds > 0.0 {
         row.duration_seconds = meta.duration_seconds;
     }
@@ -1064,29 +1061,20 @@ mod tests {
     }
 
     #[test]
-    fn catalog_delta_keeps_host_and_work_copies() {
-        let work = SessionRow {
+    fn catalog_delta_replaces_same_session_id() {
+        let first = SessionRow {
             session_id: "s1".into(),
-            origin: "work".into(),
             status: "complete".into(),
             ..SessionRow::default()
         };
-        let host = SessionRow {
+        let second = SessionRow {
             session_id: "s1".into(),
-            origin: "host".into(),
             status: "running".into(),
             ..SessionRow::default()
         };
-        let out = patch_catalog_delta(std::slice::from_ref(&work), vec![host.clone()], &[]);
-        assert_eq!(out.len(), 2);
-        assert!(out
-            .iter()
-            .any(|r| r.origin == "work" && r.status == "complete"));
-        assert!(out
-            .iter()
-            .any(|r| r.origin == "host" && r.status == "running"));
-        let again = patch_catalog_delta(&out, vec![work, host], &[]);
-        assert_eq!(again.len(), 2);
+        let out = patch_catalog_delta(std::slice::from_ref(&first), vec![second], &[]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].session_id, "s1");
     }
 
     #[test]
@@ -2021,24 +2009,21 @@ mod tests {
         patch_list_row_from_meta(&mut rows, "sess-wire", &ov.meta);
         assert_eq!(rows[0].status, "running");
         assert_eq!(rows[0].title, "View session");
-        assert_eq!(rows[0].origin, "host");
     }
 
     #[test]
-    fn patch_list_row_copies_origin_and_duration() {
+    fn patch_list_row_copies_duration() {
         let mut rows = vec![SessionRow {
             session_id: "s1".into(),
             ..SessionRow::default()
         }];
         let meta = SessionMeta {
-            origin: "host".into(),
             duration_seconds: 125.0,
             model: "grok-4".into(),
             status: "complete".into(),
             ..SessionMeta::default()
         };
         patch_list_row_from_meta(&mut rows, "s1", &meta);
-        assert_eq!(rows[0].origin, "host");
         assert_eq!(rows[0].duration_seconds, 125.0);
         assert_eq!(rows[0].model, "grok-4");
         assert_eq!(rows[0].status, "complete");

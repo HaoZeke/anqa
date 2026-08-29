@@ -202,7 +202,6 @@ def test_session_summary_chrome_keeps_short_rule_not_dash_flood() -> None:
         session_id="s1",
         session_dir=Path("/tmp/x"),
         title="Coredis project logo and brand kits",
-        origin="host",
     )
     renderable = render_session_summary(meta, [])
     display, select_plain, yank_plain = prepare_body(renderable)

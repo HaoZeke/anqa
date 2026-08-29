@@ -90,7 +90,7 @@ def session_overview(ref: SessionRef) -> JsonObject:
             )
     except OSError:
         pass
-    mapped = session_meta_mapping(meta, path=None, origin=meta.origin)
+    mapped = session_meta_mapping(meta, path=None)
     mapped["path"] = ref.ref_string()
     mapped["harness"] = ref.harness
     return {

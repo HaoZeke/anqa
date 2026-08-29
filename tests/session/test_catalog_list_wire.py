@@ -86,7 +86,7 @@ def test_session_catalog_row_num_events_from_summary_messages(tmp_path: Path) ->
         tokens_used=1200,
         window=128_000,
     )
-    row = session_catalog_row(sd, origin="work")
+    row = session_catalog_row(sd)
     assert row is not None
     assert row["numEvents"] == 27
     assert row["durationSeconds"] == 99.5
@@ -113,7 +113,7 @@ def test_session_meta_hydrate_preserves_context_fraction(tmp_path: Path) -> None
         tokens_used=1200,
         window=128_000,
     )
-    row = session_catalog_row(sd, origin="work")
+    row = session_catalog_row(sd)
     assert row is not None
     meta = session_meta_from_catalog_row(row)
     assert meta is not None
@@ -138,7 +138,7 @@ def test_host_catalog_row_also_uses_message_proxy(tmp_path: Path) -> None:
         tokens_used=100,
         window=1000,
     )
-    row = session_catalog_row(sd, origin="host")
+    row = session_catalog_row(sd)
     assert row is not None
     assert row["numEvents"] == 9
 
@@ -169,7 +169,7 @@ def test_session_catalog_row_has_presence_flags(tmp_path: Path) -> None:
     (sd / "subagents" / "child-a").mkdir(parents=True)
     (sd / "background_tasks_manifest.json").write_text('[{"task_id": "j1"}]', encoding="utf-8")
     (sd / "plan.json").write_text("{}", encoding="utf-8")
-    row = session_catalog_row(sd, origin="work")
+    row = session_catalog_row(sd)
     assert row is not None
     # Extra session trees are not walked for the list row.
     assert row["hasGoals"] is False
@@ -202,7 +202,7 @@ def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:
         tokens_used=1,
         window=10,
     )
-    row = session_catalog_row(sd, origin="host")
+    row = session_catalog_row(sd)
     assert row is not None
     assert row["runDir"] == "/mnt/dev/_git/fubar"
     meta = session_meta_from_catalog_row(row)

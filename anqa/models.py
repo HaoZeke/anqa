@@ -463,8 +463,6 @@ class SessionMeta:
     git_commit: str = ""
     task_id: str = ""
     run_id: str = ""
-    # Catalog origin: ``work`` (leftover trees under the work dir) or ``host``.
-    origin: str = "work"
     # Disk adapter id. Adapter load_meta sets this.
     harness: str = ""
     # Product version recorded on the session, when the store has one.

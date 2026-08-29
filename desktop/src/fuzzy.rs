@@ -261,7 +261,7 @@ pub fn session_search_score(query: &str, row: &SessionRow) -> i32 {
         }
     }
 
-    for field in [&row.model, &row.status, &row.origin, &row.outcome] {
+    for field in [&row.model, &row.status, &row.outcome] {
         if field.is_empty() {
             continue;
         }

@@ -23,11 +23,8 @@ from .mtime_export import (
 )
 from .query import apply_catalog_presence_row, catalog_presence_from_meta
 from .sources import (
-    ORIGIN_HOST,
     SessionScanRoot,
-    classify_session_origin,
     collect_session_dirs,
-    is_under_adapter_store,
     session_run_dir,
     session_scan_roots,
 )
@@ -89,7 +86,7 @@ def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) 
 def effective_include_host(include_host: bool | None) -> bool:
     """Resolve catalog host inclusion: explicit flag, else always include.
 
-    Host sessions stay in the catalog; ``is:host`` filters the list.
+    Adapter stores stay in the catalog.
     """
     if include_host is not None:
         return bool(include_host)
@@ -144,7 +141,6 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         path_str = ref.ref_string()
         if not meta.run_dir:
             meta.run_dir = ref.cwd or ""
-    meta.origin = ORIGIN_HOST
     if not (meta.harness or "").strip():
         meta.harness = ref.harness
     session_id = (meta.session_id or ref.session_id).strip()
@@ -169,7 +165,6 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         "model": meta.model_display,
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
-        "origin": meta.origin,
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         "taskId": meta.task_id or "",
@@ -194,13 +189,11 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
 def session_catalog_row(
     session_dir: Path,
     *,
-    origin: str = "work",
     label: str | None = None,
 ) -> JsonObject | None:
     """Build one ``session/list`` wire row for *session_dir*, or None on failure.
 
     :param session_dir: Session directory on disk.
-    :param origin: Catalog origin (``work`` / ``host``).
     :param label: Optional display label; defaults to meta label.
     :returns: Wire row mapping, or None when meta cannot be loaded.
     """
@@ -215,16 +208,7 @@ def session_catalog_row(
         bound = SessionRef(
             harness=item.id,
             session_id=loc.name,
-            origin=origin or ORIGIN_HOST,
             locator=loc,
-        )
-    elif origin:
-        bound = SessionRef(
-            harness=bound.harness,
-            session_id=bound.session_id,
-            origin=origin,
-            locator=bound.locator,
-            cwd=bound.cwd,
         )
     return catalog_row_for_ref(bound, label=label)
 
@@ -266,7 +250,7 @@ def list_session_catalog(
             load_or_rebuild_catalog(
                 hroot,
                 dest=dest,
-                build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_HOST),
+                build_row=session_catalog_row,
             )
         )
     if effective_include_host(include_host):
@@ -289,7 +273,6 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "model",
     "status",
     "outcome",
-    "origin",
     "harness",
     "harnessVersion",
     "taskId",
@@ -763,8 +746,7 @@ class SessionCatalogCache:
                 if sid in known_ids:
                     drop.add(known_ids[sid])
                 continue
-            origin = classify_session_origin(session_dir, host_root=self._host_root)
-            row = session_catalog_row(session_dir, origin=origin)
+            row = session_catalog_row(session_dir)
             if row is None:
                 drop.add(resolved)
                 sid = session_dir.name
@@ -1004,18 +986,10 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     if not path_raw and not sid:
         return None
     session_dir = Path(path_raw) if path_raw else Path(sid)
-    raw_origin = str(row.get("origin") or "").strip().lower()
-    if is_under_adapter_store(session_dir):
-        origin = ORIGIN_HOST
-    elif raw_origin == ORIGIN_HOST:
-        origin = ORIGIN_HOST
-    else:
-        origin = raw_origin or ORIGIN_HOST
     harness = str(row.get("harness") or "").strip()
     meta = SessionMeta(
         session_id=sid or session_dir.name,
         session_dir=session_dir,
-        origin=origin,
         harness=harness,
         harness_version=str(row.get("harnessVersion") or "").strip(),
     )
@@ -1198,7 +1172,7 @@ def resolve_session_reference(
     # Directory name only. List-meta for every sibling is a multi-second tax on
     # each session/overview and session/timeline call. Id≠dirname uses the
     # warm catalog on the control owner (SessionCatalogCache.resolve).
-    for session_dir, _origin in collect_session_dirs(roots):
+    for session_dir in collect_session_dirs(roots):
         if session_dir.name == ref:
             try:
                 return session_dir.resolve()

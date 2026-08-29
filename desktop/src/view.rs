@@ -15,7 +15,7 @@ use crate::format::{
     human_event_type_label, image_result_path, is_chat_message, is_tool_identity, job_command,
     job_description, job_event_id, job_event_label, job_exit_code, job_inspect_blocks,
     job_inspect_log, job_list_preview, job_output_path, job_status, list_event_detail,
-    list_status_label, looks_like_markdown, note_display_fields, origin_label, overview_fields,
+    list_status_label, looks_like_markdown, note_display_fields, overview_fields,
     overview_row_status, overview_subagent_rows, overview_task_rows, overview_workflow_rows,
     path_hint_from_raw, remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks,
     schedule_last_fire, session_duration_chip, status_tone, stills_from_session,
@@ -158,7 +158,6 @@ fn paint_badge(
 fn session_state_row(
     status: &str,
     model: &str,
-    origin: &str,
     duration: &str,
     subagent: bool,
     tea: icedtea::theme::Tokens,
@@ -178,10 +177,6 @@ fn session_state_row(
     if !model.trim().is_empty() {
         chips = chips.push(status_chip(model.trim().to_string(), "", tea));
     }
-    let origin = origin_label(origin);
-    if origin != "—" {
-        chips = chips.push(status_chip(origin.to_string(), "", tea));
-    }
     if !duration.trim().is_empty() && duration != "—" {
         chips = chips.push(status_chip(duration.trim().to_string(), "", tea));
     }
@@ -199,7 +194,6 @@ fn session_state_from_row(
     session_state_row(
         &row.status_label(),
         &row.model,
-        &row.origin,
         &taken,
         false,
         tea,
@@ -215,7 +209,6 @@ fn session_state_from_meta(
     session_state_row(
         &meta.status_label(),
         &meta.model,
-        &meta.origin,
         &taken,
         meta.is_subagent(),
         tea,
@@ -818,7 +811,7 @@ fn browse_session_bar<'a>(
     if let Some(o) = hud.overview() {
         row = row.push(session_state_from_meta(&o.meta, tea));
     } else if !status.is_empty() {
-        row = row.push(session_state_row(&status, "", "", "", false, tea, ""));
+        row = row.push(session_state_row(&status, "", "", false, tea, ""));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(icedtea::widget::meta(

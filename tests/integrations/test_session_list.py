@@ -22,7 +22,6 @@ def _catalog() -> list[dict]:
             "model": "grok-4",
             "status": "complete",
             "outcome": "success",
-            "origin": "work",
         },
         {
             "sessionId": "beta-host",
@@ -32,7 +31,6 @@ def _catalog() -> list[dict]:
             "model": "grok-3",
             "status": "running",
             "outcome": "running",
-            "origin": "host",
         },
     ]
 

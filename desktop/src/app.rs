@@ -3982,7 +3982,7 @@ impl Hud {
             .iter()
             .map(|r| {
                 (
-                    crate::desktop::notice_row_key(&r.origin, &r.session_id),
+                    crate::desktop::notice_row_key(&r.session_id),
                     r.display_title().to_string(),
                     list_status_label(&r.status, &r.outcome),
                 )

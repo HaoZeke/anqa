@@ -72,7 +72,7 @@ def test_host_discovery_skips_encoded_cwd_and_workspace_junk(
 
     roots = session_scan_roots(traces_path=traces, include_host=True, host_root=host)
     found = collect_session_dirs(roots)
-    names = {p.name for p, _orig in found}
+    names = {p.name for p in found}
     assert shallow.name in names
     assert known.name in names
     assert work_sess.name in names

@@ -101,14 +101,13 @@
         "tokens": [
           {
             "name": "is",
-            "role": "Status or origin.",
+            "role": "Status.",
             "values": [
               "running",
               "awaiting",
               "ending",
               "complete",
-              "cancelled",
-              "host"
+              "cancelled"
             ],
             "compare": false
           },

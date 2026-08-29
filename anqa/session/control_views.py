@@ -19,9 +19,6 @@ from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
 from ..harness.registry import require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..notes import load_schema, notes_snapshot
-from ..session.sources import (
-    classify_session_origin,
-)
 from ..session.tagged_blocks import unwrap_for_display
 from ..session.turns import (
     TurnSegment,
@@ -132,14 +129,12 @@ def session_meta_mapping(
     meta: SessionMeta,
     *,
     path: Path | None = None,
-    origin: str | None = None,
 ) -> JsonObject:
     """Serialize :class:`SessionMeta` for catalog rows and ``session/overview``."""
     try:
         path_str = str((path or meta.session_dir).resolve())
     except OSError:
         path_str = str(path or meta.session_dir)
-    origin_key = (origin or meta.origin or "work").strip() or "work"
     from .subagents import read_session_kind
 
     kind_path = path or meta.session_dir
@@ -154,7 +149,6 @@ def session_meta_mapping(
         "reasoningEffort": meta.reasoning_effort or "",
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
-        "origin": origin_key,
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         "createdAt": meta.created_at or "",
@@ -379,11 +373,6 @@ class SessionOverview:
             return str(sd.expanduser())
 
     @staticmethod
-    def origin(session_dir: Path) -> str:
-        """Adapter-store origin for this session directory."""
-        return classify_session_origin(Path(session_dir))
-
-    @staticmethod
     def notes_schema() -> JsonObject:
         """Operator notes schema for HUD/TUI forms (same shape as notes/list)."""
         schema = load_schema()
@@ -445,9 +434,7 @@ class SessionOverview:
     def uncached(cls, session_dir: Path) -> JsonObject:
         """Build overview without single-flight / result cache."""
         sd = Path(session_dir)
-        origin = cls.origin(sd)
         meta = require_adapter(sd).load_meta(sd)
-        meta.origin = origin
         events = require_adapter(sd).parse_timeline(sd)
         meta.num_events = len(events)
         segs, turn_map = cls.turn_view(sd, events)
@@ -481,7 +468,7 @@ class SessionOverview:
         stats = overview_stat_counts(events)
         return {
             "sessionId": (meta.session_id or sd.name).strip(),
-            "meta": session_meta_mapping(meta, path=sd, origin=origin),
+            "meta": session_meta_mapping(meta, path=sd),
             "summary": summary,
             "backgroundJobs": SessionJobs.json_rows(jobs),
             "schedules": SessionJobs.json_rows(schedules),

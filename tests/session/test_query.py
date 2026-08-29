@@ -61,7 +61,6 @@ def _row(
     path: str = "/mnt/dev/_git/fubar/sess-1",
     git_repo: str = "/mnt/dev/_git/fubar",
     run_dir: str = "/mnt/dev/_git/fubar",
-    origin: str = "host",
     error_count: int = 3,
     duration_seconds: int = 0,
     updated_at: str = "2026-08-10T12:00:00+00:00",
@@ -72,7 +71,6 @@ def _row(
         model="grok-4",
         status="complete",
         outcome="success",
-        origin=origin,
         path=path,
         git_repo=git_repo,
         run_dir=run_dir,
@@ -108,10 +106,10 @@ def test_bare_words_match_title_and_id_not_path() -> None:
 
 def test_implicit_and_and_or() -> None:
     row = _row()
-    assert row_matches_query(row, "has:workflow is:host")
+    assert row_matches_query(row, "has:workflow is:complete")
     assert row_matches_query(row, "has:workflow AND errors:>2")
-    assert row_matches_query(row, "is:host AND errors:>0")
-    assert not row_matches_query(row, "is:eval AND has:workflow")
+    assert row_matches_query(row, "is:complete AND errors:>0")
+    assert not row_matches_query(row, "is:running AND has:workflow")
 
 
 def test_has_and_numeric_and_in_path() -> None:
@@ -140,11 +138,11 @@ def test_suggest_in_uses_run_directories() -> None:
     ]
 
 
-def test_is_host_matches_every_row() -> None:
+def test_is_complete_and_running() -> None:
     row = _row()
-    assert row_matches_query(row, "is:host")
-    assert not row_matches_query(row, "is:eval")
-    assert not row_matches_query(row, "NOT is:host")
+    assert row_matches_query(row, "is:complete")
+    assert not row_matches_query(row, "is:running")
+    assert not row_matches_query(row, "NOT is:complete")
 
 
 def test_model_task_dates() -> None:
@@ -501,7 +499,7 @@ def test_suggest_and_apply() -> None:
     assert suggest_last_token("has:g") == ["has:goal", "has:git"]
     assert suggest_last_token("has:sub") == ["has:subagent"]
     assert suggest_last_token("has:ta") == ["has:task"]
-    assert suggest_last_token("is:ho") == ["is:host"]
+    assert suggest_last_token("is:co") == ["is:complete"]
     assert suggest_last_token("dur") == ["duration:"]
     assert suggest_last_token("duration:") == [
         "duration:>=",
@@ -575,7 +573,6 @@ def test_has_presence_tokens_match_row_flags() -> None:
     full = CatalogQueryRow(
         session_id="sess-1",
         title="Fix the palette",
-        origin="work",
         git_repo="/mnt/dev/_git/fubar",
         error_count=1,
         has_workflows=True,

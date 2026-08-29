@@ -56,7 +56,6 @@ def test_initial_control_load_fetches_first_page_only(tmp_path: Path, monkeypatc
             "path": str(traces / "one"),
             "title": "One",
             "label": "One",
-            "origin": "work",
         }
         if drain:
             return {
@@ -110,7 +109,6 @@ def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, m
             "path": str(traces / f"s{i}"),
             "title": f"S{i}",
             "label": f"S{i}",
-            "origin": "work",
         }
         for i in range(3)
     ]
@@ -179,7 +177,6 @@ def test_first_attach_fills_later_pages_without_drain(tmp_path: Path, monkeypatc
             "path": str(traces / f"p{i}"),
             "title": f"P{i}",
             "label": f"P{i}",
-            "origin": "work",
         }
 
     def fake_fetch(
@@ -239,7 +236,6 @@ def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monke
         "path": str(traces / "ready-1"),
         "title": "Ready",
         "label": "Ready",
-        "origin": "work",
     }
 
     def fake_fetch(
@@ -389,14 +385,12 @@ def test_quiet_poll_drains_when_owner_returns_full_page(tmp_path: Path, monkeypa
                 "path": str(traces / "keep"),
                 "title": "Keep",
                 "label": "Keep",
-                "origin": "work",
             },
             {
                 "sessionId": "gamma",
                 "path": str(traces / "gamma"),
                 "title": "Gamma",
                 "label": "Gamma",
-                "origin": "work",
             },
         ]
         if drain:

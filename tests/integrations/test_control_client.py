@@ -74,7 +74,6 @@ async def test_control_client_initialize_and_list(tmp_path: Path) -> None:
             "model": "grok",
             "status": "complete",
             "outcome": "success",
-            "origin": "work",
         }
     ]
     sock = _short_sock("client.sock")
@@ -115,7 +114,6 @@ async def test_control_client_session_list_beyond_default_stream_limit(
             "model": "grok-4-heavy-model-name",
             "status": "complete",
             "outcome": "success",
-            "origin": "host" if i % 3 == 0 else "work",
             "taskId": f"task-{i:04d}",
             "durationSeconds": float(i),
             "numEvents": i * 3,
@@ -168,7 +166,6 @@ async def test_control_client_session_list_all_drains_pages(tmp_path: Path) -> N
             "model": "grok",
             "status": "complete",
             "outcome": "success",
-            "origin": "work",
         }
         for i in range(5)
     ]

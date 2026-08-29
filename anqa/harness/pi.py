@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .. import event_types as et
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
-from .ref import ORIGIN_HOST, SessionRef
+from .ref import SessionRef
 
 PI_HARNESS_ID = "pi"
 
@@ -177,7 +177,6 @@ def _ref_for_file(path: Path) -> SessionRef | None:
     return SessionRef(
         harness=PI_HARNESS_ID,
         session_id=sid,
-        origin=ORIGIN_HOST,
         locator=loc,
         cwd=cwd,
     )
@@ -270,7 +269,6 @@ def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> 
         duration_seconds=duration,
         tool_call_count=tools,
         run_dir=cwd,
-        origin=ORIGIN_HOST,
         turn_outcome=_turn_outcome(rows),
         harness=PI_HARNESS_ID,
         harness_version=version,

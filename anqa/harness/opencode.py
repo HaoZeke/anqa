@@ -16,7 +16,7 @@ from typing import cast
 
 from .. import event_types as et
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
-from .ref import ORIGIN_HOST, SessionRef
+from .ref import SessionRef
 
 OPENCODE_HARNESS_ID = "opencode"
 
@@ -145,7 +145,6 @@ def _meta_from_row(row: sqlite3.Row, db: Path) -> SessionMeta:
         updated_at=updated,
         duration_seconds=duration,
         run_dir=cwd,
-        origin=ORIGIN_HOST,
         turn_outcome="",
         harness=OPENCODE_HARNESS_ID,
         harness_version=str(row["version"] or "").strip() if "version" in row.keys() else "",
@@ -298,7 +297,6 @@ class OpenCodeAdapter:
         return SessionRef(
             harness=OPENCODE_HARNESS_ID,
             session_id=sid,
-            origin=ORIGIN_HOST,
             locator=db,
             cwd=str(row["directory"] or "").strip(),
         )
@@ -386,7 +384,6 @@ class OpenCodeAdapter:
                 SessionRef(
                     harness=OPENCODE_HARNESS_ID,
                     session_id=str(row["id"]),
-                    origin=ORIGIN_HOST,
                     locator=db,
                     cwd=str(row["directory"] or "").strip(),
                 )

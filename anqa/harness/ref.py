@@ -16,9 +16,6 @@ from ..paths import APP_HOME
 # Shipped adapter ids. Parse does not import the registry.
 HARNESS_IDS: frozenset[str] = frozenset({"grok", "opencode", "pi"})
 
-ORIGIN_WORK = "work"
-ORIGIN_HOST = "host"
-
 
 @dataclass(frozen=True)
 class SessionRef:
@@ -26,14 +23,12 @@ class SessionRef:
 
     :ivar harness: Adapter id.
     :ivar session_id: Stable product id (directory name or store row id).
-    :ivar origin: Adapter store (``host``).
     :ivar locator: Directory, transcript file, or database the adapter reads.
     :ivar cwd: Workspace path when the store recorded one.
     """
 
     harness: str
     session_id: str
-    origin: str
     locator: Path
     cwd: str = ""
 
@@ -73,8 +68,6 @@ def parse_session_ref_string(raw: str) -> tuple[str, str] | None:
 
 __all__ = [
     "HARNESS_IDS",
-    "ORIGIN_HOST",
-    "ORIGIN_WORK",
     "SessionRef",
     "parse_session_ref_string",
 ]

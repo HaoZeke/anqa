@@ -25,7 +25,6 @@ def test_directory_ref_string_is_path(tmp_path: Path) -> None:
     ref = SessionRef(
         harness="grok",
         session_id="sid",
-        origin="work",
         locator=loc,
     )
     assert Path(ref.ref_string()) == loc.resolve()
@@ -38,7 +37,6 @@ def test_file_locator_ref_string_is_harness_id(tmp_path: Path) -> None:
     ref = SessionRef(
         harness="demo",
         session_id="ses_1",
-        origin="host",
         locator=store,
     )
     assert ref.ref_string() == "demo:ses_1"

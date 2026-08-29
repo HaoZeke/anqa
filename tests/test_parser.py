@@ -373,7 +373,7 @@ class TestLoadSessionMeta:
             encoding="utf-8",
         )
         monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
-        listed = load_session_meta_list(sess, origin="host")
+        listed = load_session_meta_list(sess)
         full = load_session_meta(sess, include_timeline_count=False)
         for meta in (listed, full):
             assert meta.model_id == "grok-4.6"
@@ -3715,7 +3715,6 @@ def test_load_host_list_meta_skips_events_and_title_infer(tmp_path: Path) -> Non
     (sd / "signals.json").write_text('{"toolCallCount":2}', encoding="utf-8")
     (sd / "events.jsonl").write_text('{"type":"turn_started"}\n' * 4000, encoding="utf-8")
     meta = load_host_list_meta(sd)
-    assert meta.origin == "host"
     assert meta.title == "Hello"
     assert meta.tool_call_count == 2
     assert meta.num_events == 4
@@ -3816,8 +3815,7 @@ def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     # No events.jsonl
-    meta = load_session_meta_list(sd, origin="host")
-    assert meta.origin == "host"
+    meta = load_session_meta_list(sd)
     assert meta.title == "Hello"
     assert meta.num_messages == 9
     assert meta.num_events == 9  # proxy from messages
@@ -3856,7 +3854,7 @@ def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) ->
         + "\n",
         encoding="utf-8",
     )
-    meta = load_session_meta_list(sd, origin="host")
+    meta = load_session_meta_list(sd)
     # List meta does not parse the timeline for a count.
     assert meta.num_events == 0
     assert len(parse_timeline(sd)) >= 2
@@ -3879,9 +3877,8 @@ def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    listed = load_session_meta_list(sd, origin="host")
+    listed = load_session_meta_list(sd)
     full = load_session_meta(sd, include_timeline_count=False)
-    assert listed.origin == "host"
     assert listed.list_status_label() == "complete"
     assert listed.list_status_label() == full.list_status_label()
 
@@ -3907,7 +3904,7 @@ def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> N
         + "\n",
         encoding="utf-8",
     )
-    listed = load_session_meta_list(sd, origin="host")
+    listed = load_session_meta_list(sd)
     full = load_session_meta(sd, include_timeline_count=False)
     assert listed.list_status_label() == "running"
     assert listed.list_status_label() == full.list_status_label()
@@ -3939,7 +3936,7 @@ def test_load_session_meta_list_stale_open_turn_is_not_running(tmp_path: Path) -
     old = time.time() - (20 * 60)
     os.utime(sd / "summary.json", (old, old))
     os.utime(sd / "events.jsonl", (old, old))
-    listed = load_session_meta_list(sd, origin="host")
+    listed = load_session_meta_list(sd)
     assert listed.list_status_label() == "complete"
 
 
@@ -3980,7 +3977,7 @@ def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> 
     old = time.time() - (20 * 60)
     os.utime(sd / "summary.json", (old, old))
     os.utime(sd / "updates.jsonl", (old, old))
-    listed = load_session_meta_list(sd, origin="host")
+    listed = load_session_meta_list(sd)
     assert listed.list_status_label() == "complete"
     assert listed.turn_outcome == "completed"
 
@@ -4017,7 +4014,7 @@ def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> No
         + "\n",
         encoding="utf-8",
     )
-    listed = load_session_meta_list(sd, origin="host")
+    listed = load_session_meta_list(sd)
     assert listed.list_status_label() == "complete"
     assert list_turn_outcome_for_dir(sd) == ""
 
@@ -4046,7 +4043,7 @@ def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
         json.dumps({"state": "awaiting_follow_up", "session_id": "sess-gate"}) + "\n",
         encoding="utf-8",
     )
-    listed = load_session_meta_list(sd, origin="work")
+    listed = load_session_meta_list(sd)
     assert listed.list_status_label() == "awaiting"
 
 
@@ -4078,7 +4075,7 @@ def test_load_session_meta_list_skips_gate_when_absent(
         return real(session_dir, marker_outcome)
 
     monkeypatch.setattr(parser_mod, "_gate_override_turn_outcome", tracked)
-    meta = load_session_meta_list(sd, origin="host")
+    meta = load_session_meta_list(sd)
     assert meta.list_status_label() == "complete"
     assert calls["n"] == 0
 
@@ -4118,7 +4115,7 @@ def test_load_session_meta_list_reads_events_jsonl_once(
         return real_open(path, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(io, "open", wrapped)
-    meta = load_session_meta_list(sd, origin="host")
+    meta = load_session_meta_list(sd)
     assert meta.list_status_label() == "complete"
     assert opens["n"] == 1
 
@@ -4157,6 +4154,6 @@ def test_load_session_meta_list_skips_non_turn_event_payloads(
         return real_loads(data)  # type: ignore[arg-type]
 
     monkeypatch.setattr(parser_mod, "json_loads", tracked)
-    meta = load_session_meta_list(sd, origin="host")
+    meta = load_session_meta_list(sd)
     assert meta.list_status_label() == "complete"
     assert parsed_fat["n"] == 0

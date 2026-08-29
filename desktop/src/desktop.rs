@@ -98,19 +98,8 @@ pub fn session_notice(title: &str, sid: &str, from: &str, to: &str) -> Option<De
     })
 }
 
-/// Seen-map key so host and work copies of the same id do not fight.
-pub fn notice_row_key(origin: &str, sid: &str) -> String {
-    if origin.is_empty() {
-        sid.to_string()
-    } else {
-        format!("{origin}:{sid}")
-    }
-}
-
-/// Host chats already post turn / session bubbles; anqa must not repeat them.
-fn is_host_notice_key(key: &str) -> bool {
-    key.split_once(':')
-        .is_some_and(|(origin, _)| origin == "host")
+pub fn notice_row_key(sid: &str) -> String {
+    sid.to_string()
 }
 
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
@@ -136,7 +125,6 @@ pub fn notices_from_rows(
             Observe::Same => {}
             Observe::Changed { from, to } => {
                 let skip = seed
-                    || is_host_notice_key(sid)
                     || crate::format::is_blank_status(&from)
                     || (normalize(&from) == "ending" && normalize(&to) == "complete");
                 seen.insert(sid.clone(), to.clone());
@@ -338,50 +326,9 @@ mod tests {
     }
 
     #[test]
-    fn host_and_work_same_id_do_not_refire_complete() {
-        let work = notice_row_key("work", "s1");
-        let host = notice_row_key("host", "s1");
-        let mut seen = HashMap::new();
-        let rows = vec![
-            (work.clone(), "Feedback Analysis".into(), "complete".into()),
-            (host.clone(), "Feedback Analysis".into(), "running".into()),
-        ];
-        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
-        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
-        assert_eq!(seen.get(&work).map(String::as_str), Some("complete"));
-        assert_eq!(seen.get(&host).map(String::as_str), Some("running"));
-    }
-
-    #[test]
     fn running_to_complete_notifies() {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        let notes = notices_from_rows(&mut seen, &rows, false);
-        assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].summary, "Session complete");
-    }
-
-    #[test]
-    fn host_running_to_complete_is_silent() {
-        let key = notice_row_key("host", "abc");
-        let mut seen = HashMap::from([(key.clone(), "running".into())]);
-        let rows = vec![(key, "Demo".into(), "complete".into())];
-        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
-    }
-
-    #[test]
-    fn host_running_to_awaiting_is_silent() {
-        let key = notice_row_key("host", "abc");
-        let mut seen = HashMap::from([(key.clone(), "running".into())]);
-        let rows = vec![(key, "Demo".into(), "awaiting".into())];
-        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
-    }
-
-    #[test]
-    fn eval_running_to_complete_still_notifies() {
-        let key = notice_row_key("work", "abc");
-        let mut seen = HashMap::from([(key.clone(), "running".into())]);
-        let rows = vec![(key, "Demo".into(), "complete".into())];
         let notes = notices_from_rows(&mut seen, &rows, false);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].summary, "Session complete");

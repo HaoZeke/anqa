@@ -6,8 +6,6 @@ import json
 from pathlib import Path
 
 from anqa.session.sources import (
-    ORIGIN_HOST,
-    classify_session_origin,
     collect_session_dirs,
     default_catalog_root,
     is_adapter_store_root,
@@ -51,7 +49,6 @@ def test_session_scan_roots_host_only(tmp_path: Path) -> None:
     host.mkdir()
     roots = session_scan_roots(include_host=True, host_root=host)
     assert len(roots) == 1
-    assert roots[0].origin == ORIGIN_HOST
     assert roots[0].path == host
 
 
@@ -61,7 +58,7 @@ def test_session_scan_roots_adds_traces_path(tmp_path: Path) -> None:
     host.mkdir()
     extra.mkdir()
     roots = session_scan_roots(traces_path=extra, include_host=True, host_root=host)
-    assert [r.origin for r in roots] == [ORIGIN_HOST, ORIGIN_HOST]
+    assert [r.path for r in roots] == [host, extra]
     assert roots[0].path == host
     assert roots[1].path == extra
 
@@ -72,12 +69,12 @@ def test_collect_session_dirs_union(tmp_path: Path) -> None:
     h_sess = _seed_session(host, cwd_token="%2Fproj", sid="host-sid")
     e_sess = _seed_session(extra, cwd_token="%2Fproj", sid="extra-sid")
     roots = session_scan_roots(traces_path=extra, include_host=True, host_root=host)
-    found = {str(p.resolve()): o for p, o in collect_session_dirs(roots)}
-    assert found[str(h_sess.resolve())] == ORIGIN_HOST
-    assert found[str(e_sess.resolve())] == ORIGIN_HOST
+    found = {str(p.resolve()) for p in collect_session_dirs(roots)}
+    assert str(h_sess.resolve()) in found
+    assert str(e_sess.resolve()) in found
 
 
-def test_classify_and_under_host(tmp_path: Path, monkeypatch) -> None:
+def test_under_adapter_store(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = _seed_session(host, cwd_token="%2Fa", sid="s1")
     monkeypatch.setattr(
@@ -85,12 +82,11 @@ def test_classify_and_under_host(tmp_path: Path, monkeypatch) -> None:
         lambda: [host],
     )
     assert is_under_adapter_store(sess)
-    assert classify_session_origin(sess, host_root=host) == ORIGIN_HOST
     other = _seed_session(tmp_path / "elsewhere", cwd_token="%2Fb", sid="o1")
-    assert classify_session_origin(other, host_root=host) == ORIGIN_HOST
+    assert not is_under_adapter_store(other)
 
 
-def test_is_host_sessions_root(tmp_path: Path, monkeypatch) -> None:
+def test_is_adapter_store_root(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / ".grok" / "sessions"
     host.mkdir(parents=True)
     monkeypatch.setattr(

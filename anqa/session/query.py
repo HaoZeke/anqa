@@ -141,7 +141,6 @@ class CatalogQueryRow:
     model: str = ""
     status: str = ""
     outcome: str = ""
-    origin: str = ""
     harness: str = ""
     path: str = ""
     git_repo: str = ""
@@ -177,7 +176,6 @@ class CatalogQueryRow:
             model=json_as_str(row.get("model")),
             status=json_as_str(row.get("status")),
             outcome=json_as_str(row.get("outcome")),
-            origin=json_as_str(row.get("origin")),
             harness=json_as_str(row.get("harness")),
             path=json_as_str(row.get("path")),
             git_repo=json_as_str(row.get("gitRepo")),
@@ -218,7 +216,6 @@ class CatalogQueryRow:
             model=meta.model_display,
             status=meta.list_status_label() or "",
             outcome=meta.turn_outcome or "",
-            origin=meta.origin or "",
             harness=meta.harness or "",
             path=path,
             git_repo=meta.git_repo or "",
@@ -545,8 +542,6 @@ def _eval_field(field: str, expr: Item, row: CatalogQueryRow) -> bool:
 
 
 def _match_is(value: str, row: CatalogQueryRow) -> bool:
-    if value == "host":
-        return (row.origin or "host").strip().casefold() == "host"
     status = row.status.strip().casefold()
     if value in {"cancelled", "canceled"}:
         return status in {"cancelled", "canceled"}

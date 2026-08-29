@@ -63,8 +63,8 @@ _HAS_FLAG_ONLY: tuple[str, ...] = ("git", "context")
 CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "is",
-        "Status or origin.",
-        ("running", "awaiting", "ending", "complete", "cancelled", "host"),
+        "Status.",
+        ("running", "awaiting", "ending", "complete", "cancelled"),
     ),
     CatalogQueryToken(
         "has",

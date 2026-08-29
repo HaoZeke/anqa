@@ -63,11 +63,10 @@ def test_host_catalog_row_skips_full_timeline_parse(tmp_path: Path, monkeypatch)
         raise AssertionError("host list must not parse the full timeline")
 
     monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
-    row = session_catalog_row(sd, origin="host")
+    row = session_catalog_row(sd)
     assert row is not None
     assert row["title"] == "Host title"
     assert row["numEvents"] == 9
-    assert row["origin"] == "host"
     assert row["toolCallCount"] == 2
     assert row["turnCount"] == 4
     assert row["status"] == "complete"
@@ -81,8 +80,8 @@ def test_host_list_meta_tail_sets_complete_vs_running(tmp_path: Path) -> None:
     running = load_host_list_meta(live)
     assert complete.list_status_label() == "complete"
     assert running.list_status_label() == "running"
-    done_row = session_catalog_row(done, origin="host")
-    live_row = session_catalog_row(live, origin="host")
+    done_row = session_catalog_row(done)
+    live_row = session_catalog_row(live)
     assert done_row is not None and done_row["status"] == "complete"
     assert live_row is not None and live_row["status"] == "running"
 
@@ -213,9 +212,9 @@ def test_list_session_catalog_rebuilds_only_changed_host_row(tmp_path: Path, mon
     built: list[str] = []
     real_row = session_catalog_row
 
-    def track_row(session_dir: Path, *, origin: str = "work", label: str | None = None) -> object:
+    def track_row(session_dir: Path, *, label: str | None = None) -> object:
         built.append(session_dir.name)
-        return real_row(session_dir, origin=origin, label=label)
+        return real_row(session_dir, label=label)
 
     monkeypatch.setattr("anqa.session.catalog.session_catalog_row", track_row)
     rows2 = list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)

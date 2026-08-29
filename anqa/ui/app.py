@@ -706,7 +706,6 @@ class AnqaApp(App):
         style_data_table(table)
         table.add_columns(
             " ",
-            t("ui-origin"),
             t("ui-title"),
             t("ui-model"),
             t("ui-status"),
@@ -949,17 +948,10 @@ class AnqaApp(App):
         """Adapter store roots for the home list."""
         return self._catalog_roots_for_load(include_host=None)
 
-    def _origin_for_dir(self, session_dir: Path) -> str:
-        """Host adapter store from the directory."""
-        from ..session.sources import classify_session_origin
-
-        return classify_session_origin(session_dir)
-
-    def _label_for_session(self, session_dir: Path, origin: str) -> str:
-        """Display path fragment relative to the catalog root for *origin*."""
+    def _label_for_session(self, session_dir: Path) -> str:
+        """Display path fragment relative to the catalog root."""
         from ..session.sources import default_catalog_root
 
-        _ = origin
         return self._derive_label(session_dir, default_catalog_root())
 
     def _begin_sessions_load(self) -> int:
@@ -999,31 +991,15 @@ class AnqaApp(App):
         self._pending_sessions_reload_quiet = False
         self._load_sessions(include_host=True, quiet=quiet)
 
-    def _drop_host_session_rows(self) -> None:
-        """Drop host-origin rows without waiting for a full rescan."""
-        from ..session.sources import ORIGIN_HOST, ORIGIN_WORK
-
-        kept = [
-            (m, lab)
-            for m, lab in self._meta_only
-            if (m.origin or ORIGIN_WORK).strip().lower() != ORIGIN_HOST
-        ]
-        if len(kept) == len(self._meta_only):
-            return
-        self._meta_only = kept
-        with suppress(Exception):
-            self._rebuild_session_filters()
-            self._populate_session_table(force=True)
-
     def _build_session_meta_rows(
         self,
-        unique: list[tuple[Path, str]],
+        unique: list[Path],
         *,
         gen: int | None = None,
     ) -> list[tuple[SessionMeta, str]]:
         """Build list metas for *unique* dirs."""
         rows: list[tuple[SessionMeta, str]] = []
-        for sd, origin in unique:
+        for sd in unique:
             if gen is not None and not self._sessions_load_current(gen):
                 return rows
             try:
@@ -1031,9 +1007,8 @@ class AnqaApp(App):
             except Exception:
                 logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
                 continue
-            meta.origin = origin
             _attach_catalog_flags(meta)
-            label = self._label_for_session(sd, origin)
+            label = self._label_for_session(sd)
             rows.append((meta, label))
         return rows
 
@@ -1574,17 +1549,8 @@ class AnqaApp(App):
         *,
         selected: bool,
     ) -> tuple[str | Text, ...]:
-        from ..session.sources import ORIGIN_HOST
-
-        origin = (meta.origin or "").strip() or self._origin_for_dir(Path(meta.session_dir))
-        origin_text = (
-            Text(t("ui-origin-host"), style="magenta")
-            if origin == ORIGIN_HOST
-            else Text(t("ui-origin-work"), style="dim")
-        )
         return (
             Text("*", style="bold green") if selected else Text(" "),
-            origin_text,
             (meta.label or meta.session_id)[:40],
             meta.model_display[:40],
             self._session_status_cell(meta),
@@ -2562,9 +2528,7 @@ class AnqaApp(App):
                     meta = require_adapter(sd_res).load_detail(sd_res)
                 except Exception:
                     continue
-                origin = self._origin_for_dir(sd_res)
-                meta.origin = origin
-                label = self._label_for_session(sd_res, origin)
+                label = self._label_for_session(sd_res)
                 self._session_mtimes[key] = mtime
                 new_metas.append((key, meta, label))
                 continue
@@ -2603,9 +2567,8 @@ class AnqaApp(App):
             )
             if not live_oc and prev_live:
                 try:
-                    origin = self._origin_for_dir(sd_res)
                     fresh = require_adapter(sd_res).load_meta(sd_res)
-                    label = self._label_for_session(sd_res, origin)
+                    label = self._label_for_session(sd_res)
                     new_metas.append((key, fresh, label))
                 except Exception:
                     logger.debug("settle list row %s", sd_res, exc_info=True)
@@ -2625,9 +2588,7 @@ class AnqaApp(App):
                             if str(meta0.session_dir) == key:
                                 fresh.num_events = meta0.num_events
                                 break
-                    origin = self._origin_for_dir(sd_res)
-                    fresh.origin = origin
-                    label = self._label_for_session(sd_res, origin)
+                    label = self._label_for_session(sd_res)
                     new_metas.append((key, fresh, label))  # replace existing row in _apply
                 except Exception:
                     if outcome != prev_outcome.get(key):
@@ -2650,8 +2611,6 @@ class AnqaApp(App):
                 if idx_opt is not None:
                     # Known live row: replace meta (title / status / context).
                     prev_m, prev_lab = self._meta_only[idx_opt]
-                    if not (meta.origin or "").strip():
-                        meta.origin = prev_m.origin or "work"
                     if (
                         prev_m.title != meta.title
                         or prev_m.turn_outcome != meta.turn_outcome
@@ -2719,9 +2678,7 @@ class AnqaApp(App):
                 meta = require_adapter(sd_res).load_detail(sd_res)
             except Exception:
                 continue
-            origin = self._origin_for_dir(sd_res)
-            meta.origin = origin
-            label = self._label_for_session(sd_res, origin)
+            label = self._label_for_session(sd_res)
             self._meta_only.append((meta, label))
             existing.add(key)
             added = True

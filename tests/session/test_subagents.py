@@ -8,8 +8,6 @@ from pathlib import Path
 from anqa.harness.grok_parse import find_sessions, parse_timeline
 from anqa.models import ToolInputBag, TraceEvent
 from anqa.session.sources import (
-    ORIGIN_HOST,
-    ORIGIN_WORK,
     SessionScanRoot,
     collect_host_session_dirs,
     collect_session_dirs,
@@ -123,11 +121,11 @@ def test_collect_host_and_catalog_hide_subagents(tmp_path: Path) -> None:
     work = tmp_path / "work" / "runs" / "traces"
     _write_session(work / "eval-1")
     roots = [
-        SessionScanRoot(origin=ORIGIN_WORK, path=work),
-        SessionScanRoot(origin=ORIGIN_HOST, path=host),
+        SessionScanRoot(path=work),
+        SessionScanRoot(path=host),
     ]
     rows = collect_session_dirs(roots)
-    names = {p.name for p, _ in rows}
+    names = {p.name for p in rows}
     assert "c1" not in names
     assert "eval-1" in names
     assert "p1" in names

@@ -96,7 +96,5 @@ def normalize_max_turns(value: object, *, default: int = DEFAULT_MAX_TURNS) -> i
 DIFF_TRUNCATE_THRESHOLD = 120_000
 DIFF_TRUNCATE_HEAD = 60_000
 DIFF_TRUNCATE_TAIL = 40_000
-INCOMPLETE_STALE_SECONDS = 20 * 60
-# Host at a prompt writes nothing; 20 minutes left dead sessions on running
-# after a dangling turn_started. Eight minutes still covers a long think.
-HOST_INCOMPLETE_STALE_SECONDS = 8 * 60
+# A session at a prompt writes nothing; eight minutes still covers a long think.
+INCOMPLETE_STALE_SECONDS = 8 * 60
