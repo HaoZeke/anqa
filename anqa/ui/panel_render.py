@@ -93,30 +93,10 @@ def section_header(title: str) -> Text:
 
 
 def format_stamp(iso: str) -> str:
-    """Short card time: ``2026-08-22T03:25:29Z`` → ``Aug 22, 03:25``."""
-    s = (iso or "").strip()
-    if len(s) < 16 or s[4] != "-":
-        return s
-    months = (
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    )
-    try:
-        month = months[int(s[5:7]) - 1]
-        day = int(s[8:10])
-    except (ValueError, IndexError):
-        return s
-    return f"{month} {day}, {s[11:16]}"
+    """Short card time in the host zone: ``2026-08-22T03:25:29Z`` → ``Aug 21, 20:25``."""
+    from ..utils import fmt_local_card
+
+    return fmt_local_card(iso)
 
 
 def kv_line(key: str, value: str, *, key_width: int = 12) -> Text:

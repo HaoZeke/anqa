@@ -119,8 +119,12 @@ class TestSectionHeader:
 
 
 def test_format_stamp_short_card_time() -> None:
-    assert format_stamp("2026-08-22T03:25:29.924849+00:00") == "Aug 22, 03:25"
-    assert format_stamp("2026-01-08T18:02:00Z") == "Jan 8, 18:02"
+    from anqa.utils import fmt_local_card
+
+    assert format_stamp("2026-08-22T03:25:29.924849+00:00") == fmt_local_card(
+        "2026-08-22T03:25:29.924849+00:00"
+    )
+    assert format_stamp("2026-01-08T18:02:00Z") == fmt_local_card("2026-01-08T18:02:00Z")
     assert format_stamp("") == ""
     assert format_stamp("not-a-date") == "not-a-date"
 

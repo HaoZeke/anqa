@@ -11,7 +11,6 @@ import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -352,11 +351,9 @@ class TraceEvent:
     def time_str(self) -> str:
         if self.timestamp is None:
             return ""
-        try:
-            dt = datetime.fromtimestamp(self.timestamp, tz=UTC)
-            return dt.strftime("%H:%M:%S")
-        except (OSError, ValueError):
-            return str(self.timestamp)
+        from .utils import fmt_local_hms
+
+        return fmt_local_hms(self.timestamp)
 
     @property
     def type_label(self) -> str:

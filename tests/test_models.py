@@ -53,9 +53,11 @@ class TestTraceEvent:
         assert ev.time_str == ""
 
     def test_time_str_valid(self):
+        from anqa.utils import fmt_local_hms
+
         ts = int(datetime(2026, 6, 25, 12, 30, 45, tzinfo=UTC).timestamp())
         ev = TraceEvent(index=0, event_type="user_message_chunk", timestamp=ts)
-        assert ev.time_str == "12:30:45"
+        assert ev.time_str == fmt_local_hms(ts)
 
     def test_time_str_bad_value(self):
         ev = TraceEvent(index=0, event_type="user_message_chunk", timestamp=-9999999999999)

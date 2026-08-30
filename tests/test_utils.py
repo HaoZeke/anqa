@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import time
+
+import pytest
 from anqa.utils import (
     collapse_blank_lines,
     fmt_context_usage,
     fmt_duration,
+    fmt_local_card,
+    fmt_local_created,
+    fmt_local_hms,
     fmt_token_count,
     widget_id,
 )
@@ -41,6 +47,22 @@ class TestFmtDuration:
         assert "35%" in fmt_context_usage(35, 178996, 500000, compact=True)
         assert fmt_context_usage(None, None, None) == ""
         assert fmt_context_usage(12) == "12%"
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="tzset is Unix")
+class TestLocalStamps:
+    def test_card_and_created_use_host_zone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+        time.tzset()
+        assert fmt_local_card("2026-08-08T18:02:00Z") == "Aug 8, 11:02"
+        assert fmt_local_created("2026-08-08T18:02:00.123Z") == "2026-08-08 11:02:00"
+        ts = 1786212120  # 2026-08-08 18:02:00 UTC
+        assert fmt_local_hms(ts) == "11:02:00"
+
+    def test_unparsed_iso_stays(self) -> None:
+        assert fmt_local_card("") == ""
+        assert fmt_local_card("not-a-date") == "not-a-date"
+        assert fmt_local_created("already plain") == "already plain"
 
 
 class TestCollapseBlankLines:

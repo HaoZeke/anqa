@@ -120,6 +120,75 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
+_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+
+def parse_iso_local(raw: str) -> datetime | None:
+    """Parse an ISO stamp and return it in the host zone.
+
+    Naive stamps are treated as UTC. Unparsed input returns ``None``.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone()
+
+
+def fmt_local_card(iso: str) -> str:
+    """Card time: ``2026-08-08T18:02:00Z`` → host ``Aug 8, 11:02``.
+
+    :param iso: Stored ISO stamp (UTC).
+    :returns: Local card face, or the trimmed input when it is not a stamp.
+    """
+    dt = parse_iso_local(iso)
+    if dt is None:
+        return (iso or "").strip()
+    return f"{_MONTHS[dt.month - 1]} {dt.day}, {dt.strftime('%H:%M')}"
+
+
+def fmt_local_created(iso: str) -> str:
+    """Overview created stamp in the host zone.
+
+    :param iso: Stored ISO stamp (UTC).
+    :returns: ``YYYY-MM-DD HH:MM:SS`` locally, or the trimmed input when unparsed.
+    """
+    dt = parse_iso_local(iso)
+    if dt is None:
+        return (iso or "").strip()
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def fmt_local_hms(epoch: int) -> str:
+    """Timeline clock ``HH:MM:SS`` in the host zone.
+
+    :param epoch: Unix seconds.
+    :returns: Local clock, or ``str(epoch)`` when the value is not a time.
+    """
+    try:
+        return datetime.fromtimestamp(int(epoch), tz=UTC).astimezone().strftime("%H:%M:%S")
+    except (OSError, OverflowError, ValueError):
+        return str(epoch)
+
+
 def slug_text(text: str, max_len: int = 40, *, fallback: str = "item") -> str:
     """Filesystem-safe slug from *text* (letters, digits, ``._-``)."""
     s = _SLUG_RE.sub("-", (text or "").strip().lower()).strip("-")[:max_len].strip("-")

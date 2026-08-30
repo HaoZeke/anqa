@@ -1,5 +1,6 @@
 //! Display helpers for notes, status, and errors.
 
+use chrono::{DateTime, Datelike, Local, Timelike};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -166,14 +167,27 @@ pub fn session_duration_chip(seconds: f64, display: &str) -> String {
     fmt_duration(seconds)
 }
 
-/// ISO-ish created stamp for Overview (TUI Summary style).
+fn parse_iso_local(iso: &str) -> Option<DateTime<Local>> {
+    let s = iso.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Some(dt.with_timezone(&Local));
+    }
+    DateTime::parse_from_rfc3339(&format!("{s}Z"))
+        .ok()
+        .map(|dt| dt.with_timezone(&Local))
+}
+
+/// Overview created stamp in the host zone (TUI Summary style).
 pub fn short_created(iso: &str) -> String {
     let s = iso.trim();
     if s.is_empty() {
         return String::new();
     }
-    if s.contains('T') && s.len() >= 19 {
-        return s[..19].replace('T', " ");
+    if let Some(dt) = parse_iso_local(s) {
+        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
     }
     s.to_string()
 }
@@ -771,8 +785,19 @@ pub fn format_note_time(iso: &str) -> String {
     if s.is_empty() {
         return String::new();
     }
+    if let Some(dt) = parse_iso_local(s) {
+        const MONTHS: [&str; 12] = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        return format!(
+            "{} {}, {:02}:{:02}",
+            MONTHS[dt.month0() as usize],
+            dt.day(),
+            dt.hour(),
+            dt.minute()
+        );
+    }
     if s.len() >= 16 && s.as_bytes()[4] == b'-' {
-        // 2026-08-08T18:02:00 → Aug 8, 18:02
         let day: u32 = s[8..10].parse().unwrap_or(0);
         let month = match &s[5..7] {
             "01" => "Jan",
@@ -2809,10 +2834,12 @@ mod tests {
 
     #[test]
     fn short_created_strips_iso_fraction() {
-        assert_eq!(
-            short_created("2026-08-08T18:02:00.123Z"),
-            "2026-08-08 18:02:00"
-        );
+        let local = DateTime::parse_from_rfc3339("2026-08-08T18:02:00.123Z")
+            .expect("rfc3339")
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        assert_eq!(short_created("2026-08-08T18:02:00.123Z"), local);
         assert_eq!(short_created("  "), "");
         assert_eq!(short_created("already plain"), "already plain");
     }

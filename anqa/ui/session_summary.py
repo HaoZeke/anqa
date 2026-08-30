@@ -199,10 +199,9 @@ def _glance_rows(
     if meta.git_branch:
         rows.append((t("ui-branch-1"), meta.git_branch))
     if meta.created_at:
-        created = meta.created_at
-        if "T" in created and len(created) > 19:
-            created = created[:19].replace("T", " ")
-        rows.append((t("ui-created"), created))
+        from ..utils import fmt_local_created
+
+        rows.append((t("ui-created"), fmt_local_created(meta.created_at)))
     if meta.session_dir:
         rows.append((t("ui-path"), str(meta.session_dir)))
     return rows
