@@ -685,7 +685,8 @@ fn write_os_clipboard(text: &str) {
 
 fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
     prep.window.icon = crate::brand::window_icon();
-    prep.iced_settings.default_font = icedtea::typo::UI;
+    prep.iced_settings.fonts = crate::typo::files();
+    prep.iced_settings.default_font = crate::typo::UI;
     prep.iced_settings.default_text_size =
         Pixels::from(crate::theme::tokens("textual-dark").body());
 }
@@ -765,7 +766,7 @@ pub fn run() -> iced::Result {
     }
     // icedtea::daemon! is equivalent; catalog + dual window modes stay manual
     // via Prepared + iced::daemon. Call the same face remap the macro would.
-    icedtea::typo::install_platform_faces();
+    crate::typo::install();
     iced::daemon(Hud::new, Hud::update, Hud::view)
         .title(concat!("anqa ", env!("CARGO_PKG_VERSION")))
         .subscription(Hud::subscription)
@@ -8789,11 +8790,8 @@ mod tests {
         assert_eq!(overlay.window.size, Size::new(HUD_W, HUD_H));
         assert!(!overlay.window.decorations);
         assert_eq!(overlay.window.max_size, Some(Size::new(HUD_W, HUD_H)));
-        assert!(
-            overlay.iced_settings.fonts.is_empty(),
-            "HUD uses platform faces; do not embed TTF"
-        );
-        assert_eq!(overlay.iced_settings.default_font, icedtea::typo::UI);
+        assert_eq!(overlay.iced_settings.fonts.len(), crate::typo::files().len());
+        assert_eq!(overlay.iced_settings.default_font, crate::typo::UI);
         let desk = desktop_prepared();
         assert!(desk.window.decorations);
         assert!(desk.window.resizable);
@@ -8802,7 +8800,7 @@ mod tests {
         assert!(src.contains("bootstrap_with_catalog"));
         assert!(src.contains(".open()"));
         assert!(src.contains("retarget"));
-        assert!(src.contains("install_platform_faces"));
+        assert!(src.contains("typo::install"));
     }
 
     #[test]

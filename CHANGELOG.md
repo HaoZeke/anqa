@@ -75,6 +75,8 @@ harness store. Grok Build (`grok`) is registered today.
 
 ### Desktop HUD
 
+- UI type is brand Fira Sans (Regular / SemiBold), loaded from
+  `brand/fonts/`. Mono stays the host face.
 - `anqa hud` is the summonable session palette (Overview, Turns,
   Timeline, Diff, Notes).
 - It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`
