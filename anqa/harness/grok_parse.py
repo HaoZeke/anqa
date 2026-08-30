@@ -1508,13 +1508,8 @@ def _append_session_update_row(
 
 
 def _session_recap_content(update: JsonObject) -> str:
-    """Recap summary; mark auto recaps so a human can tell them from typed ones."""
-    summary = json_as_str(update.get("summary")).strip()
-    auto = update.get("auto") is True
-    if not summary:
-        return "auto recap" if auto else "session_recap"
-    text = f"auto  {summary}" if auto else summary
-    return text[:500]
+    """Recap summary only. ``auto`` stays on the update for chrome."""
+    return json_as_str(update.get("summary")).strip()[:500]
 
 
 def _compact_family_content(etype: str, update: JsonObject) -> str:

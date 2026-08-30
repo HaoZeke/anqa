@@ -1266,9 +1266,10 @@ def test_timeline_recap_and_compact_rows(tmp_path: Path):
     done = [e for e in events if e.event_type == "auto_compact_completed"]
     ckpt = [e for e in events if e.event_type == "compaction_checkpoint"]
     assert len(recap) == 1
-    assert recap[0].content.startswith(
-        "auto  The operator asked for a walkthrough of the failing check."
-    )
+    assert recap[0].content == ("The operator asked for a walkthrough of the failing check.")
+    raw = recap[0].raw_input
+    bag = raw.raw() if hasattr(raw, "raw") else raw
+    assert bag.get("auto") is True
     assert len(started) == 1
     assert "Context window 80% full" in started[0].content
     assert "401582/500000" in started[0].content

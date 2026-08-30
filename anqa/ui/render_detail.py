@@ -60,6 +60,12 @@ from .styles import EVENT_TYPE_STYLE as KIND_STYLES
 logger = logging.getLogger(__name__)
 
 
+def _recap_is_auto(ev: TraceEvent) -> bool:
+    raw = ev.raw_input
+    data = raw.raw() if isinstance(raw, ToolInputBag) else raw if isinstance(raw, dict) else {}
+    return data.get("auto") is True
+
+
 @dataclass(frozen=True)
 class DetailSection:
     """One extractable event-detail card (title chrome + body)."""
@@ -1394,6 +1400,8 @@ def event_detail_sections(
         meta_parts.append(t("ui-turn-number", turn=int(turn_index)))
     if ev.time_str:
         meta_parts.append(ev.time_str)
+    if ev.event_type == et.SESSION_RECAP and _recap_is_auto(ev):
+        meta_parts.append(t("ui-recap-auto"))
     info = subagent_inspect(ev, run=subagent_run) if ev.event_type in et.SUBAGENT_TYPES else None
     own_dur = info.duration_s if info is not None else subagent_duration_seconds(ev)
     if ev.event_type in et.TASK_TYPES or ev.event_type.startswith("scheduled_task_"):
@@ -1460,7 +1468,7 @@ def event_detail_sections(
         return sections
     if ev.event_type in et.SESSION_CHROME_TYPES:
         if body.strip():
-            sections.append(DetailSection("session", ev.type_label or "", _message_body(body, ev)))
+            sections.append(DetailSection("session", "", _message_body(body, ev)))
         return sections
     if body.strip():
         sections.append(DetailSection("body", ev.type_label or "", _message_body(body, ev)))

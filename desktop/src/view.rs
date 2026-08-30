@@ -1355,6 +1355,11 @@ fn event_list_heading(
     if ev.is_error {
         head = head.push(event_error_icon(tea));
     }
+    if ev.event_type == "session_recap"
+        && ev.raw_input.get("auto").and_then(|v| v.as_bool()) == Some(true)
+    {
+        head = head.push(status_chip("auto", "", tea));
+    }
     if let Some(turn) = ev.turn_index {
         head = head.push(status_chip(format!("turn {turn}"), "", tea));
     }

@@ -1325,6 +1325,7 @@ ui-writing = Writing
 
 # interpolating fragments / templates
 ui-turn-number = Turn { $turn }
+ui-recap-auto = auto
 ui-queued-count = { $n } queued
 ui-staged-follow-up = follow-up staged
 ui-staged-last-turn = last turn staged

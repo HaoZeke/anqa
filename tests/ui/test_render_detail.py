@@ -338,6 +338,22 @@ class TestEventDetailSections:
         secs = event_detail_sections(ev)
         assert all(s.sid != "input" for s in secs)
 
+    def test_session_recap_body_is_prose_without_repeated_type(self) -> None:
+        prose = "We added a one-pass HashImport cluster retry for MOVED, ASK, and TRYAGAIN."
+        ev = make_trace_event(
+            index=254,
+            event_type="session_recap",
+            content=prose,
+            raw_input={"auto": True, "summary": prose},
+        )
+        secs = event_detail_sections(ev)
+        chrome = next(s for s in secs if s.sid == "chrome")
+        body = next(s for s in secs if s.sid == "session")
+        assert "session recap" in rich_plain(chrome.body).lower()
+        assert "auto" in rich_plain(chrome.body).casefold()
+        assert body.title == ""
+        assert rich_plain(body.body).strip() == prose
+
 
 class TestRenderEventDetail:
     def test_tool_call_event(self):
