@@ -30,7 +30,8 @@ without query/`harness:<id>`.
    actually ran), `default_host_roots`, `discover`, `looks_like`,
    `load_meta` (sets `harness`, and `harness_version` when the store
    has a product version), `parse_timeline`, `bind_locator`,
-   `ref_for_id`, `watch_hints`, `write_archive`, `load_detail`,
+   `ref_for_id`, `watch_hints`, `write_archive`, `open_archive`,
+   `load_detail`,
    `timeline_stamp`, `trace_mtime`, `updates_size`, `scheduler_state`,
    `reported_completion_ids`, `list_turn_outcome`.
 2. Register in `anqa/harness/registry.py` `adapters()`.

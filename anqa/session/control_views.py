@@ -140,7 +140,13 @@ def session_meta_mapping(
     except OSError:
         path_str = str(path or meta.session_dir)
     origin_key = (origin or meta.origin or "work").strip() or "work"
+    from ..paths import is_import_locator
     from .subagents import read_session_kind
+
+    loc = path or meta.session_dir
+    imported = origin_key == "import" or is_import_locator(loc)
+    if imported:
+        origin_key = "import"
 
     kind_path = path or meta.session_dir
     return {
@@ -155,6 +161,7 @@ def session_meta_mapping(
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
         "origin": origin_key,
+        "imported": imported,
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         "createdAt": meta.created_at or "",

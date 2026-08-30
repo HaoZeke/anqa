@@ -145,6 +145,8 @@ def _outcome_face(outcome: str) -> str:
 
 def _origin_chip(origin: str) -> str:
     key = (origin or "").strip().lower()
+    if key == "import":
+        return t("ui-origin-import")
     if key == "host":
         return t("ui-origin-host")
     if key == "work":

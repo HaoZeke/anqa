@@ -38,6 +38,7 @@ _HOST_SKIP_DIR_NAMES = frozenset(
 
 ORIGIN_WORK = "work"
 ORIGIN_HOST = "host"
+ORIGIN_IMPORT = "import"
 
 type SessionOrigin = str
 
@@ -90,7 +91,11 @@ def classify_session_origin(
     *,
     host_root: Path | None = None,
 ) -> SessionOrigin:
-    """Return host when *session_dir* is under an adapter store."""
+    """Return import when under the import store, else host."""
+    from ..paths import is_import_locator
+
+    if is_import_locator(session_dir):
+        return ORIGIN_IMPORT
     if host_root is not None:
         sd = _resolved(session_dir)
         host = _resolved(host_root)
@@ -138,6 +143,14 @@ def session_scan_roots(
                 add(ORIGIN_HOST, root)
     if traces_path is not None:
         add(ORIGIN_HOST, Path(traces_path).expanduser())
+    from ..harness.ref import HARNESS_IDS
+    from ..paths import imports_dir
+
+    base = imports_dir(create=False)
+    for hid in sorted(HARNESS_IDS):
+        root = base / hid
+        if root.is_dir():
+            add(ORIGIN_IMPORT, root)
     return out
 
 
@@ -308,6 +321,7 @@ def collect_session_dirs(
 
 __all__ = [
     "ORIGIN_HOST",
+    "ORIGIN_IMPORT",
     "ORIGIN_WORK",
     "SessionOrigin",
     "SessionScanRoot",

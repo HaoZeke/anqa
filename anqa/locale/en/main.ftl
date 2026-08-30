@@ -66,6 +66,8 @@ bind-event-up = Up
 
 bind-open = Open
 
+bind-import = Import
+
 bind-event-reader = Open
 
 bind-prev-pane = Prev pane
@@ -170,6 +172,9 @@ self-test-rerun = Re-run
 self-test-close = Close
 
 filter-label = Filter
+
+cmd-import-session = Import session
+cmd-import-session-help = Open a harness archive or anqa export
 
 cmd-export-bundle = Export session
 
@@ -512,6 +517,13 @@ report-saved = Report saved: { $path }
 export-bundle-saved = Export saved: { $path } [{ $profile }]
 
 export-bundle-failed = Export failed: { $exc }
+
+import-path-title = Import session
+import-path-hint = Browse for a harness archive, anqa export, or session directory
+import-path-open = Import
+import-path-up = Up
+import-failed = Import failed: { $exc }
+import-opened = Imported { $session }
 
 export-bundle-no-session = No session to export
 
@@ -1465,6 +1477,7 @@ export-task-no-config = No recipe selected to export
 ui-origin = Origin
 ui-origin-work = Work
 ui-origin-host = Host
+ui-origin-import = Import
 
 ui-control-socket-attach-failed = Control owner not reachable
 

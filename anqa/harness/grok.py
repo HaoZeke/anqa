@@ -8,7 +8,9 @@ those APIs.
 from __future__ import annotations
 
 import os
+import shutil
 import tarfile
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -197,6 +199,9 @@ class GrokAdapter:
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
         return write_directory_archive(_locator(ref), dest)
 
+    def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
+        return open_directory_archive(src, dest_root)
+
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
         from .grok_parse import load_session_meta
 
@@ -296,6 +301,45 @@ def write_directory_archive(session_dir: Path, dest: Path) -> list[str]:
     return names
 
 
+def _session_id_from_members(names: list[str]) -> str:
+    tops = sorted({n.split("/", 1)[0] for n in names if n and n != "."})
+    if len(tops) != 1:
+        raise RuntimeError(
+            f"session archive must contain one top-level session id (got {tops[:8]})"
+        )
+    return tops[0]
+
+
+def open_directory_archive(src: Path, dest_root: Path) -> SessionRef:
+    """Extract a Grok ``write_archive`` tarball under *dest_root*.
+
+    :returns: Directory locator for the extracted session.
+    :raises RuntimeError: Archive missing, unsafe, or not a Grok session.
+    """
+    src = Path(src).expanduser()
+    if not src.is_file() or src.stat().st_size <= 0:
+        raise RuntimeError(f"session archive missing or empty: {src}")
+    dest_root = Path(dest_root).expanduser()
+    dest_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="anqa-grok-archive-") as tmp:
+        staging = Path(tmp)
+        try:
+            with tarfile.open(src, "r:*") as tf:
+                tf.extractall(staging, filter="data")
+                names = [m.name for m in tf.getmembers() if m.name]
+        except tarfile.TarError as exc:
+            raise RuntimeError(f"invalid session archive: {src}: {exc}") from exc
+        sid = _session_id_from_members(names)
+        extracted = staging / sid
+        if not extracted.is_dir() or not looks_like(extracted):
+            raise RuntimeError(f"archive is not a grok session: {src}")
+        dest = dest_root / sid
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.move(str(extracted), str(dest))
+    return _ref_for_dir(dest)
+
+
 __all__ = [
     "GROK_HARNESS_ID",
     "GrokAdapter",
@@ -303,6 +347,7 @@ __all__ = [
     "discover",
     "load_meta",
     "looks_like",
+    "open_directory_archive",
     "parse_timeline",
     "watch_hints",
     "write_directory_archive",

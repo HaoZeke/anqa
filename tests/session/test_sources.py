@@ -90,6 +90,18 @@ def test_classify_and_under_host(tmp_path: Path, monkeypatch) -> None:
     assert classify_session_origin(other, host_root=host) == ORIGIN_HOST
 
 
+def test_classify_import_locator(tmp_path: Path, monkeypatch) -> None:
+    import anqa.paths as paths
+    from anqa.session.sources import ORIGIN_IMPORT, classify_session_origin
+
+    home = tmp_path / "home"
+    monkeypatch.setattr(paths, "APP_HOME", home)
+    imported = home / "imports" / "grok" / "sid"
+    imported.mkdir(parents=True)
+    (imported / "summary.json").write_text("{}", encoding="utf-8")
+    assert classify_session_origin(imported) == ORIGIN_IMPORT
+
+
 def test_is_host_sessions_root(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / ".grok" / "sessions"
     host.mkdir(parents=True)

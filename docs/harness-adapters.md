@@ -24,6 +24,9 @@ A shipped adapter does all of this:
    `~/.anqa/notes/<harness>/<session_id>/`.
 7. **Write archive** (`write_archive`) so `E` can nest the native
    session files. Anqa adds notes, summary, and the manifest.
+   **Open archive** (`open_archive`) is the inverse: materialize that
+   native archive under `~/.anqa/imports/<id>/` and return a
+   `SessionRef`.
 8. **Detail / live stamps** (`load_detail`, `timeline_stamp`,
    `trace_mtime`, `updates_size`, `list_turn_outcome`) so the catalog
    and browser do not import a store parser.

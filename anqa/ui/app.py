@@ -361,6 +361,7 @@ class AnqaApp(App):
         )
         # True when attached to a live control owner (TUI never owns the socket).
         self._control_attached: bool = False
+        self._import_opening_sid: str = ""
         # When true, load catalog via session/list and never bind the socket.
         self._control_attach_only: bool = bool(control_attach_only)
         self._control_notify_stop: asyncio.Event | None = None
@@ -799,6 +800,8 @@ class AnqaApp(App):
             sid = json_as_str(params.get("sessionId")).strip()
             if not sid:
                 return
+            if sid == getattr(self, "_import_opening_sid", ""):
+                return
             raw_pi = params.get("promptIndex")
             prompt_index = None if raw_pi is None else json_as_int(raw_pi)
             # Resolve id → path via catalog rows or traces root.
@@ -950,9 +953,12 @@ class AnqaApp(App):
         return self._catalog_roots_for_load(include_host=None)
 
     def _origin_for_dir(self, session_dir: Path) -> str:
-        """Host adapter store from the directory."""
+        """Host adapter store from the directory, or import when under the import store."""
+        from ..paths import is_import_locator
         from ..session.sources import classify_session_origin
 
+        if is_import_locator(session_dir):
+            return "import"
         return classify_session_origin(session_dir)
 
     def _label_for_session(self, session_dir: Path, origin: str) -> str:
@@ -1576,12 +1582,13 @@ class AnqaApp(App):
     ) -> tuple[str | Text, ...]:
         from ..session.sources import ORIGIN_HOST
 
-        origin = (meta.origin or "").strip() or self._origin_for_dir(Path(meta.session_dir))
-        origin_text = (
-            Text(t("ui-origin-host"), style="magenta")
-            if origin == ORIGIN_HOST
-            else Text(t("ui-origin-work"), style="dim")
-        )
+        origin = self._origin_for_dir(Path(meta.session_dir)) or (meta.origin or "").strip()
+        if origin == "import":
+            origin_text = Text(t("ui-origin-import"), style="dim")
+        elif origin == ORIGIN_HOST:
+            origin_text = Text(t("ui-origin-host"), style="magenta")
+        else:
+            origin_text = Text(t("ui-origin-work"), style="dim")
         return (
             Text("*", style="bold green") if selected else Text(" "),
             origin_text,
@@ -1931,6 +1938,7 @@ class AnqaApp(App):
 
     def _awaiting_session_targets(self) -> list[Path]:
         """Subset of action targets that are awaiting a follow-up."""
+        from ..paths import is_import_locator
         from ..session.turn_gate import session_awaits_follow_up
 
         targets = self._session_action_targets()
@@ -1939,6 +1947,8 @@ class AnqaApp(App):
         by_path = {str(m.session_dir): m for m, _ in self._meta_only}
         out: list[Path] = []
         for path in targets:
+            if is_import_locator(path):
+                continue
             meta = by_path.get(str(path))
             if meta is not None and meta.turn_in_progress:
                 out.append(path)
@@ -2182,6 +2192,43 @@ class AnqaApp(App):
                         meta = m
                         break
         return meta
+
+    def action_import_session(self) -> None:
+        """Ctrl+O — open a harness archive or anqa export."""
+        from .import_modal import ImportPathModal
+
+        def _done(raw: str | None) -> None:
+            path = (raw or "").strip()
+            if path:
+                self.run_worker(self._import_and_open(path), exclusive=False)
+
+        self.push_screen(ImportPathModal(), _done)
+
+    async def _import_and_open(self, path: str) -> None:
+        """Import *path* via control when attached, else locally, then open it."""
+        from ..session.access import LocalSessionAccess
+        from .i18n import t
+
+        try:
+            access = self.session_access()
+            if access is not None and self.is_control_client():
+                result = await access.session_import(path)
+            else:
+                result = LocalSessionAccess(
+                    resolve_session=lambda _ref: None,
+                ).session_import(path)
+        except Exception as exc:
+            self.notify(t("import-failed", exc=str(exc)), severity="error", timeout=12)
+            return
+        sid = str(result.get("sessionId") or "").strip()
+        loc = str(result.get("session") or "").strip()
+        self._import_opening_sid = sid
+        self.notify(t("import-opened", session=sid or loc), severity="information", timeout=4)
+        self._schedule_sessions_reload(quiet=False)
+        if loc:
+            target = Path(loc)
+            if target.is_dir():
+                self._push_browser(target)
 
     def action_export_session_bundle(self) -> None:
         """Export session: use configured profile, or ask if none is set."""

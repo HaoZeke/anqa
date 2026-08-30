@@ -147,6 +147,21 @@ def test_is_host_matches_every_row() -> None:
     assert not row_matches_query(row, "NOT is:host")
 
 
+def test_is_import_matches_imported_row() -> None:
+    host = _row()
+    imported = CatalogQueryRow(
+        session_id="imp-1",
+        title="Imported",
+        origin="host",
+        imported=True,
+        path="/tmp/imports/grok/imp-1",
+    )
+    assert row_matches_query(imported, "is:import")
+    assert not row_matches_query(imported, "is:host")
+    assert not row_matches_query(host, "is:import")
+    assert row_matches_query(host, "is:host")
+
+
 def test_model_task_dates() -> None:
     row = _row()
     assert row_matches_query(row, "model:grok")

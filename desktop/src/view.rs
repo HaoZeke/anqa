@@ -196,10 +196,15 @@ fn session_state_from_row(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let taken = session_duration_chip(row.duration_seconds, "");
+    let origin = if row.imported {
+        "import"
+    } else {
+        row.origin.as_str()
+    };
     session_state_row(
         &row.status_label(),
         &row.model,
-        &row.origin,
+        origin,
         &taken,
         false,
         tea,
@@ -212,10 +217,15 @@ fn session_state_from_meta(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let taken = session_duration_chip(meta.duration_seconds, &meta.duration);
+    let origin = if meta.imported {
+        "import"
+    } else {
+        meta.origin.as_str()
+    };
     session_state_row(
         &meta.status_label(),
         &meta.model,
-        &meta.origin,
+        origin,
         &taken,
         meta.is_subagent(),
         tea,

@@ -38,6 +38,7 @@ pub fn origin_label(origin: &str) -> &'static str {
     match origin.trim().to_ascii_lowercase().as_str() {
         "host" => "Host",
         "work" => "Work",
+        "import" => "Import",
         "" => "—",
         _ => "—",
     }
@@ -3575,6 +3576,7 @@ mod tests {
     fn origin_label_matches_tui() {
         assert_eq!(origin_label("host"), "Host");
         assert_eq!(origin_label("work"), "Work");
+        assert_eq!(origin_label("import"), "Import");
         assert_eq!(origin_label(""), "—");
     }
 

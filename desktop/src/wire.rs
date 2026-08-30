@@ -27,6 +27,8 @@ pub struct SessionListItem {
     #[serde(default)]
     pub origin: String,
     #[serde(default)]
+    pub imported: bool,
+    #[serde(default)]
     pub harness: String,
     #[serde(default)]
     pub harness_version: String,
@@ -158,6 +160,8 @@ pub struct SessionMeta {
     pub outcome: String,
     #[serde(default)]
     pub origin: String,
+    #[serde(default)]
+    pub imported: bool,
     #[serde(default)]
     pub session_kind: String,
     #[serde(default)]

@@ -97,6 +97,10 @@ def test_write_archive_packs_session_files(tmp_path: Path) -> None:
     with tarfile.open(dest, "r:gz") as tf:
         names = set(tf.getnames())
     assert names == set(members)
+    opened = GrokAdapter().open_archive(dest, tmp_path / "opened")
+    assert opened.session_id == "pack-sid"
+    assert (opened.locator / "summary.json").is_file()
+    assert not (opened.locator / "workspace").exists()
 
 
 def test_watch_hints_include_updates_jsonl() -> None:

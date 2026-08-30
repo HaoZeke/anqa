@@ -16,6 +16,7 @@ from pathlib import Path
 from ..harness.ref import SessionRef
 from ..harness.registry import adapter, ref_from_path, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
+from ..paths import is_import_locator
 from .mtime_export import (
     default_catalog_snapshot,
     load_or_rebuild_catalog,
@@ -24,6 +25,7 @@ from .mtime_export import (
 from .query import apply_catalog_presence_row, catalog_presence_from_meta
 from .sources import (
     ORIGIN_HOST,
+    ORIGIN_IMPORT,
     SessionScanRoot,
     classify_session_origin,
     collect_session_dirs,
@@ -144,7 +146,8 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         path_str = ref.ref_string()
         if not meta.run_dir:
             meta.run_dir = ref.cwd or ""
-    meta.origin = ORIGIN_HOST
+    imported = is_import_locator(locator)
+    meta.origin = ORIGIN_IMPORT if imported else ORIGIN_HOST
     if not (meta.harness or "").strip():
         meta.harness = ref.harness
     session_id = (meta.session_id or ref.session_id).strip()
@@ -170,6 +173,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
         "origin": meta.origin,
+        "imported": imported,
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         "taskId": meta.task_id or "",
@@ -290,6 +294,7 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "status",
     "outcome",
     "origin",
+    "imported",
     "harness",
     "harnessVersion",
     "taskId",
@@ -708,11 +713,6 @@ class SessionCatalogCache:
         if current is None:
             return self.get(force=True), {}
         known_paths = {str(row.get("path") or "").strip() for row in current}
-        known_ids = {
-            str(row.get("sessionId") or "").strip(): str(row.get("path") or "").strip()
-            for row in current
-            if str(row.get("sessionId") or "").strip()
-        }
         catalog_paths = [Path(p) for p in known_paths if p and not p.startswith("harness:")]
         child_ids = nested_child_ids([*catalog_paths, *dirs])
         drop: set[str] = set()
@@ -725,28 +725,20 @@ class SessionCatalogCache:
                 resolved = str(session_dir)
             if _watch_session_hidden(session_dir, child_ids):
                 drop.add(resolved)
-                sid = session_dir.name
-                if sid in known_ids:
-                    drop.add(known_ids[sid])
+                drop.add(str(session_dir))
                 continue
             origin = classify_session_origin(session_dir, host_root=self._host_root)
             row = session_catalog_row(session_dir, origin=origin)
             if row is None:
                 drop.add(resolved)
-                sid = session_dir.name
-                if sid in known_ids:
-                    drop.add(known_ids[sid])
+                drop.add(str(session_dir))
                 continue
-            sid = str(row.get("sessionId") or "").strip()
             path_key = str(row.get("path") or resolved).strip()
-            prior = path_key if path_key in known_paths else known_ids.get(sid, "")
-            if prior:
-                replacements[prior] = row
+            if path_key in known_paths:
+                replacements[path_key] = row
             else:
                 appended.append(row)
                 known_paths.add(path_key)
-                if sid:
-                    known_ids[sid] = path_key
         upserts, removed_ids, list_changed = list_refresh_delta(
             current, replacements, appended, drop
         )
@@ -1122,7 +1114,13 @@ def _adapter_host_catalog_rows(
                 item_roots.add(str(root))
         if item_roots and item_roots <= walked:
             continue
-        refs = list(item.discover(roots))
+        from ..paths import imports_dir
+
+        scan = list(roots)
+        imported = imports_dir(create=False) / item.id
+        if imported.is_dir():
+            scan.append(imported)
+        refs = list(item.discover(scan))
         if not refs:
             continue
         dest = (

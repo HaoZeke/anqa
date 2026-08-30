@@ -75,13 +75,13 @@ pub fn spotlight_recent(all: &[SessionRow], n: usize, keep_sid: &str) -> Vec<Ses
     });
     let mut out: Vec<SessionRow> = Vec::with_capacity(n.min(all.len()) + 1);
     if !keep_sid.is_empty() {
-        if let Some(row) = all.iter().find(|r| r.session_id == keep_sid) {
+        if let Some(row) = all.iter().find(|r| row_matches_keep(r, keep_sid)) {
             out.push(row.clone());
         }
     }
     for i in idxs {
         let row = &all[i];
-        if !keep_sid.is_empty() && row.session_id == keep_sid {
+        if !keep_sid.is_empty() && row_matches_keep(row, keep_sid) {
             continue;
         }
         out.push(row.clone());
@@ -298,6 +298,41 @@ impl icedtea::collection::ListModel for SessionList<'_> {
 /// Clamp a rail/wheel offset so the window stays on content.
 pub fn clamp_scroll(y: f32, content: f32, viewport: f32) -> f32 {
     y.clamp(0.0, (content - viewport).max(0.0))
+}
+
+/// True when two catalog locators name the same session directory.
+pub fn locators_equal(a: &str, b: &str) -> bool {
+    let a = a.trim();
+    let b = b.trim();
+    !a.is_empty() && !b.is_empty() && (a == b || std::path::Path::new(a) == std::path::Path::new(b))
+}
+
+pub fn row_matches_keep(row: &crate::model::SessionRow, keep: &str) -> bool {
+    let keep = keep.trim();
+    if keep.is_empty() {
+        return false;
+    }
+    locators_equal(&row.path, keep) || row.session_id == keep
+}
+
+/// Catalog index for a session. Path wins; then the import copy of *sid*.
+pub fn find_session_index(
+    rows: &[crate::model::SessionRow],
+    sid: &str,
+    path: &str,
+) -> Option<usize> {
+    if !path.trim().is_empty() {
+        if let Some(i) = rows.iter().position(|r| locators_equal(&r.path, path)) {
+            return Some(i);
+        }
+    }
+    let sid = sid.trim();
+    if sid.is_empty() {
+        return None;
+    }
+    rows.iter()
+        .position(|r| r.session_id == sid && r.imported)
+        .or_else(|| rows.iter().position(|r| r.session_id == sid))
 }
 
 /// Control `session` argument: live directory path, harness:id, else id.
@@ -1007,7 +1042,8 @@ pub fn merge_catalog_rows(prev: &[SessionRow], next: Vec<SessionRow>) -> Vec<Ses
 }
 
 pub fn patch_list_row_from_meta(rows: &mut [SessionRow], session_id: &str, meta: &SessionMeta) {
-    let Some(row) = rows.iter_mut().find(|r| r.session_id == session_id) else {
+    let idx = find_session_index(rows, session_id, &meta.path);
+    let Some(row) = idx.and_then(|i| rows.get_mut(i)) else {
         return;
     };
     if !meta.status.is_empty() {
@@ -1024,6 +1060,9 @@ pub fn patch_list_row_from_meta(rows: &mut [SessionRow], session_id: &str, meta:
     }
     if !meta.origin.is_empty() {
         row.origin = meta.origin.clone();
+    }
+    if meta.imported {
+        row.imported = true;
     }
     if meta.duration_seconds > 0.0 {
         row.duration_seconds = meta.duration_seconds;
@@ -1575,6 +1614,73 @@ mod tests {
         assert_eq!(session_rpc_ref("", "uuid"), "uuid");
         assert_eq!(session_rpc_ref("grok:ses_abc", "ses_abc"), "grok:ses_abc");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_session_index_prefers_path_then_import() {
+        use crate::model::SessionRow;
+        let rows = vec![
+            SessionRow {
+                session_id: "same".into(),
+                path: "/host/same".into(),
+                origin: "host".into(),
+                imported: false,
+                ..SessionRow::default()
+            },
+            SessionRow {
+                session_id: "same".into(),
+                path: "/imports/grok/same".into(),
+                origin: "import".into(),
+                imported: true,
+                ..SessionRow::default()
+            },
+        ];
+        assert_eq!(
+            find_session_index(&rows, "same", "/imports/grok/same"),
+            Some(1)
+        );
+        assert_eq!(find_session_index(&rows, "same", "/host/same"), Some(0));
+        assert_eq!(find_session_index(&rows, "same", ""), Some(1));
+        assert!(row_matches_keep(&rows[1], "/imports/grok/same"));
+        assert!(row_matches_keep(&rows[0], "same"));
+        let pinned = spotlight_recent(&rows, 1, "/imports/grok/same");
+        assert_eq!(pinned[0].path, "/imports/grok/same");
+    }
+
+    #[test]
+    fn patch_list_row_from_meta_matches_path_not_first_id() {
+        use crate::model::SessionRow;
+        use crate::wire::SessionMeta;
+        let mut rows = vec![
+            SessionRow {
+                session_id: "same".into(),
+                path: "/host/same".into(),
+                origin: "host".into(),
+                imported: false,
+                ..SessionRow::default()
+            },
+            SessionRow {
+                session_id: "same".into(),
+                path: "/imports/grok/same".into(),
+                origin: "host".into(),
+                imported: false,
+                ..SessionRow::default()
+            },
+        ];
+        let meta = SessionMeta {
+            session_id: "same".into(),
+            path: "/imports/grok/same".into(),
+            origin: "import".into(),
+            imported: true,
+            title: "Imported".into(),
+            ..SessionMeta::default()
+        };
+        patch_list_row_from_meta(&mut rows, "same", &meta);
+        assert!(!rows[0].imported);
+        assert_eq!(rows[0].origin, "host");
+        assert!(rows[1].imported);
+        assert_eq!(rows[1].origin, "import");
+        assert_eq!(rows[1].title, "Imported");
     }
 
     #[test]

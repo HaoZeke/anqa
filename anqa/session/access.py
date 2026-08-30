@@ -298,6 +298,20 @@ class LocalSessionAccess:
         write_done_for_session(path)
         return {"ok": True}
 
+    def session_import(self, path: Path | str) -> JsonObject:
+        """Open an archive or export and return the catalog ref."""
+        from .imports import import_session
+
+        result = import_session(path)
+        return {
+            "session": result.ref.ref_string(),
+            "sessionId": result.ref.session_id,
+            "harness": result.ref.harness,
+            "imported": True,
+            "replaced": result.replaced,
+            "opened": True,
+        }
+
     def session_render(self, session: str, *, format: str = "org") -> JsonObject:
         """Editor projection document."""
         fmt = (format or "org").strip().lower() or "org"
@@ -363,6 +377,9 @@ class RemoteSessionAccess:
             offset=offset,
             since_revision=since_revision,
         )
+
+    async def session_import(self, path: str) -> JsonObject:
+        return await self._client.session_import(path)
 
     async def session_overview(
         self,

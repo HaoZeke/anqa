@@ -91,7 +91,8 @@
         "ending",
         "complete",
         "cancelled",
-        "host"
+        "host",
+        "import"
       ],
       "compare": false
     },

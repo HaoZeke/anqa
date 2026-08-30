@@ -66,6 +66,7 @@ REQUIRED_METHODS = (
     "session/turns",
     "session/diff",
     "session/open",
+    "session/import",
     "session/render",
     "session/follow_up",
     "session/done",

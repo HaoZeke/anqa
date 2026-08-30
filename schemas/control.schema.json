@@ -108,7 +108,8 @@
               "ending",
               "complete",
               "cancelled",
-              "host"
+              "host",
+              "import"
             ],
             "compare": false
           },
@@ -413,6 +414,7 @@
         "session/turns",
         "session/diff",
         "session/open",
+        "session/import",
         "session/render",
         "session/follow_up",
         "session/done",
@@ -734,6 +736,61 @@
               "type": "object",
               "additionalProperties": true,
               "properties": {
+                "opened": {
+                  "description": "True when the session resolved.",
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/import": {
+          "description": "Open a harness archive or anqa export and add it to the catalog",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/import params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "path": {
+                  "description": "Archive, export bundle, or session directory.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            },
+            "result": {
+              "title": "session/import result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Catalog path or `harness:id` for later methods.",
+                  "type": "string"
+                },
+                "sessionId": {
+                  "description": "Product session id.",
+                  "type": "string"
+                },
+                "harness": {
+                  "description": "Adapter id.",
+                  "type": "string"
+                },
+                "imported": {
+                  "description": "True when the session lives under the import store.",
+                  "type": "boolean"
+                },
+                "replaced": {
+                  "description": "True when a previous import of this id was overwritten.",
+                  "type": "boolean"
+                },
                 "opened": {
                   "description": "True when the session resolved.",
                   "type": "boolean"
