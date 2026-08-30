@@ -1297,12 +1297,6 @@ ui-failed-paren =  ({ $n } failed)
 ui-batch-err-example = 
     e.g. { $id }: { $sample }
 # Activity bar (compact)
-activity-pending = Pending { $n }
-activity-building = Building { $n }
-activity-running = Running { $n }
-activity-ending = Ending { $n }
-activity-extracting = Extracting { $n }
-activity-awaiting = Awaiting { $n }
 activity-sessions = Sessions { $n }
 
 # Session list turn / status column

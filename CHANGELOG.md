@@ -30,7 +30,7 @@ Cursor (`cursor`) are registered.
 ### Paths and config
 
 - Config home is `~/.anqa` (`config.toml`, optional `keys.toml`).
-- Session catalog is the adapter store (default `~/.grok/sessions`).
+- The catalog is every enabled adapter store.
 - `~/.anqa/config.toml` is the only prefs file (terminal app and
   desktop HUD). Default look is `theme = "auto"`: the terminal follows
   the terminal then the desktop; the desktop palette follows the

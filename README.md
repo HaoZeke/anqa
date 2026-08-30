@@ -53,7 +53,7 @@ Wheels for Linux, macOS, and Windows (Intel and ARM) are on
 | Root | Default | Holds |
 |------|---------|--------|
 | Config home | `~/.anqa` | `config.toml`, optional `keys.toml`, notes, reports |
-| Session store | `~/.grok/sessions` | Adapter catalog (`[catalog.roots]` can override) |
+| Catalog | each enabled adapter store | listed sessions (`[catalog.roots]` can override a path) |
 
 ```bash
 anqa                      # default host store

@@ -93,15 +93,7 @@ async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
         bar.refresh_activity()
         await pilot.pause()
         counts = activity_counters_from_app(app)
-        line = build_activity_line(
-            pending=counts["pending"],
-            building=counts["building"],
-            running=counts["running"],
-            extracting=counts["extracting"],
-            awaiting=counts["awaiting"],
-            refresh_active=counts["refresh"],
-            sessions_loaded=counts["sessions"],
-        )
+        line = build_activity_line(sessions_loaded=counts["sessions"])
         plain = line.plain.lower()
         assert "sessions" in plain
 
