@@ -15,6 +15,7 @@
   s               Select (also Space)
   S               Select all
   E               Export a session bundle
+  Ctrl+O          Import a harness archive or anqa export (file picker; h / Left / Backspace parent folder)
   x               Delete (press twice)
 
 %%catalog-query%%

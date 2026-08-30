@@ -48,6 +48,14 @@ class HarnessAdapter(Protocol):
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
         """Write the native session archive to *dest*. Return member names."""
 
+    def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
+        """Materialize *src* under *dest_root* and return a bound session.
+
+        *src* is this adapter's native archive (whatever
+        :meth:`write_archive` wrote). The locator may be a directory, a
+        file, or a database row. Domain does not assume a directory tree.
+        """
+
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
         """Full session metadata (browser, export, document)."""
 

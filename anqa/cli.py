@@ -4,7 +4,7 @@ Default: interactive TUI. Optional path (``-P`` or leading argument) selects
 a session store or session (default catalog store).
 
 Commands: ``serve`` (control owner), ``hud``, ``doctor``, ``editor``,
-``keys``, ``config``, ``export-host``.
+``keys``, ``config``, ``import``, ``export-host``.
 
 Shell completion: ``uv run anqa --install-completion``
 """
@@ -84,6 +84,7 @@ TOOL_COMMANDS = frozenset(
         "keys",
         "config",
         "export-host",
+        "import",
     }
 )
 
@@ -116,6 +117,13 @@ def launch_tui(
         markers = ("updates.jsonl", "events.jsonl", "chat_history.jsonl", "summary.json")
         if candidate.is_dir() and any((candidate / marker).is_file() for marker in markers):
             session = candidate.resolve()
+        elif candidate.is_file():
+            from .session.imports import import_session, looks_like_import_source
+
+            if looks_like_import_source(candidate):
+                imported = import_session(candidate)
+                loc = imported.ref.locator
+                session = loc if loc.is_dir() else None
     socket_path = (
         None
         if socket is False
@@ -667,6 +675,20 @@ def cmd_config_schema(
         typer.echo(text, nl=False)
     else:
         typer.echo(f"Wrote {out}")
+
+
+@app.command("import")
+def cmd_import(
+    path: Annotated[
+        Path,
+        typer.Argument(help="Harness archive, anqa export, or session directory."),
+    ],
+) -> None:
+    """Copy a session archive into ``~/.anqa/imports`` and print the catalog path."""
+    from .session.imports import import_session
+
+    result = import_session(path)
+    typer.echo(result.ref.ref_string())
 
 
 @app.command("export-host")

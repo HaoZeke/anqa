@@ -49,6 +49,27 @@ def reports_dir() -> Path:
     return d
 
 
+def imports_dir(*, create: bool = True) -> Path:
+    """``~/.anqa/imports`` — extracted harness archives, one dir per adapter id."""
+    d = APP_HOME / "imports"
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def is_import_locator(path: Path | str) -> bool:
+    """True when *path* lives under :func:`imports_dir`."""
+    root = APP_HOME / "imports"
+    raw = Path(path).expanduser()
+    try:
+        loc = raw.resolve()
+        base = root.resolve() if root.exists() else root
+    except OSError:
+        loc = raw
+        base = root
+    return loc == base or base in loc.parents
+
+
 def notes_fallback_dir(session_id: str) -> Path:
     """``~/.anqa/notes/<session_id>`` — operator notes when session dir is not writable."""
     d = APP_HOME / "notes" / session_id

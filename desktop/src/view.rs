@@ -161,6 +161,7 @@ fn session_state_row(
     model: &str,
     duration: &str,
     subagent: bool,
+    imported: bool,
     tea: icedtea::theme::Tokens,
     context: &str,
 ) -> Element<'static, Message> {
@@ -177,6 +178,13 @@ fn session_state_row(
     }
     if !harness.trim().is_empty() {
         chips = chips.push(status_chip(harness.trim().to_string(), "", tea));
+    }
+    if imported {
+        chips = chips.push(status_chip(
+            crate::format::origin_label("import").to_string(),
+            "",
+            tea,
+        ));
     }
     if !model.trim().is_empty() {
         chips = chips.push(status_chip(model.trim().to_string(), "", tea));
@@ -206,6 +214,7 @@ fn session_state_from_row(
         &row.model,
         &taken,
         false,
+        row.imported || row.origin.eq_ignore_ascii_case("import"),
         tea,
         row.context_usage_compact.trim(),
     )
@@ -227,6 +236,7 @@ fn session_state_from_meta(
         &meta.model,
         &taken,
         meta.is_subagent(),
+        meta.imported || meta.origin.eq_ignore_ascii_case("import"),
         tea,
         "",
     )
@@ -827,7 +837,9 @@ fn browse_session_bar<'a>(
     if let Some(o) = hud.overview() {
         row = row.push(session_state_from_meta(&o.meta, tea));
     } else if !status.is_empty() {
-        row = row.push(session_state_row(&status, "", "", "", false, tea, ""));
+        row = row.push(session_state_row(
+            &status, "", "", "", false, false, tea, "",
+        ));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(icedtea::widget::meta(

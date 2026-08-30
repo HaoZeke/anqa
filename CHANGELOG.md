@@ -70,9 +70,18 @@ Cursor (`cursor`) are registered.
 - `y` copies the selection or the pane body.
 - `E` writes a session bundle under `~/.anqa/reports/`. The nested
   archive comes from the session's harness adapter.
+- `Ctrl+O` (terminal and desktop) and `anqa import PATH` open a
+  harness archive or anqa export into `~/.anqa/imports/`. Filter with
+  `is:import`. The terminal app browses the filesystem (Up / `h` /
+  Left / Backspace for the parent folder); the desktop palette uses
+  the host picker and also accepts a dropped file. Host
+  and import copies of the same session id stay separate; the import
+  copy shows Import.
 
 ### Desktop HUD
 
+- UI type is brand Fira Sans (Regular / SemiBold), loaded from
+  `brand/fonts/`. Mono stays the host face.
 - `anqa hud` is the summonable session palette (Overview, Turns,
   Timeline, Diff, Notes).
 - It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`

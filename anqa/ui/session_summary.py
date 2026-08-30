@@ -107,6 +107,10 @@ def render_session_summary(
     if harness:
         head.append("  ")
         head.append_text(status_chip(harness, kind="unknown"))
+    origin_chip = _origin_chip(meta.origin)
+    if origin_chip == t("ui-origin-import"):
+        head.append("  ")
+        head.append_text(status_chip(origin_chip, kind="unknown"))
     if model and model != "—":
         head.append("  ")
         head.append_text(status_chip(model, kind="unknown"))
@@ -146,6 +150,17 @@ def _outcome_face(outcome: str) -> str:
     if oc in ("success", "ok", "completed", "complete"):
         return "complete"
     return outcome
+
+
+def _origin_chip(origin: str) -> str:
+    key = (origin or "").strip().lower()
+    if key == "import":
+        return t("ui-origin-import")
+    if key == "host":
+        return t("ui-origin-host")
+    if key == "work":
+        return t("ui-origin-work")
+    return ""
 
 
 def _turn_label_face(last: TurnSegment) -> str:

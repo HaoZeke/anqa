@@ -190,6 +190,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | s / Space | sessions | Select (also Space) |
 | S | sessions | Select all |
 | E | sessions | Export a session bundle |
+| Ctrl+O | sessions / HUD | Import a harness archive or anqa export |
 | x | sessions | Delete (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
@@ -222,13 +223,25 @@ turn. Enter opens (or edits the focused note).
 `~/.anqa/reports/` (profile in `export.default_profile`, or pick once).
 A parent bundle includes `children/<id>/session.tar.gz` for each
 openable child. Exporting an opened child is that child only.
+
+### Import
+
+`Ctrl+O` on the session list opens a file picker in the terminal
+app (browse, Up / h / Left / Backspace for the parent folder, or
+type a path). The desktop palette uses the host picker and also
+accepts a dropped archive. `anqa import PATH` does the same from
+the shell. The owner unpacks the
+native harness archive (or an anqa `E` export) into
+`~/.anqa/imports/<harness>/` and lists it with `is:import`. Browse
+it like any other session. Next prompt and Done stay off.
+
 ### Catalog search
 
 `/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `anqa serve`.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:import` | Status or import store |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (shells, monitors, or schedules). `task:` is a task-id substring. Git stays yes/no. |
 | `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
@@ -347,4 +360,5 @@ just ci              # lint + schema-check + hud-check + examples-check + test
 just bump 0.1.1      # version strings + CHANGELOG.md
 ```
 
-Also: `anqa doctor` (config home, catalog, HUD seat), `anqa keys`.
+Also: `anqa doctor` (config home, catalog, HUD seat), `anqa keys`,
+`anqa import PATH`.

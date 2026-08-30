@@ -145,6 +145,7 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("help.toggle", ActionScope.GLOBAL, "?", ActionSurface.SHARED),
     _row("overlay.hide", ActionScope.GLOBAL, "escape", ActionSurface.SHARED),
     _row("session.open", ActionScope.HOME, "enter", ActionSurface.SHARED),
+    _row("session.import", ActionScope.HOME, "ctrl+o", ActionSurface.SHARED),
     _row("list.down", ActionScope.HOME, "j,down", ActionSurface.SHARED, overlay_scopes=_NAV),
     _row("list.up", ActionScope.HOME, "k,up", ActionSurface.SHARED, overlay_scopes=_NAV),
     _row(

@@ -81,6 +81,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_toggle_select", U.cmd_toggle_select()),
                 ("action_select_all", U.cmd_select_all_none()),
                 ("action_delete_sessions", U.cmd_delete_sessions()),
+                ("action_import_session", U.cmd_import_session()),
                 ("action_export_session_bundle", U.cmd_export_bundle()),
                 ("action_export_session_choose_profile", U.cmd_export_choose_profile()),
             ):

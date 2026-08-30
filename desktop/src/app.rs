@@ -1,6 +1,7 @@
 //! iced application: state, RPC, hotkey, live poll.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -24,12 +25,13 @@ use crate::format::{
 };
 use crate::live::{
     card_marks_from_overview, clamp_scroll, diff_hunk_scroll_y, filter_timeline_indices,
-    filter_turn_indices, first_list_fetch, is_partial_list_page, is_soft_notes_save_error,
-    last_timeline_page_offset, list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
-    note_card_height, note_field_input_key, note_form_fields, note_text_input_keys,
-    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
-    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
+    filter_turn_indices, find_session_index, first_list_fetch, is_partial_list_page,
+    is_soft_notes_save_error, last_timeline_page_offset, list_focus_after_scroll,
+    list_scroll_to_cover, list_scroll_to_top, locators_equal, merge_catalog_rows,
+    merge_timeline_by_index, next_list_offset, next_spotlight_limit, note_card_height,
+    note_field_input_key, note_form_fields, note_text_input_keys, notes_schema_fields,
+    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
+    row_matches_keep, scroll_after_prepend, session_card_height, session_needs_live_poll,
     session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
     spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
     timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
@@ -197,6 +199,9 @@ pub enum Message {
     StatsCell(icedtea::collection::ItemClick, usize),
     /// Enter: open the selected session (works while search is focused).
     ActivateSelected,
+    /// Native file picker or a dropped archive path.
+    ImportPicked(Option<PathBuf>),
+    ImportDone(Result<Value, String>),
     TimelineSearchApply(u64),
     DiffLoaded {
         gen: u64,
@@ -316,6 +321,7 @@ pub struct Hud {
     overview: Option<Overview>,
     overview_sid: String,
     overview_pending: String,
+    pending_open_sid: Option<String>,
     overview_gen: u64,
     /// Parent sessions to restore when Esc leaves a child overview.
     parent_stack: Vec<ParentFrame>,
@@ -502,6 +508,7 @@ impl Default for Hud {
             overview: None,
             overview_sid: String::new(),
             overview_pending: String::new(),
+            pending_open_sid: None,
             overview_gen: 0,
             parent_stack: vec![],
             restore_around: None,
@@ -678,7 +685,8 @@ fn write_os_clipboard(text: &str) {
 
 fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
     prep.window.icon = crate::brand::window_icon();
-    prep.iced_settings.default_font = icedtea::typo::UI;
+    prep.iced_settings.fonts = crate::typo::files();
+    prep.iced_settings.default_font = crate::typo::UI;
     prep.iced_settings.default_text_size =
         Pixels::from(crate::theme::tokens("textual-dark").body());
 }
@@ -758,7 +766,7 @@ pub fn run() -> iced::Result {
     }
     // icedtea::daemon! is equivalent; catalog + dual window modes stay manual
     // via Prepared + iced::daemon. Call the same face remap the macro would.
-    icedtea::typo::install_platform_faces();
+    crate::typo::install();
     iced::daemon(Hud::new, Hud::update, Hud::view)
         .title(concat!("anqa ", env!("CARGO_PKG_VERSION")))
         .subscription(Hud::subscription)
@@ -988,17 +996,27 @@ impl Hud {
                     return self.focus_picker();
                 };
                 let sid = row.session_id.clone();
+                let path = row.path.clone();
                 if sid.is_empty() {
                     return self.focus_picker();
                 }
-                let same = self.overview.is_some()
-                    && !self.overview_sid.is_empty()
-                    && sid == self.overview_sid;
+                let same = self.overview.as_ref().is_some_and(|o| {
+                    if !path.is_empty() && !o.meta.path.is_empty() {
+                        locators_equal(&path, &o.meta.path)
+                    } else {
+                        !self.overview_sid.is_empty() && sid == self.overview_sid
+                    }
+                });
                 // Spotlight: pick → clear search → full-width browse.
                 self.query.clear();
                 self.abandon_catalog_search();
-                self.rerank_visible_keeping(sid.clone());
-                if let Some(idx) = self.sessions().iter().position(|r| r.session_id == sid) {
+                let keep = if !path.is_empty() {
+                    path.clone()
+                } else {
+                    sid.clone()
+                };
+                self.rerank_visible_keeping(keep);
+                if let Some(idx) = find_session_index(self.sessions(), &sid, &path) {
                     self.set_active(idx);
                 } else {
                     self.set_active(0);
@@ -1462,15 +1480,62 @@ impl Hud {
                 self.stats_cursor = Some((click.id, col));
                 Task::none()
             }
+            Message::ImportPicked(path) => {
+                let Some(path) = path else {
+                    return Task::none();
+                };
+                let raw = path.to_string_lossy().into_owned();
+                Task::perform(
+                    rpc(move || control::session_import(&raw)),
+                    Message::ImportDone,
+                )
+            }
+            Message::ImportDone(result) => match result {
+                Ok(value) => {
+                    let sid = value
+                        .get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let loc = value
+                        .get("session")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if sid.is_empty() && loc.is_empty() {
+                        self.toasts.push_warning("Import did not return a session");
+                        return Task::none();
+                    }
+                    let shown = if sid.is_empty() {
+                        loc.as_str()
+                    } else {
+                        sid.as_str()
+                    };
+                    self.toasts.push_success(format!("Imported {shown}"));
+                    // Catalog path when present — host and import share sessionId.
+                    self.pending_open_sid = Some(if loc.is_empty() { sid } else { loc });
+                    fetch_list(false, 0)
+                }
+                Err(err) => {
+                    self.toasts.push_danger(format!("Import failed: {err}"));
+                    Task::none()
+                }
+            },
             Message::ActivateSelected => {
                 if self.browse_mode() {
                     // Already in full-width browse with an empty search — no re-pick.
                     return Task::none();
                 }
                 self.ensure_rail_selection_for_activate();
-                let Some(sid) = self.selected_sid() else {
+                let Some(row) = self.selected_row() else {
                     return Task::none();
                 };
+                let sid = row.session_id.clone();
+                let path = row.path.clone();
+                if sid.is_empty() && path.is_empty() {
+                    return Task::none();
+                }
                 // Same as click: clear search so layout leaves the picker.
                 self.go_page(
                     motion::session_enter_role(),
@@ -1479,8 +1544,13 @@ impl Hud {
                 );
                 self.query.clear();
                 self.abandon_catalog_search();
-                self.rerank_visible_keeping(sid.clone());
-                if let Some(idx) = self.sessions().iter().position(|r| r.session_id == sid) {
+                let keep = if !path.is_empty() {
+                    path.clone()
+                } else {
+                    sid.clone()
+                };
+                self.rerank_visible_keeping(keep);
+                if let Some(idx) = find_session_index(self.sessions(), &sid, &path) {
                     self.set_active(idx);
                 }
                 Task::batch([self.load_overview(false), self.focus_browse()])
@@ -1571,6 +1641,18 @@ impl Hud {
                         return self.refresh_catalog_search();
                     }
                     self.apply_list(v.clone(), quiet);
+                    if let Some(token) = self.pending_open_sid.take() {
+                        let (sid, path) = pending_open_parts(&token);
+                        if let Some(idx) = find_session_index(self.sessions(), sid, path) {
+                            self.set_active(idx);
+                            return Task::batch([
+                                self.continue_catalog_pages(&v),
+                                self.refresh_catalog_search(),
+                                self.update(Message::ActivateSelected),
+                            ]);
+                        }
+                        self.pending_open_sid = Some(token);
+                    }
                     // Spotlight: catalog fill only — never auto-open a session.
                     Task::batch([
                         self.continue_catalog_pages(&v),
@@ -3598,12 +3680,14 @@ impl Hud {
     /// Rail selection identity for loads. `Selection::None` is none — never
     /// invent `active` while the filtered list cleared the highlight.
     fn selected_sid(&self) -> Option<String> {
+        self.selected_row()
+            .map(|r| r.session_id.clone())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn selected_row(&self) -> Option<&SessionRow> {
         match self.list_selection {
-            icedtea::collection::Selection::Single(i) => self
-                .sessions()
-                .get(i)
-                .map(|r| r.session_id.clone())
-                .filter(|s| !s.is_empty()),
+            icedtea::collection::Selection::Single(i) => self.sessions().get(i),
             icedtea::collection::Selection::None | icedtea::collection::Selection::Multi(_) => None,
         }
     }
@@ -3664,11 +3748,12 @@ impl Hud {
         if self.overview_sid.is_empty() {
             return;
         }
-        if let Some(i) = self
-            .sessions()
-            .iter()
-            .position(|r| r.session_id == self.overview_sid)
-        {
+        let path = self
+            .overview
+            .as_ref()
+            .map(|o| o.meta.path.as_str())
+            .unwrap_or("");
+        if let Some(i) = find_session_index(self.sessions(), &self.overview_sid, path) {
             self.set_active(i);
         }
     }
@@ -4020,22 +4105,24 @@ impl Hud {
     /// never maps a filtered `active` index onto a different catalog row.
     /// `active` alone is not a pick — Spotlight starts with no highlight.
     fn session_keep_id(&self) -> String {
+        if let Some(path) = self
+            .overview
+            .as_ref()
+            .map(|o| o.meta.path.as_str())
+            .filter(|p| !p.is_empty())
+        {
+            return path.to_string();
+        }
         if !self.overview_sid.is_empty() {
             return self.overview_sid.clone();
         }
         if !self.overview_pending.is_empty() {
             return self.overview_pending.clone();
         }
-        match self.list_selection {
-            icedtea::collection::Selection::Single(i) => self
-                .sessions()
-                .get(i)
-                .map(|r| r.session_id.clone())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_default(),
-            icedtea::collection::Selection::None | icedtea::collection::Selection::Multi(_) => {
-                String::new()
-            }
+        match self.selected_row() {
+            Some(row) if !row.path.is_empty() => row.path.clone(),
+            Some(row) => row.session_id.clone(),
+            None => String::new(),
         }
     }
 
@@ -4053,7 +4140,9 @@ impl Hud {
         let keep_at = if keep.is_empty() {
             None
         } else {
-            self.sessions().iter().position(|r| r.session_id == keep)
+            self.sessions()
+                .iter()
+                .position(|r| row_matches_keep(r, &keep))
         };
         if let Some(idx) = keep_at {
             self.set_active(idx);
@@ -5620,11 +5709,30 @@ impl Hud {
         self.follow_id.clone()
     }
     pub fn selected_awaiting(&self) -> bool {
+        if self.sessions().get(self.active).is_some_and(|r| r.imported) {
+            return false;
+        }
         crate::live::is_live_status(&self.selected_status())
             && self
                 .selected_status()
                 .to_ascii_lowercase()
                 .contains("await")
+    }
+
+    fn pick_import() -> Task<Message> {
+        Task::perform(
+            async {
+                std::thread::spawn(|| {
+                    rfd::FileDialog::new()
+                        .add_filter("Archives", &["gz", "tgz", "tar"])
+                        .pick_file()
+                })
+                .join()
+                .ok()
+                .flatten()
+            },
+            Message::ImportPicked,
+        )
     }
 
     fn send_follow(&mut self) -> Task<Message> {
@@ -5828,6 +5936,9 @@ impl Hud {
         }
         if self.browse_mode() && self.key_is("pane.notes", "shift+n", &key, modifiers) {
             return self.update(Message::SetTab(Tab::Notes));
+        }
+        if !self.browse_mode() && self.key_is("session.import", "ctrl+o", &key, modifiers) {
+            return Self::pick_import();
         }
         if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();
@@ -6649,6 +6760,7 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
         Event::Window(window::Event::Resized(size)) => Some(Message::WindowSize(size)),
         Event::Window(window::Event::Focused) => Some(Message::WindowFocus(true)),
         Event::Window(window::Event::Unfocused) => Some(Message::WindowFocus(false)),
+        Event::Window(window::Event::FileDropped(path)) => Some(Message::ImportPicked(Some(path))),
         Event::Keyboard(ref kev) => {
             // Ctrl+1–5 must work even when a field captured the event, and
             // even when X11 reports the C0 control character instead of "4".
@@ -6780,6 +6892,16 @@ fn tray_stream() -> impl iced::futures::Stream<Item = Message> {
     })
 }
 
+/// Import result token: catalog path, or session id when the path is missing.
+fn pending_open_parts(token: &str) -> (&str, &str) {
+    let token = token.trim();
+    if token.contains('/') || token.contains('\\') {
+        ("", token)
+    } else {
+        (token, "")
+    }
+}
+
 fn register_global_hotkey(
     hk: global_hotkey::hotkey::HotKey,
     label: &str,
@@ -6905,6 +7027,7 @@ mod tests {
             visible: true,
             query: String::new(),
             overview_pending: "s1".into(),
+            pending_open_sid: None,
             overview_sid: "s1".into(),
             overview: Some(Overview::default()),
             ..Hud::default()
@@ -7006,6 +7129,7 @@ mod tests {
         let mut hud = Hud {
             query: String::new(),
             overview_pending: "s1".into(),
+            pending_open_sid: None,
             overview_sid: "s1".into(),
             overview: Some(Overview {
                 session_id: "s1".into(),
@@ -7929,6 +8053,16 @@ mod tests {
     }
 
     #[test]
+    fn interesting_hud_event_maps_file_drop_to_import() {
+        let path = PathBuf::from("/tmp/sess.tar.gz");
+        let ev = Event::Window(window::Event::FileDropped(path.clone()));
+        assert!(matches!(
+            interesting_hud_event(ev, event::Status::Ignored, window::Id::unique()),
+            Some(Message::ImportPicked(Some(p))) if p == path
+        ));
+    }
+
+    #[test]
     fn notes_tab_walks_form_fields_while_composing() {
         use iced::keyboard::{Key, Modifiers};
         let mut hud = Hud {
@@ -8351,6 +8485,105 @@ mod tests {
     }
 
     #[test]
+    fn select_session_keeps_import_when_host_shares_id() {
+        let host = SessionRow {
+            session_id: "same".into(),
+            title: "HashImport".into(),
+            path: "/host/same".into(),
+            origin: "host".into(),
+            imported: false,
+            sort_epoch: 2.0,
+            ..SessionRow::default()
+        };
+        let imported = SessionRow {
+            session_id: "same".into(),
+            title: "HashImport".into(),
+            path: "/home/.anqa/imports/grok/same".into(),
+            origin: "import".into(),
+            imported: true,
+            sort_epoch: 1.0,
+            ..SessionRow::default()
+        };
+        let mut hud = Hud {
+            all_sessions: vec![host.clone(), imported.clone()],
+            sessions: vec![host.clone(), imported.clone()],
+            active: 0,
+            list_selection: icedtea::collection::Selection::Single(0),
+            overview_sid: "same".into(),
+            overview: Some(Overview {
+                session_id: "same".into(),
+                meta: crate::wire::SessionMeta {
+                    session_id: "same".into(),
+                    path: host.path.clone(),
+                    origin: "host".into(),
+                    imported: false,
+                    ..crate::wire::SessionMeta::default()
+                },
+                ..Overview::default()
+            }),
+            overview_gen: 1,
+            ..Hud::default()
+        };
+        let gen_before = hud.overview_gen;
+        let _ = hud.update(Message::SelectSession(1));
+        assert_eq!(
+            hud.sessions().get(hud.active()).map(|r| r.path.as_str()),
+            Some(imported.path.as_str())
+        );
+        assert!(hud.overview_gen > gen_before || !hud.overview_pending.is_empty());
+        assert_eq!(hud.overview_pending, "same");
+    }
+
+    #[test]
+    fn import_done_opens_import_copy_not_host_id() {
+        let host = SessionRow {
+            session_id: "same".into(),
+            title: "HashImport".into(),
+            path: "/host/same".into(),
+            origin: "host".into(),
+            imported: false,
+            sort_epoch: 2.0,
+            ..SessionRow::default()
+        };
+        let imported = SessionRow {
+            session_id: "same".into(),
+            title: "HashImport".into(),
+            path: "/home/.anqa/imports/grok/same".into(),
+            origin: "import".into(),
+            imported: true,
+            sort_epoch: 1.0,
+            ..SessionRow::default()
+        };
+        let mut hud = Hud {
+            all_sessions: vec![host.clone()],
+            sessions: vec![host.clone()],
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::ImportDone(Ok(json!({
+            "sessionId": "same",
+            "session": imported.path,
+            "imported": true,
+            "opened": true
+        }))));
+        assert_eq!(
+            hud.pending_open_sid.as_deref(),
+            Some(imported.path.as_str())
+        );
+        let _ = hud.update(Message::ListLoaded {
+            quiet: false,
+            result: Ok(json!({
+                "sessions": [host, imported.clone()],
+                "matched": 2,
+                "total": 2
+            })),
+        });
+        assert_eq!(
+            hud.sessions().get(hud.active()).map(|r| r.path.as_str()),
+            Some(imported.path.as_str())
+        );
+    }
+
+    #[test]
     fn timeline_scroll_keeps_selection_in_the_viewport() {
         let mut hud = hud_with_session();
         let events: Vec<Value> = (0..20).map(|i| ev_json(i, "e")).collect();
@@ -8557,11 +8790,8 @@ mod tests {
         assert_eq!(overlay.window.size, Size::new(HUD_W, HUD_H));
         assert!(!overlay.window.decorations);
         assert_eq!(overlay.window.max_size, Some(Size::new(HUD_W, HUD_H)));
-        assert!(
-            overlay.iced_settings.fonts.is_empty(),
-            "HUD uses platform faces; do not embed TTF"
-        );
-        assert_eq!(overlay.iced_settings.default_font, icedtea::typo::UI);
+        assert_eq!(overlay.iced_settings.fonts.len(), crate::typo::files().len());
+        assert_eq!(overlay.iced_settings.default_font, crate::typo::UI);
         let desk = desktop_prepared();
         assert!(desk.window.decorations);
         assert!(desk.window.resizable);
@@ -8570,7 +8800,7 @@ mod tests {
         assert!(src.contains("bootstrap_with_catalog"));
         assert!(src.contains(".open()"));
         assert!(src.contains("retarget"));
-        assert!(src.contains("install_platform_faces"));
+        assert!(src.contains("typo::install"));
     }
 
     #[test]
@@ -11105,6 +11335,7 @@ mod tests {
     fn diff_query_filters_visible_files_and_scope_includes_search() {
         let mut hud = Hud {
             overview_pending: "s1".into(),
+            pending_open_sid: None,
             tab: Tab::Diff,
             diff: crate::wire::DiffBlock {
                 points: vec![crate::wire::DiffPointRow {
@@ -11173,6 +11404,7 @@ mod tests {
     fn diff_nav_step_repaints_hit_on_the_new_file() {
         let mut hud = Hud {
             overview_pending: "s1".into(),
+            pending_open_sid: None,
             tab: Tab::Diff,
             diff: crate::wire::DiffBlock {
                 points: vec![crate::wire::DiffPointRow {

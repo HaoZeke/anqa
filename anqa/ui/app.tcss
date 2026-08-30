@@ -962,6 +962,16 @@ ModalScreen {
     padding: 1 2;
 }
 
+#modal-container.import-path {
+    height: 28;
+}
+
+#modal-container.import-path #import-path-tree {
+    height: 1fr;
+    min-height: 10;
+    margin: 1 0;
+}
+
 #notes-modal-body SelectionList.note-field-choices {
     height: auto;
     max-height: 10;

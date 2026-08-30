@@ -100,7 +100,7 @@ def test_export_parent_packs_openable_child_trace(tmp_path: Path) -> None:
         names = set(tf.getnames())
         assert child_member in names
         manifest = json.loads(tf.extractfile("manifest.json").read().decode())  # type: ignore[union-attr]
-    assert manifest["schema"] == 9
+    assert manifest["schema"] == 10
     assert manifest["children"][0]["sessionId"] == "child-exp"
     assert manifest["children"][0]["member"] == child_member
 
@@ -162,7 +162,7 @@ def test_export_session_bundle_embeds_nested_session_archive(tmp_path: Path) -> 
     assert "n-export" in notes_text
     assert manifest["session_id"] == SID
     assert manifest["session"] == SESSION_ARCHIVE_NAME
-    assert manifest["schema"] == 9
+    assert manifest["schema"] == 10
     assert manifest["children"] == []
     assert manifest["profile"] == "archive-full"
     assert manifest["packaging"] == "tar.gz"

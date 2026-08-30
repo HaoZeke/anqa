@@ -35,6 +35,12 @@ _HOST_SKIP_DIR_NAMES = frozenset(
     }
 )
 
+ORIGIN_WORK = "work"
+ORIGIN_HOST = "host"
+ORIGIN_IMPORT = "import"
+
+type SessionOrigin = str
+
 
 def _resolved(path: Path) -> Path:
     p = Path(path).expanduser()
@@ -79,11 +85,32 @@ def is_under_adapter_store(session_dir: Path) -> bool:
     return False
 
 
+def classify_session_origin(
+    session_dir: Path,
+    *,
+    host_root: Path | None = None,
+) -> SessionOrigin:
+    """Return import when under the import store, else host."""
+    from ..paths import is_import_locator
+
+    if is_import_locator(session_dir):
+        return ORIGIN_IMPORT
+    if host_root is not None:
+        sd = _resolved(session_dir)
+        host = _resolved(host_root)
+        if sd == host or host in sd.parents:
+            return ORIGIN_HOST
+    if is_under_adapter_store(session_dir):
+        return ORIGIN_HOST
+    return ORIGIN_HOST
+
+
 @dataclass(frozen=True)
 class SessionScanRoot:
     """One directory to scan for operator-facing sessions."""
 
     path: Path
+    origin: SessionOrigin = ORIGIN_HOST
 
 
 def session_scan_roots(
@@ -100,12 +127,12 @@ def session_scan_roots(
     out: list[SessionScanRoot] = []
     seen: set[str] = set()
 
-    def add(path: Path) -> None:
+    def add(path: Path, origin: SessionOrigin = ORIGIN_HOST) -> None:
         key = str(_resolved(path))
         if key in seen:
             return
         seen.add(key)
-        out.append(SessionScanRoot(path=Path(path).expanduser()))
+        out.append(SessionScanRoot(path=Path(path).expanduser(), origin=origin))
 
     if include_host:
         if host_root is not None:
@@ -115,6 +142,14 @@ def session_scan_roots(
                 add(root)
     if traces_path is not None:
         add(Path(traces_path).expanduser())
+    from ..harness.ref import HARNESS_IDS
+    from ..paths import imports_dir
+
+    base = imports_dir(create=False)
+    for hid in sorted(HARNESS_IDS):
+        root = base / hid
+        if root.is_dir():
+            add(root, ORIGIN_IMPORT)
     return out
 
 
@@ -266,7 +301,13 @@ def collect_session_dirs(
         path = root.path
         if not path.exists():
             continue
-        for sd in collect_host_session_dirs(path):
+        if root.origin == ORIGIN_IMPORT:
+            from ..harness.registry import discover_dirs
+
+            session_dirs = discover_dirs(path)
+        else:
+            session_dirs = collect_host_session_dirs(path)
+        for sd in session_dirs:
             try:
                 key = str(sd.resolve())
             except OSError:
@@ -279,6 +320,11 @@ def collect_session_dirs(
 
 
 __all__ = [
+    "ORIGIN_HOST",
+    "ORIGIN_IMPORT",
+    "ORIGIN_WORK",
+    "SessionOrigin",
+    "classify_session_origin",
     "SessionScanRoot",
     "collect_host_session_dirs",
     "collect_session_dirs",

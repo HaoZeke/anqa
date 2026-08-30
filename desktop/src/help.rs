@@ -163,6 +163,14 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
         push(
             &mut table,
             overlay,
+            "session.import",
+            "Import",
+            "ctrl+o",
+            Message::ImportPicked(None),
+        );
+        push(
+            &mut table,
+            overlay,
             "list.down",
             "Down",
             "j,down",
@@ -343,6 +351,16 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             },
             "enter",
             Message::ActivateSelected,
+        );
+    }
+    if !scope.browse {
+        push(
+            &mut table,
+            overlay,
+            "session.import",
+            "Import",
+            "ctrl+o",
+            Message::ImportPicked(None),
         );
     }
     if !scope.browse
@@ -565,6 +583,7 @@ mod tests {
         assert!(blob.contains("? help"));
         assert!(blob.contains("esc hide"));
         assert!(blob.contains("enter open"));
+        assert!(blob.to_ascii_lowercase().contains("import"));
         assert!(blob.contains("j down"));
         assert!(blob.contains("/ search"));
         assert!(!blob.contains("tab "));

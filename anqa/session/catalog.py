@@ -16,6 +16,7 @@ from pathlib import Path
 from ..harness.ref import SessionRef, parse_session_ref_string
 from ..harness.registry import adapter, harness_product, ref_from_path, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
+from ..paths import is_import_locator
 from .mtime_export import (
     default_catalog_snapshot,
     load_or_rebuild_catalog,
@@ -23,6 +24,8 @@ from .mtime_export import (
 )
 from .query import apply_catalog_presence_row, catalog_presence_from_meta
 from .sources import (
+    ORIGIN_HOST,
+    ORIGIN_IMPORT,
     SessionScanRoot,
     collect_session_dirs,
     session_run_dir,
@@ -141,6 +144,8 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         path_str = ref.ref_string()
         if not meta.run_dir:
             meta.run_dir = ref.cwd or ""
+    imported = is_import_locator(locator)
+    meta.origin = ORIGIN_IMPORT if imported else ORIGIN_HOST
     if not (meta.harness or "").strip():
         meta.harness = ref.harness
     session_id = (meta.session_id or ref.session_id).strip()
@@ -165,6 +170,8 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         "model": meta.model_display,
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
+        "origin": meta.origin,
+        "imported": imported,
         "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         "harnessLabel": harness_product(meta.harness),
@@ -265,11 +272,11 @@ def list_session_catalog(
     return rows
 
 
-_DEAD_LIST_KEYS = ("origin", "originTag", "isHost")
+_DEAD_LIST_KEYS = ("originTag", "isHost")
 
 
 def public_catalog_row(row: JsonObject) -> JsonObject:
-    """List row as clients should see it: harness label, no origin tags."""
+    """List row as clients should see it: harness label plus import origin."""
     out = dict(row)
     for key in _DEAD_LIST_KEYS:
         out.pop(key, None)
@@ -292,6 +299,8 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "model",
     "status",
     "outcome",
+    "origin",
+    "imported",
     "harness",
     "harnessVersion",
     "harnessLabel",
@@ -725,11 +734,6 @@ class SessionCatalogCache:
         if current is None:
             return self.get(force=True), {}
         known_paths = {str(row.get("path") or "").strip() for row in current}
-        known_ids = {
-            str(row.get("sessionId") or "").strip(): str(row.get("path") or "").strip()
-            for row in current
-            if str(row.get("sessionId") or "").strip()
-        }
         catalog_paths = [Path(p) for p in known_paths if p and not p.startswith("harness:")]
         child_ids = nested_child_ids([*catalog_paths, *dirs])
         drop: set[str] = set()
@@ -742,27 +746,19 @@ class SessionCatalogCache:
                 resolved = str(session_dir)
             if _watch_session_hidden(session_dir, child_ids):
                 drop.add(resolved)
-                sid = session_dir.name
-                if sid in known_ids:
-                    drop.add(known_ids[sid])
+                drop.add(str(session_dir))
                 continue
             row = session_catalog_row(session_dir)
             if row is None:
                 drop.add(resolved)
-                sid = session_dir.name
-                if sid in known_ids:
-                    drop.add(known_ids[sid])
+                drop.add(str(session_dir))
                 continue
-            sid = str(row.get("sessionId") or "").strip()
             path_key = str(row.get("path") or resolved).strip()
-            prior = path_key if path_key in known_paths else known_ids.get(sid, "")
-            if prior:
-                replacements[prior] = row
+            if path_key in known_paths:
+                replacements[path_key] = row
             else:
                 appended.append(row)
                 known_paths.add(path_key)
-                if sid:
-                    known_ids[sid] = path_key
         upserts, removed_ids, list_changed = list_refresh_delta(
             current, replacements, appended, drop
         )
@@ -1021,6 +1017,11 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     task_id = str(row.get("taskId") or "").strip()
     if task_id:
         meta.task_id = task_id
+    origin = str(row.get("origin") or "").strip()
+    if origin:
+        meta.origin = origin
+    elif row.get("imported"):
+        meta.origin = "import"
     created = str(row.get("createdAt") or row.get("created_at") or "").strip()
     if created:
         meta.created_at = created
@@ -1111,7 +1112,13 @@ def _adapter_host_catalog_rows(
     rows: list[JsonObject] = []
     for item in enabled_host_adapters():
         roots = adapter_host_roots(item)
-        refs = [ref for ref in item.discover(roots) if not Path(ref.locator).is_dir()]
+        from ..paths import imports_dir
+
+        scan = list(roots)
+        imported_root = imports_dir(create=False) / item.id
+        if imported_root.is_dir():
+            scan.append(imported_root)
+        refs = [ref for ref in item.discover(scan) if not Path(ref.locator).is_dir()]
         if not refs:
             continue
         dest_root = Path(roots[0]).expanduser() if roots else Path(item.id)

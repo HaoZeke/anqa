@@ -561,6 +561,11 @@ class AntigravityAdapter:
                 tmp.unlink(missing_ok=True)
         return members
 
+    def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
+        from .grok import open_bound_archive
+
+        return open_bound_archive(src, dest_root, self.bind_locator, harness=self.id)
+
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
         return self.load_meta(ref)
 

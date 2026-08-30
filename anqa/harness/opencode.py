@@ -330,6 +330,21 @@ class OpenCodeAdapter:
                 tmp.unlink(missing_ok=True)
         return [name]
 
+    def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
+        from .grok import extract_sid_tarball
+
+        dest = extract_sid_tarball(src, dest_root)
+        payload = dest / "session.json"
+        if not payload.is_file():
+            raise RuntimeError(f"archive is not an opencode session: {src}")
+        db = dest_root / "opencode.db"
+        _session_import(db, payload)
+        return SessionRef(
+            harness=OPENCODE_HARNESS_ID,
+            session_id=dest.name,
+            locator=db,
+        )
+
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
         return self.load_meta(ref)
 
@@ -389,6 +404,95 @@ class OpenCodeAdapter:
                 )
             )
         return found
+
+
+def _session_import(db: Path, payload_path: Path) -> None:
+    """Write an exported OpenCode session.json into *db*."""
+    raw = json.loads(payload_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"opencode archive payload is not an object: {payload_path}")
+    session = raw.get("session")
+    if not isinstance(session, dict) or not str(session.get("id") or "").strip():
+        raise RuntimeError(f"opencode archive missing session id: {payload_path}")
+    db = Path(db)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS session ("
+            "id TEXT PRIMARY KEY, parent_id TEXT, directory TEXT, title TEXT, "
+            "model TEXT, version TEXT, time_created INTEGER, time_updated INTEGER, "
+            "time_archived INTEGER, tokens_input INTEGER, tokens_output INTEGER, "
+            "tokens_reasoning INTEGER, cost REAL)"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS message ("
+            "id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, "
+            "time_updated INTEGER, data TEXT)"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS part ("
+            "id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, "
+            "time_created INTEGER, time_updated INTEGER, data TEXT)"
+        )
+        cols = (
+            "id",
+            "parent_id",
+            "directory",
+            "title",
+            "model",
+            "version",
+            "time_created",
+            "time_updated",
+            "time_archived",
+            "tokens_input",
+            "tokens_output",
+            "tokens_reasoning",
+            "cost",
+        )
+        con.execute(
+            f"INSERT OR REPLACE INTO session ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+            tuple(session.get(col) for col in cols),
+        )
+        for msg in raw.get("messages") or []:
+            if not isinstance(msg, dict):
+                continue
+            data = msg.get("data")
+            if not isinstance(data, str):
+                data = json.dumps(data, ensure_ascii=False)
+            con.execute(
+                "INSERT OR REPLACE INTO message "
+                "(id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)",
+                (
+                    msg.get("id"),
+                    msg.get("session_id"),
+                    msg.get("time_created"),
+                    msg.get("time_updated"),
+                    data,
+                ),
+            )
+        for part in raw.get("parts") or []:
+            if not isinstance(part, dict):
+                continue
+            data = part.get("data")
+            if not isinstance(data, str):
+                data = json.dumps(data, ensure_ascii=False)
+            con.execute(
+                "INSERT OR REPLACE INTO part "
+                "(id, message_id, session_id, time_created, time_updated, data) "
+                "VALUES (?,?,?,?,?,?)",
+                (
+                    part.get("id"),
+                    part.get("message_id"),
+                    part.get("session_id"),
+                    part.get("time_created"),
+                    part.get("time_updated"),
+                    data,
+                ),
+            )
+        con.commit()
+    finally:
+        con.close()
 
 
 def _session_export(db: Path, session_id: str) -> JsonObject:

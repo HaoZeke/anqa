@@ -309,6 +309,10 @@ fn request(method: &str, params: Value) -> Result<Value, ControlError> {
     }
 }
 
+pub fn session_import(path: &str) -> Result<Value, ControlError> {
+    request("session/import", json!({ "path": path }))
+}
+
 pub fn initialize() -> Result<Value, ControlError> {
     request(
         "initialize",

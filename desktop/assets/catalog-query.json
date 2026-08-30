@@ -84,13 +84,15 @@
   "tokens": [
     {
       "name": "is",
-      "role": "Status.",
+      "role": "Status or origin.",
       "values": [
         "running",
         "awaiting",
         "ending",
         "complete",
-        "cancelled"
+        "cancelled",
+        "host",
+        "import"
       ],
       "compare": false
     },

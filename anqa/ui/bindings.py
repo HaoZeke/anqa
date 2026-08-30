@@ -60,6 +60,7 @@ LIST_SELECT_ALL: tuple[Binding, ...] = (
 # Sessions home only — order: Help, primary list actions, Quit last.
 APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("enter", "open_session", U.bind_open(), id="session.open", show=True),
+    _b("ctrl+o", "import_session", U.bind_import(), id="session.import", show=False),
     _b("slash", "search_sessions", U.bind_search(), id="search.focus", show=True),
     _b("s,space", "toggle_select", U.bind_select(), id="list.select", show=True),
     _b("S", "select_all", U.bind_select_all(), id="list.select_all", show=False),
@@ -80,6 +81,7 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
     {
         "search_sessions",
         "open_session",
+        "import_session",
         "toggle_select",
         "select_all",
         "delete_sessions",

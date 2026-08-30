@@ -69,7 +69,7 @@ from .data_table import (
     style_data_table,
     update_row_cell,
 )
-from .i18n import setup_i18n, t
+from .i18n import join_ui, setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
 from .screens.browser import BrowserScreen
@@ -293,6 +293,7 @@ class AnqaApp(App):
         )
         # True when attached to a live control owner (TUI never owns the socket).
         self._control_attached: bool = False
+        self._import_opening_sid: str = ""
         # When true, load catalog via session/list and never bind the socket.
         self._control_attach_only: bool = bool(control_attach_only)
         self._control_notify_stop: asyncio.Event | None = None
@@ -731,6 +732,8 @@ class AnqaApp(App):
             sid = json_as_str(params.get("sessionId")).strip()
             if not sid:
                 return
+            if sid == getattr(self, "_import_opening_sid", ""):
+                return
             raw_pi = params.get("promptIndex")
             prompt_index = None if raw_pi is None else json_as_int(raw_pi)
             # Resolve id → path via catalog rows or traces root.
@@ -880,6 +883,15 @@ class AnqaApp(App):
     def _session_catalog_roots(self):
         """Adapter store roots for the home list."""
         return self._catalog_roots_for_load(include_host=None)
+
+    def _origin_for_dir(self, session_dir: Path) -> str:
+        """Host adapter store from the directory, or import when under the import store."""
+        from ..paths import is_import_locator
+        from ..session.sources import classify_session_origin
+
+        if is_import_locator(session_dir):
+            return "import"
+        return classify_session_origin(session_dir)
 
     def _label_for_session(self, session_dir: Path) -> str:
         """Display path fragment relative to the catalog root."""
@@ -1485,6 +1497,9 @@ class AnqaApp(App):
         from ..harness.registry import harness_product
 
         harness = harness_product(meta.harness) or "—"
+        origin = self._origin_for_dir(Path(meta.session_dir)) or (meta.origin or "").strip()
+        if origin == "import":
+            harness = join_ui(harness, t("ui-origin-import"), sep=" · ")
         return (
             Text("*", style="bold green") if selected else Text(" "),
             (meta.label or meta.session_id)[:40],
@@ -1928,6 +1943,43 @@ class AnqaApp(App):
                         meta = m
                         break
         return meta
+
+    def action_import_session(self) -> None:
+        """Ctrl+O — open a harness archive or anqa export."""
+        from .import_modal import ImportPathModal
+
+        def _done(raw: str | None) -> None:
+            path = (raw or "").strip()
+            if path:
+                self.run_worker(self._import_and_open(path), exclusive=False)
+
+        self.push_screen(ImportPathModal(), _done)
+
+    async def _import_and_open(self, path: str) -> None:
+        """Import *path* via control when attached, else locally, then open it."""
+        from ..session.access import LocalSessionAccess
+        from .i18n import t
+
+        try:
+            access = self.session_access()
+            if access is not None and self.is_control_client():
+                result = await access.session_import(path)
+            else:
+                result = LocalSessionAccess(
+                    resolve_session=lambda _ref: None,
+                ).session_import(path)
+        except Exception as exc:
+            self.notify(t("import-failed", exc=str(exc)), severity="error", timeout=12)
+            return
+        sid = str(result.get("sessionId") or "").strip()
+        loc = str(result.get("session") or "").strip()
+        self._import_opening_sid = sid
+        self.notify(t("import-opened", session=sid or loc), severity="information", timeout=4)
+        self._schedule_sessions_reload(quiet=False)
+        if loc:
+            target = Path(loc)
+            if target.is_dir():
+                self._push_browser(target)
 
     def action_export_session_bundle(self) -> None:
         """Export session: use configured profile, or ask if none is set."""

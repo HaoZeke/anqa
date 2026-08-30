@@ -6,6 +6,7 @@ Sessions are sqlite rows. Timeline is ``session-state/<id>/events.jsonl``.
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import tarfile
 from collections.abc import Sequence
@@ -476,6 +477,29 @@ class CopilotAdapter:
             if not packed:
                 tmp.unlink(missing_ok=True)
         return members
+
+    def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
+        from .grok import extract_sid_tarball
+
+        dest = extract_sid_tarball(src, dest_root)
+        db = dest / "session.db"
+        events = dest / "events.jsonl"
+        if not db.is_file() and not events.is_file():
+            raise RuntimeError(f"archive is not a copilot session: {src}")
+        sid = dest.name
+        store = dest_root / "copilot.db"
+        if db.is_file():
+            shutil.copy2(db, store)
+        else:
+            store.touch()
+        state = _state_dir(store, sid)
+        state.mkdir(parents=True, exist_ok=True)
+        if events.is_file():
+            shutil.copy2(events, state / "events.jsonl")
+        workspace = dest / "workspace.yaml"
+        if workspace.is_file():
+            shutil.copy2(workspace, state / "workspace.yaml")
+        return SessionRef(harness=COPILOT_HARNESS_ID, session_id=sid, locator=store)
 
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
         return self.load_meta(ref)

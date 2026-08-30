@@ -480,6 +480,8 @@ class SessionMeta:
     run_id: str = ""
     # Disk adapter id. Adapter load_meta sets this.
     harness: str = ""
+    # Catalog origin: ``host`` store or ``import`` archive copy.
+    origin: str = ""
     # Product version recorded on the session, when the store has one.
     harness_version: str = ""
     # From events.jsonl runtime telemetry

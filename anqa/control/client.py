@@ -515,6 +515,11 @@ class ControlClient:
         result = await self.request("session/done", {"session": session})
         return as_json_object(result) if isinstance(result, dict) else {}
 
+    async def session_import(self, path: str) -> JsonObject:
+        """Call ``session/import`` for an archive, bundle, or session directory."""
+        result = await self.request("session/import", {"path": path})
+        return as_json_object(result) if isinstance(result, dict) else {}
+
 
 async def listen_control_notifications(
     socket_path: Path,

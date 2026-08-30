@@ -872,6 +872,32 @@ class ControlServer:
             )
         return {"opened": bool(opened)}
 
+    @_rpc("session/import")
+    async def _rpc_session_import(
+        self, params: JsonObject, after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        raw = json_as_str(params.get("path")).strip()
+        if not raw:
+            raise ControlError(-32602, "path is required")
+
+        def _import() -> JsonObject:
+            return self._access.session_import(raw)
+
+        try:
+            async with self._heavy_sem:
+                result = await asyncio.to_thread(_import)
+        except FileNotFoundError as exc:
+            raise ControlError(404, str(exc), {"path": raw}) from exc
+        except RuntimeError as exc:
+            raise ControlError(-32602, str(exc), {"path": raw}) from exc
+        cache = getattr(self, "_catalog_cache", None)
+        if cache is not None:
+            cache.invalidate()
+        session_id = json_as_str(result.get("sessionId"))
+        after_send.append((NOTIFY_SESSION_SELECTED, {"sessionId": session_id, "promptIndex": None}))
+        after_send.append((NOTIFY_SESSION_CHANGED, {"sessionId": session_id, "listChanged": True}))
+        return result
+
     @_rpc("notes/list")
     async def _rpc_notes_list(
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]

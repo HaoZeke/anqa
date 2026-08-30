@@ -141,6 +141,8 @@ class CatalogQueryRow:
     model: str = ""
     status: str = ""
     outcome: str = ""
+    origin: str = ""
+    imported: bool = False
     harness: str = ""
     path: str = ""
     git_repo: str = ""
@@ -176,6 +178,8 @@ class CatalogQueryRow:
             model=json_as_str(row.get("model")),
             status=json_as_str(row.get("status")),
             outcome=json_as_str(row.get("outcome")),
+            origin=json_as_str(row.get("origin")),
+            imported=bool(row.get("imported")),
             harness=json_as_str(row.get("harness")),
             path=json_as_str(row.get("path")),
             git_repo=json_as_str(row.get("gitRepo")),
@@ -216,6 +220,8 @@ class CatalogQueryRow:
             model=meta.model_display,
             status=meta.list_status_label() or "",
             outcome=meta.turn_outcome or "",
+            origin=meta.origin or "",
+            imported=_locator_is_import(path),
             harness=meta.harness or "",
             path=path,
             git_repo=meta.git_repo or "",
@@ -541,7 +547,19 @@ def _eval_field(field: str, expr: Item, row: CatalogQueryRow) -> bool:
     return _match_number(field, expr, row)
 
 
+def _locator_is_import(path: str) -> bool:
+    from ..paths import is_import_locator
+
+    return bool(path) and is_import_locator(path)
+
+
 def _match_is(value: str, row: CatalogQueryRow) -> bool:
+    if value == "import":
+        return bool(row.imported) or _locator_is_import(row.path)
+    if value == "host":
+        if row.imported or _locator_is_import(row.path):
+            return False
+        return (row.origin or "host").strip().casefold() == "host"
     status = row.status.strip().casefold()
     if value in {"cancelled", "canceled"}:
         return status in {"cancelled", "canceled"}

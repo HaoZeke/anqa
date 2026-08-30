@@ -63,8 +63,8 @@ _HAS_FLAG_ONLY: tuple[str, ...] = ("git", "context")
 CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "is",
-        "Status.",
-        ("running", "awaiting", "ending", "complete", "cancelled"),
+        "Status or origin.",
+        ("running", "awaiting", "ending", "complete", "cancelled", "host", "import"),
     ),
     CatalogQueryToken(
         "has",
@@ -558,6 +558,33 @@ METHODS: tuple[MethodSpec, ...] = (
         role="Resolve a session and notify `session/selected`",
         params=(_SESSION, _PROMPT_INDEX),
         result=(FieldSpec("opened", "True when the session resolved.", json_type="boolean"),),
+    ),
+    MethodSpec(
+        name="session/import",
+        role="Open a harness archive or anqa export and add it to the catalog",
+        params=(
+            FieldSpec(
+                "path",
+                "Archive, export bundle, or session directory.",
+                required=True,
+            ),
+        ),
+        result=(
+            FieldSpec("session", "Catalog path or `harness:id` for later methods."),
+            FieldSpec("sessionId", "Product session id."),
+            FieldSpec("harness", "Adapter id."),
+            FieldSpec(
+                "imported",
+                "True when the session lives under the import store.",
+                json_type="boolean",
+            ),
+            FieldSpec(
+                "replaced",
+                "True when a previous import of this id was overwritten.",
+                json_type="boolean",
+            ),
+            FieldSpec("opened", "True when the session resolved.", json_type="boolean"),
+        ),
     ),
     MethodSpec(
         name="session/render",

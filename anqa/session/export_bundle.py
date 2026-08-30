@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 SESSION_ARCHIVE_NAME = "session.tar.gz"
 
 # Manifest schema for this outer bundle layout (bump when fields/layout change).
-_MANIFEST_SCHEMA = 9
+_MANIFEST_SCHEMA = 10
 
 
 @dataclass
@@ -468,6 +468,7 @@ def export_session_bundle(
                 {
                     "schema": _MANIFEST_SCHEMA,
                     "kind": "anqa-session-export",
+                    "harness": require_adapter(session_dir).id,
                     "session_id": sid,
                     "exported_at": datetime.now(UTC).isoformat(),
                     "profile": resolved.profile_id,

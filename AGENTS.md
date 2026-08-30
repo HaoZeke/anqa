@@ -208,8 +208,9 @@ catalog discovery for control outside ``session/catalog`` +
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes, keys |
+| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes, keys, imports |
 | **Session store** | ``~/.grok/sessions`` | Adapter catalog (``[catalog.roots]`` can override) |
+| **Import store** | ``~/.anqa/imports/<harness>/`` | Sessions opened from an archive or anqa export |
 
 - Catalog = every enabled adapter store. ``harness:<id>`` filters.
   ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
@@ -618,7 +619,8 @@ or a child from a spawn/finish bookend, or the focused note;
 session delete is on the session list; ``N`` new note;
 ``E`` export. ``harness:<id>`` filters the catalog.
 
-Sessions home also: ``x`` delete (double-press). All adapter stores load.
+Sessions home also: ``x`` delete (double-press); ``Ctrl+O`` import
+an archive. All adapter stores load.
 
 ### 6.10 TUI and HUD: same action, same key
 
@@ -653,6 +655,7 @@ against the catalog.
 | ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
 | ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
+| ``Ctrl+O`` | Import a harness archive or anqa export (session list) |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 
