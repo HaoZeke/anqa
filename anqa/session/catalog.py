@@ -10,13 +10,20 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
 from ..harness.ref import SessionRef, parse_session_ref_string
 from ..harness.registry import adapter, harness_product, ref_from_path, require_adapter
-from ..models import JsonObject, JsonValue, SessionMeta
+from ..models import (
+    JsonObject,
+    JsonValue,
+    SessionMeta,
+    json_count,
+    json_count_float,
+    json_count_or_none,
+)
 from ..paths import is_import_locator
+from ..stamp import Stamp
 from .mtime_export import (
     default_catalog_snapshot,
     load_or_rebuild_catalog,
@@ -40,22 +47,6 @@ from .subagents import (
 logger = logging.getLogger(__name__)
 
 
-def _parse_iso_epoch(raw: object) -> float:
-    """Parse ISO-ish timestamps to epoch seconds; 0 when missing/invalid."""
-    if raw is None:
-        return 0.0
-    s = str(raw).strip()
-    if not s:
-        return 0.0
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return float(dt.timestamp())
-    except (TypeError, ValueError, OSError):
-        return 0.0
-
-
 def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) -> float:
     """Best-effort “latest activity” epoch for newest-first catalog order."""
     for key in ("sortEpoch", "updatedAt", "createdAt", "updated_at", "created_at"):
@@ -64,7 +55,7 @@ def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) 
             if isinstance(raw, (int, float)) and not isinstance(raw, bool):
                 return float(raw)
             continue
-        ts = _parse_iso_epoch(row.get(key))
+        ts = float(Stamp.epoch(row.get(key)) or 0)
         if ts > 0:
             return ts
     path = session_dir
@@ -151,7 +142,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
     session_id = (meta.session_id or ref.session_id).strip()
     created = str(meta.created_at or "").strip()
     updated = str(meta.updated_at or "").strip()
-    sort_epoch = _parse_iso_epoch(updated) or _parse_iso_epoch(created)
+    sort_epoch = float(Stamp.epoch(updated) or 0) or float(Stamp.epoch(created) or 0)
     if sort_epoch <= 0:
         try:
             sort_epoch = float(impl.trace_mtime(ref))
@@ -1029,54 +1020,11 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     if updated:
         meta.updated_at = updated
 
-    def _as_float(value: object, default: float = 0.0) -> float:
-        if isinstance(value, bool):
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                return float(value)
-            except ValueError:
-                return default
-        return default
-
-    def _as_int(value: object, default: int = 0) -> int:
-        if isinstance(value, bool):
-            return default
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value)
-        if isinstance(value, str):
-            try:
-                return int(value)
-            except ValueError:
-                return default
-        return default
-
-    def _opt_int(key: str) -> int | None:
-        raw = row.get(key)
-        if raw is None or raw == "":
-            return None
-        if isinstance(raw, bool):
-            return None
-        if isinstance(raw, int):
-            return raw
-        if isinstance(raw, float):
-            return int(raw)
-        if isinstance(raw, str):
-            try:
-                return int(raw)
-            except ValueError:
-                return None
-        return None
-
-    meta.duration_seconds = _as_float(row.get("durationSeconds"), 0.0)
-    meta.num_events = _as_int(row.get("numEvents"), 0)
-    meta.tool_call_count = _as_int(row.get("toolCallCount"), 0)
-    meta.turn_count = _as_int(row.get("turnCount"), 0)
-    meta.error_count = _as_int(row.get("errorCount"), 0)
+    meta.duration_seconds = json_count_float(row.get("durationSeconds"))
+    meta.num_events = json_count(row.get("numEvents"))
+    meta.tool_call_count = json_count(row.get("toolCallCount"))
+    meta.turn_count = json_count(row.get("turnCount"))
+    meta.error_count = json_count(row.get("errorCount"))
     apply_catalog_presence_row(meta, row)
     git_repo = str(row.get("gitRepo") or "").strip()
     if git_repo:
@@ -1085,13 +1033,13 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     if run_dir:
         meta.run_dir = run_dir
 
-    pct = _opt_int("contextWindowUsagePct")
+    pct = json_count_or_none(row.get("contextWindowUsagePct"))
     if pct is not None:
         meta.context_window_usage_pct = max(0, pct)
-    used = _opt_int("contextTokensUsed")
+    used = json_count_or_none(row.get("contextTokensUsed"))
     if used is not None:
         meta.context_tokens_used = max(0, used)
-    window = _opt_int("contextWindowTokens")
+    window = json_count_or_none(row.get("contextWindowTokens"))
     if window is not None and window > 0:
         meta.context_window_tokens = window
     return meta

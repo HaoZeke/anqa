@@ -6,15 +6,15 @@ the message list. ``kind=subagent`` files stay off the catalog list.
 
 from __future__ import annotations
 
-import json
 import tarfile
-from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
+from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..session.tagged_blocks import is_harness_user_chrome, operator_prompt_text
+from ..stamp import Stamp
 from .ref import SessionRef
 
 GEMINI_HARNESS_ID = "gemini"
@@ -26,38 +26,6 @@ _PENDING_TOOL = frozenset(
 def default_tmp_root() -> Path:
     """Host Gemini CLI project-temp tree (resolved at call time)."""
     return Path.home() / ".gemini" / "tmp"
-
-
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _epoch(raw: object) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        return int(val / 1000.0) if val > 1e12 else int(val)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp())
-    return None
-
-
-def _iso(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    sec = _epoch(raw)
-    if sec is None:
-        return ""
-    return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _text_of(content: object) -> str:
@@ -76,26 +44,10 @@ def _text_of(content: object) -> str:
     return ""
 
 
-def _iter_rows(path: Path) -> Iterator[JsonObject]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            val = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(val, dict):
-            yield as_json_object(val)
-
-
 def _looks_like_gemini_file(path: Path) -> bool:
     if not path.is_file() or path.suffix != ".jsonl":
         return False
-    for row in _iter_rows(path):
+    for row in json_lines(path):
         if not str(row.get("sessionId") or "").strip():
             return False
         if str(row.get("type") or "") == "session":
@@ -138,7 +90,7 @@ def _load_conversation(path: Path) -> tuple[JsonObject, list[JsonObject]]:
             if drop:
                 del messages[key]
 
-    for row in _iter_rows(path):
+    for row in json_lines(path):
         if "$rewindTo" in row:
             _rewind(str(row.get("$rewindTo") or ""))
             continue
@@ -310,14 +262,6 @@ def _turn_outcome(messages: Sequence[JsonObject]) -> str:
     return "complete"
 
 
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
-
-
 def _thought_text(item: object) -> str:
     if isinstance(item, str):
         return item
@@ -337,14 +281,14 @@ def _meta_from_conversation(
     session_id: str,
 ) -> SessionMeta:
     sid = str(meta.get("sessionId") or session_id).strip()
-    created = _iso(meta.get("startTime"))
-    updated = _iso(meta.get("lastUpdated")) or created
+    created = Stamp.iso(meta.get("startTime"))
+    updated = Stamp.iso(meta.get("lastUpdated")) or created
     if messages:
-        last_ts = _iso(messages[-1].get("timestamp"))
+        last_ts = Stamp.iso(messages[-1].get("timestamp"))
         if last_ts:
             updated = last_ts
         if not created:
-            created = _iso(messages[0].get("timestamp"))
+            created = Stamp.iso(messages[0].get("timestamp"))
     model = ""
     tools = 0
     for msg in messages:
@@ -355,8 +299,8 @@ def _meta_from_conversation(
         calls = msg.get("toolCalls")
         if isinstance(calls, list):
             tools += len(calls)
-    start = _epoch(created)
-    end = _epoch(updated)
+    start = Stamp.epoch(created)
+    end = Stamp.epoch(updated)
     duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
     cwd = ""
     dirs = meta.get("directories")
@@ -384,7 +328,7 @@ def _timeline_for(messages: Sequence[JsonObject]) -> list[TraceEvent]:
     turn = 0
     for msg in messages:
         typ = str(msg.get("type") or "")
-        ts = _epoch(msg.get("timestamp"))
+        ts = Stamp.epoch(msg.get("timestamp"))
         if typ == "user":
             text = _text_of(msg.get("content"))
             if not text.strip() or is_harness_user_chrome(text):
@@ -467,7 +411,7 @@ def _tool_events(call: JsonObject, ts: int | None) -> list[TraceEvent]:
     status = str(call.get("status") or "").strip().lower()
     failed = status in {"error", "failed"}
     result = _text_of(call.get("result"))
-    call_ts = _epoch(call.get("timestamp")) or ts
+    call_ts = Stamp.epoch(call.get("timestamp")) or ts
     events = [
         TraceEvent(
             index=0,
@@ -605,7 +549,7 @@ class GeminiAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         path, _sid = _jsonl_from_ref(ref, self.root())
-        return _file_stamp(path)
+        return Stamp.file(path)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]

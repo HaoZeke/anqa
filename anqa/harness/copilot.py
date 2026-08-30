@@ -5,16 +5,16 @@ Sessions are sqlite rows. Timeline is ``session-state/<id>/events.jsonl``.
 
 from __future__ import annotations
 
-import json
 import shutil
 import sqlite3
 import tarfile
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..json_lines import json_lines
+from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
+from ..stamp import Stamp
 from .ref import SessionRef
 
 COPILOT_HARNESS_ID = "copilot"
@@ -39,44 +39,6 @@ def default_store_root() -> Path:
 def default_db_path() -> Path:
     """Host Copilot catalog database."""
     return default_store_root() / "session-store.db"
-
-
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _epoch(raw: object) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        return int(val / 1000.0) if val > 1e12 else int(val)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp())
-    return None
-
-
-def _iso(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        text = raw.strip()
-        if text.endswith("Z") or "+" in text[10:]:
-            return text.replace("z", "Z") if text.endswith("z") else text
-        sec = _epoch(text)
-        if sec is None:
-            return text
-        return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sec = _epoch(raw)
-    if sec is None:
-        return ""
-    return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _connect(db: Path) -> sqlite3.Connection:
@@ -116,14 +78,6 @@ def _events_path(db: Path, session_id: str) -> Path:
     return _state_dir(db, session_id) / "events.jsonl"
 
 
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
-
-
 def _session_row(con: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
     return con.execute(
         "SELECT id, cwd, repository, host_type, branch, summary, created_at, updated_at "
@@ -139,22 +93,6 @@ def _list_session_rows(con: sqlite3.Connection) -> list[sqlite3.Row]:
             "FROM sessions ORDER BY updated_at DESC"
         )
     )
-
-
-def _read_events(path: Path) -> list[JsonObject]:
-    if not path.is_file():
-        return []
-    out: list[JsonObject] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(raw, dict):
-            out.append(as_json_object(raw))
-    return out
 
 
 def _last_turn_type(events: list[JsonObject]) -> str:
@@ -194,8 +132,8 @@ def _timeline_for(events: list[JsonObject]) -> list[TraceEvent]:
 
 def _event_from_row(index: int, row: JsonObject) -> TraceEvent | None:
     typ = str(row.get("type") or "").strip()
-    data = _as_object(row.get("data"))
-    ts = _epoch(row.get("timestamp"))
+    data = json_mapping(row.get("data"))
+    ts = Stamp.epoch(row.get("timestamp"))
     eid = str(row.get("id") or "")
     if typ in {"session.start", "assistant.turn_start"}:
         return TraceEvent(
@@ -238,7 +176,7 @@ def _event_from_row(index: int, row: JsonObject) -> TraceEvent | None:
             update_index=index,
         )
     if typ == "tool.execution_start":
-        args = _as_object(data.get("arguments"))
+        args = json_mapping(data.get("arguments"))
         name = str(data.get("toolName") or "").strip()
         return TraceEvent(
             index=index,
@@ -307,7 +245,7 @@ def _event_from_row(index: int, row: JsonObject) -> TraceEvent | None:
 def _model_from_events(events: list[JsonObject]) -> str:
     for row in reversed(events):
         typ = str(row.get("type") or "")
-        data = _as_object(row.get("data"))
+        data = json_mapping(row.get("data"))
         if typ in {"assistant.message", "tool.execution_start", "session.shutdown"}:
             mid = str(data.get("model") or data.get("currentModel") or "").strip()
             if mid:
@@ -319,7 +257,7 @@ def _version_from_events(events: list[JsonObject]) -> str:
     for row in events:
         if str(row.get("type") or "") != "session.start":
             continue
-        ver = str(_as_object(row.get("data")).get("copilotVersion") or "").strip()
+        ver = str(json_mapping(row.get("data")).get("copilotVersion") or "").strip()
         if ver:
             return ver
     return ""
@@ -335,11 +273,11 @@ def _count_subagents(events: list[JsonObject]) -> int:
 
 def _meta_from_row(row: sqlite3.Row, db: Path, events: list[JsonObject]) -> SessionMeta:
     sid = str(row["id"])
-    created = _iso(row["created_at"])
-    updated = _iso(row["updated_at"] or row["created_at"])
+    created = Stamp.iso(row["created_at"])
+    updated = Stamp.iso(row["updated_at"] or row["created_at"])
     duration = 0.0
-    start = _epoch(row["created_at"])
-    end = _epoch(row["updated_at"] or row["created_at"])
+    start = Stamp.epoch(row["created_at"])
+    end = Stamp.epoch(row["updated_at"] or row["created_at"])
     if start is not None and end is not None:
         duration = max(0.0, float(end - start))
     cwd = str(row["cwd"] or "").strip()
@@ -413,7 +351,7 @@ class CopilotAdapter:
             row = _session_row(con, sid)
             if row is None:
                 raise FileNotFoundError(f"copilot session not found: {sid}")
-            events = _read_events(_events_path(db, sid))
+            events = list(json_lines(_events_path(db, sid)))
             return _meta_from_row(row, db, events)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
@@ -421,7 +359,7 @@ class CopilotAdapter:
         if not sid:
             return []
         db = _assert_readable(db)
-        return _timeline_for(_read_events(_events_path(db, sid)))
+        return _timeline_for(list(json_lines(_events_path(db, sid))))
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -506,8 +444,8 @@ class CopilotAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         db, sid = _db_from_ref(ref, self.db())
-        ev = _file_stamp(_events_path(db, sid)) if sid else (0.0, 0, 0, 0)
-        store = _file_stamp(db)
+        ev = Stamp.file(_events_path(db, sid)) if sid else (0.0, 0, 0, 0)
+        store = Stamp.file(db)
         return (max(ev[0], store[0]), ev[1] + store[1], ev[2], ev[3])
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:

@@ -5,14 +5,14 @@ One file is one session. Header row ``type=session`` holds the id.
 
 from __future__ import annotations
 
-import json
 import tarfile
-from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..json_lines import json_lines
+from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
+from ..stamp import Stamp
 from .ref import SessionRef
 
 PI_HARNESS_ID = "pi"
@@ -21,38 +21,6 @@ PI_HARNESS_ID = "pi"
 def default_sessions_root() -> Path:
     """Host Pi sessions tree (resolved at call time)."""
     return Path.home() / ".pi" / "agent" / "sessions"
-
-
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _epoch(raw: object) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        return int(val / 1000.0) if val > 1e12 else int(val)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp())
-    return None
-
-
-def _iso(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    sec = _epoch(raw)
-    if sec is None:
-        return ""
-    return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _text_of(content: object) -> str:
@@ -71,24 +39,8 @@ def _text_of(content: object) -> str:
     return ""
 
 
-def _iter_rows(path: Path) -> Iterator[JsonObject]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            val = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(val, dict):
-            yield as_json_object(val)
-
-
 def _header(path: Path) -> JsonObject | None:
-    for row in _iter_rows(path):
+    for row in json_lines(path):
         if str(row.get("type") or "") == "session":
             return row
         break
@@ -199,7 +151,7 @@ def _first_user_title(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("type") or "") != "message":
             continue
-        msg = _as_object(row.get("message"))
+        msg = json_mapping(row.get("message"))
         if str(msg.get("role") or "") != "user":
             continue
         text = _text_of(msg.get("content")).strip()
@@ -216,7 +168,7 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
             last = row
     if last is None:
         return ""
-    msg = _as_object(last.get("message"))
+    msg = json_mapping(last.get("message"))
     role = str(msg.get("role") or "")
     if role in {"user", "toolResult"}:
         return "running"
@@ -230,32 +182,24 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     return "complete"
 
 
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
-
-
 def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> SessionMeta:
     header = next((r for r in rows if str(r.get("type") or "") == "session"), {})
     sid = str(header.get("id") or session_id or _session_id_from_name(path)).strip()
-    created = _iso(header.get("timestamp"))
+    created = Stamp.iso(header.get("timestamp"))
     last_ts = created
     tools = 0
     for row in rows:
-        ts = _iso(row.get("timestamp"))
+        ts = Stamp.iso(row.get("timestamp"))
         if ts:
             last_ts = ts
-        msg = _as_object(row.get("message")) if str(row.get("type") or "") == "message" else {}
+        msg = json_mapping(row.get("message")) if str(row.get("type") or "") == "message" else {}
         content = msg.get("content")
         if isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and str(block.get("type") or "") == "toolCall":
                     tools += 1
-    start = _epoch(header.get("timestamp"))
-    end = _epoch(last_ts)
+    start = Stamp.epoch(header.get("timestamp"))
+    end = Stamp.epoch(last_ts)
     duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
     cwd = str(header.get("cwd") or "").strip()
     version = str(header.get("version") or "").strip()
@@ -323,7 +267,7 @@ class PiAdapter:
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"pi session not found: {sid}")
-        rows = list(_iter_rows(path))
+        rows = list(json_lines(path))
         if not rows:
             raise FileNotFoundError(f"pi session not found: {sid}")
         meta = _meta_from_rows(rows, path, sid)
@@ -334,7 +278,7 @@ class PiAdapter:
         path, _sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             return []
-        return _timeline_for(list(_iter_rows(path)))
+        return _timeline_for(list(json_lines(path)))
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -379,7 +323,7 @@ class PiAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         path, _sid = _jsonl_from_ref(ref, self.root())
-        return _file_stamp(path)
+        return Stamp.file(path)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]
@@ -406,9 +350,9 @@ def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
     for row in rows:
         if str(row.get("type") or "") != "message":
             continue
-        msg = _as_object(row.get("message"))
+        msg = json_mapping(row.get("message"))
         role = str(msg.get("role") or "")
-        ts = _epoch(row.get("timestamp") or msg.get("timestamp"))
+        ts = Stamp.epoch(row.get("timestamp") or msg.get("timestamp"))
         if role == "user":
             events.append(
                 TraceEvent(

@@ -9,13 +9,14 @@ from __future__ import annotations
 import json
 import sqlite3
 import tarfile
-from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlparse
 
 from .. import event_types as et
+from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..stamp import Stamp
 from .ref import SessionRef
 
 ANTIGRAVITY_HARNESS_ID = "antigravity"
@@ -26,46 +27,6 @@ _USER_PLAN = "PLAN"
 def default_store_root() -> Path:
     """Host Antigravity tree (resolved at call time)."""
     return Path.home() / ".gemini" / "antigravity-cli"
-
-
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _epoch(raw: object) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        return int(val / 1000.0) if val > 1e12 else int(val)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp())
-    return None
-
-
-def _iso(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    sec = _epoch(raw)
-    if sec is None:
-        return ""
-    return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
 
 
 def _connect(db: Path) -> sqlite3.Connection:
@@ -100,22 +61,6 @@ def _tag_body(text: str, tag: str) -> str:
     if end < 0:
         return text[start:].strip()
     return text[start:end].strip()
-
-
-def _iter_jsonl(path: Path) -> Iterator[JsonObject]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            val = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(val, dict):
-            yield as_json_object(val)
 
 
 def _transcript_path(root: Path, session_id: str) -> Path:
@@ -268,19 +213,19 @@ def _count_tools(rows: Sequence[JsonObject]) -> int:
 
 
 def _meta_for(root: Path, db: Path, session_id: str) -> SessionMeta:
-    rows = list(_iter_jsonl(_transcript_path(root, session_id)))
+    rows = list(json_lines(_transcript_path(root, session_id)))
     summary = _load_summary(root, session_id)
     created = ""
-    updated = _iso(summary.get("last_modified_time") or summary.get("last_user_input_time"))
+    updated = Stamp.iso(summary.get("last_modified_time") or summary.get("last_user_input_time"))
     if rows:
-        created = _iso(rows[0].get("created_at"))
-        last = _iso(rows[-1].get("created_at"))
+        created = Stamp.iso(rows[0].get("created_at"))
+        last = Stamp.iso(rows[-1].get("created_at"))
         if last:
             updated = last
         if not created:
             created = updated
-    start = _epoch(created)
-    end = _epoch(updated)
+    start = Stamp.epoch(created)
+    end = Stamp.epoch(updated)
     duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
     cwd = _cwd_from_uris(summary.get("workspace_uris")) or _cwd_from_last_conversations(
         root, session_id
@@ -309,7 +254,7 @@ def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
     last_tool = ""
     for row in rows:
         typ = str(row.get("type") or "")
-        ts = _epoch(row.get("created_at"))
+        ts = Stamp.epoch(row.get("created_at"))
         if typ == "USER_INPUT":
             events.extend(_user_events(row, ts, turn))
             if _tag_body(str(row.get("content") or ""), _USER_REQUEST):
@@ -510,7 +455,7 @@ class AntigravityAdapter:
             raise FileNotFoundError(f"antigravity session not found: {sid}")
         root = self._store_root_for(db)
         meta = _meta_for(root, db, sid)
-        meta.num_events = len(list(_iter_jsonl(_transcript_path(root, sid))))
+        meta.num_events = len(list(json_lines(_transcript_path(root, sid))))
         return meta
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
@@ -518,7 +463,7 @@ class AntigravityAdapter:
         if not sid:
             return []
         root = self._store_root_for(db) if db.is_file() else self.root()
-        return _timeline_for(list(_iter_jsonl(_transcript_path(root, sid))))
+        return _timeline_for(list(json_lines(_transcript_path(root, sid))))
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -571,9 +516,9 @@ class AntigravityAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         db, sid = _paths_from_ref(ref, self.root())
-        stamp = _file_stamp(db)
+        stamp = Stamp.file(db)
         root = self._store_root_for(db) if db.is_file() else self.root()
-        tstamp = _file_stamp(_transcript_path(root, sid))
+        tstamp = Stamp.file(_transcript_path(root, sid))
         if tstamp[0] > stamp[0]:
             return tstamp
         return stamp

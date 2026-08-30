@@ -5,6 +5,10 @@ from __future__ import annotations
 import time
 
 import pytest
+from anqa.harness.ref import SessionRef
+from anqa.json_lines import json_lines
+from anqa.models import json_count, json_count_float, json_count_or_none, json_mapping
+from anqa.stamp import Stamp
 from anqa.utils import (
     collapse_blank_lines,
     fmt_context_usage,
@@ -117,6 +121,69 @@ class TestStripControlChars:
     def test_mixed_escapes(self):
         result = strip_control_chars("\x1b[1;32mOK\x1b[0m\x00\x01done")
         assert result == "OKdone"
+
+
+class TestStampAndJsonStore:
+    def test_mapping_from_dict_and_json_string(self) -> None:
+        assert json_mapping({"a": 1}) == {"a": 1}
+        assert json_mapping('{"b": true}') == {"b": True}
+        assert json_mapping("not-json") == {}
+        assert json_mapping(None) == {}
+        assert json_mapping([1, 2]) == {}
+
+    def test_epoch_seconds_millis_and_iso(self) -> None:
+        assert Stamp.epoch(1_700_000_000) == 1_700_000_000
+        assert Stamp.epoch(1_700_000_000_000) == 1_700_000_000
+        assert Stamp.epoch("2026-08-08T18:02:00Z") == 1786212120
+        assert Stamp.epoch('"2026-08-08T18:02:00Z"') == 1786212120
+        assert Stamp.epoch(True) is None
+        assert Stamp.epoch(0) is None
+        assert Stamp.epoch("nope") is None
+
+    def test_iso_from_epoch_and_passthrough(self) -> None:
+        assert Stamp.iso(1_700_000_000) == "2023-11-14T22:13:20Z"
+        assert Stamp.iso("2026-08-08T18:02:00Z") == "2026-08-08T18:02:00Z"
+        assert Stamp.iso("") == ""
+        assert Stamp.iso(None) == ""
+
+    def test_file_stamp_missing_and_present(self, tmp_path) -> None:
+        missing = tmp_path / "gone.txt"
+        assert Stamp.file(missing) == (0.0, 0, 0, 0)
+        path = tmp_path / "here.txt"
+        path.write_text("hello\n", encoding="utf-8")
+        mtime, size, extra, extra2 = Stamp.file(path)
+        assert mtime > 0
+        assert size == 6
+        assert extra == 0
+        assert extra2 == 0
+
+    def test_json_lines_skips_junk(self, tmp_path) -> None:
+        path = tmp_path / "rows.jsonl"
+        path.write_text('{"a": 1}\n\nnot-json\n{"b": 2}\n', encoding="utf-8")
+        assert list(json_lines(path)) == [{"a": 1}, {"b": 2}]
+        assert list(json_lines(tmp_path / "missing.jsonl")) == []
+
+    def test_locator_unwraps_ref_and_path(self, tmp_path) -> None:
+        dest = tmp_path / "sess"
+        dest.mkdir()
+        ref = SessionRef(harness="grok", session_id="s1", locator=dest)
+        assert SessionRef.path(ref) == dest
+        assert SessionRef.path(dest) == dest
+        assert SessionRef.path(str(dest)) == dest
+
+    def test_as_int_and_as_float(self) -> None:
+        assert json_count("12") == 12
+        assert json_count(3.9) == 3
+        assert json_count(True) == 0
+        assert json_count(None) == 0
+        assert json_count("nope") == 0
+        assert json_count("nope", default=7) == 7
+        assert json_count_float("1.5") == 1.5
+        assert json_count_float(True) == 0.0
+        assert json_count_or_none("") is None
+        assert json_count_or_none(True) is None
+        assert json_count_or_none("12") == 12
+        assert json_count_or_none("nope") is None
 
 
 class TestNormalizeMaxTurns:

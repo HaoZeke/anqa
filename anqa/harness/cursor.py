@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import tarfile
-from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..json_lines import json_lines
+from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
 from ..session.tagged_blocks import operator_prompt_text
+from ..stamp import Stamp
 from .ref import SessionRef
 
 CURSOR_HARNESS_ID = "cursor"
@@ -26,48 +27,12 @@ def default_store_root() -> Path:
     return Path.home() / ".cursor"
 
 
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _iso_ms(raw: object) -> str:
-    if isinstance(raw, bool):
-        return ""
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        sec = val / 1000.0 if val > 1e12 else val
-        return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return ""
-
-
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
-
-
-def _iter_rows(path: Path) -> Iterator[JsonObject]:
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(raw, dict):
-            yield as_json_object(raw)
-
-
 def _load_json(path: Path) -> JsonObject:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return _as_object(raw)
+    return json_mapping(raw)
 
 
 def _is_transcript(path: Path) -> bool:
@@ -130,7 +95,7 @@ def _first_user_title(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("role") or "") != "user":
             continue
-        text = operator_prompt_text(_blocks_text(_as_object(row.get("message")).get("content")))
+        text = operator_prompt_text(_blocks_text(json_mapping(row.get("message")).get("content")))
         if text:
             return text.splitlines()[0][:120]
     return ""
@@ -139,7 +104,7 @@ def _first_user_title(rows: Sequence[JsonObject]) -> str:
 def _count_tools(rows: Sequence[JsonObject]) -> int:
     n = 0
     for row in rows:
-        content = _as_object(row.get("message")).get("content")
+        content = json_mapping(row.get("message")).get("content")
         if not isinstance(content, list):
             continue
         for part in content:
@@ -180,7 +145,7 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
 
 def _from_message(index: int, row: JsonObject) -> list[TraceEvent]:
     role = str(row.get("role") or "")
-    content = _as_object(row.get("message")).get("content")
+    content = json_mapping(row.get("message")).get("content")
     events: list[TraceEvent] = []
     if role == "user":
         text = operator_prompt_text(_blocks_text(content))
@@ -214,7 +179,7 @@ def _from_message(index: int, row: JsonObject) -> list[TraceEvent]:
             continue
         name = str(part.get("name") or "").strip()
         raw = part.get("input")
-        bag = _as_object(raw) if isinstance(raw, dict) else {}
+        bag = json_mapping(raw) if isinstance(raw, dict) else {}
         events.append(
             TraceEvent(
                 index=index,
@@ -254,20 +219,10 @@ def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
 
 
 def _meta_from(rows: Sequence[JsonObject], path: Path, sid: str, header: JsonObject) -> SessionMeta:
-    created = _iso_ms(header.get("createdAtMs"))
-    updated = _iso_ms(header.get("updatedAtMs")) or created
-    start = None
-    end = None
-    created_raw = header.get("createdAtMs")
-    updated_raw = header.get("updatedAtMs")
-    if isinstance(created_raw, (int, float)) and not isinstance(created_raw, bool):
-        start = float(created_raw)
-        if start > 1e12:
-            start /= 1000.0
-    if isinstance(updated_raw, (int, float)) and not isinstance(updated_raw, bool):
-        end = float(updated_raw)
-        if end > 1e12:
-            end /= 1000.0
+    created = Stamp.iso(header.get("createdAtMs"))
+    updated = Stamp.iso(header.get("updatedAtMs")) or created
+    start = Stamp.epoch(header.get("createdAtMs"))
+    end = Stamp.epoch(header.get("updatedAtMs"))
     duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
     return SessionMeta(
         session_id=sid,
@@ -371,7 +326,7 @@ class CursorAdapter:
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"cursor session not found: {sid}")
-        rows = list(_iter_rows(path))
+        rows = list(json_lines(path))
         header = _find_meta(self.root(), sid)
         return _meta_from(rows, path, sid, header)
 
@@ -379,7 +334,7 @@ class CursorAdapter:
         path, _sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             return []
-        return _timeline_for(list(_iter_rows(path)))
+        return _timeline_for(list(json_lines(path)))
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -431,7 +386,7 @@ class CursorAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         path, _sid = _jsonl_from_ref(ref, self.root())
-        return _file_stamp(path)
+        return Stamp.file(path)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]

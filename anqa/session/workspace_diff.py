@@ -8,12 +8,12 @@ per-path patches from ``search_replace`` tool calls in ``updates.jsonl``.
 from __future__ import annotations
 
 import difflib
-import json
 import logging
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..json_lines import json_lines
 from ..models import JsonObject, JsonValue, TraceEvent, json_as_int
 
 logger = logging.getLogger(__name__)
@@ -127,20 +127,7 @@ def _unified_diff(old: str | None, new: str | None, path: str) -> tuple[str, int
 
 
 def _iter_updates(session_dir: Path) -> Iterator[JsonObject]:
-    p = session_dir / "updates.jsonl"
-    if not p.exists():
-        return
-    try:
-        with open(p) as f:
-            for line in f:
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(row, dict):
-                    yield row
-    except OSError:
-        return
+    yield from json_lines(session_dir / "updates.jsonl")
 
 
 def _meta_dict(
@@ -192,27 +179,12 @@ def _created_at(row: Mapping[str, JsonValue]) -> str | None:
 
 def _rewind_points(session_dir: Path) -> tuple[DiffPoint, ...]:
     rp_path = session_dir / "rewind_points.jsonl"
-    if not rp_path.exists():
-        return ()
-    try:
-        raw_lines = [ln for ln in rp_path.read_text().splitlines() if ln.strip()]
-    except OSError as exc:
-        logger.warning("rewind_points read failed for %s: %s", session_dir, exc)
-        return ()
     out: list[DiffPoint] = []
-    for i, line in enumerate(raw_lines):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, dict):
-            continue
-        before = _snap_map(
-            row.get("file_snapshots") if isinstance(row.get("file_snapshots"), dict) else None
-        )
-        after = _snap_map(
-            row.get("after_snapshots") if isinstance(row.get("after_snapshots"), dict) else None
-        )
+    for i, row in enumerate(json_lines(rp_path)):
+        before_raw = row.get("file_snapshots")
+        after_raw = row.get("after_snapshots")
+        before = _snap_map(before_raw if isinstance(before_raw, dict) else None)
+        after = _snap_map(after_raw if isinstance(after_raw, dict) else None)
         if not before and not after:
             continue
         out.append(

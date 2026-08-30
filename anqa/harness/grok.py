@@ -28,12 +28,6 @@ GROK_HARNESS_ID = "grok"
 _ARCHIVE_SKIP_DIRS = frozenset({"workspace", "terminal"})
 
 
-def _locator(ref: SessionRef | Path | str) -> Path:
-    if isinstance(ref, SessionRef):
-        return Path(ref.locator)
-    return Path(ref).expanduser()
-
-
 def _resolved(path: Path) -> Path:
     p = Path(path).expanduser()
     try:
@@ -194,7 +188,7 @@ class GrokAdapter:
         return watch_hints()
 
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
-        return write_directory_archive(_locator(ref), dest)
+        return write_directory_archive(SessionRef.path(ref), dest)
 
     def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
         return open_directory_archive(src, dest_root)
@@ -202,22 +196,22 @@ class GrokAdapter:
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
         from .grok_parse import load_session_meta
 
-        return load_session_meta(_locator(ref))
+        return load_session_meta(SessionRef.path(ref))
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         from .grok_parse import session_timeline_stamp
 
-        return session_timeline_stamp(_locator(ref))
+        return session_timeline_stamp(SessionRef.path(ref))
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         from .grok_parse import session_trace_mtime
 
-        return session_trace_mtime(_locator(ref))
+        return session_trace_mtime(SessionRef.path(ref))
 
     def updates_size(self, ref: SessionRef | Path | str) -> int:
         from .grok_parse import updates_jsonl_size
 
-        return updates_jsonl_size(_locator(ref))
+        return updates_jsonl_size(SessionRef.path(ref))
 
     def scheduler_state(self, state: JsonObject) -> JsonObject | None:
         block = state.get("grok_build.Scheduler")
@@ -226,7 +220,7 @@ class GrokAdapter:
     def list_turn_outcome(self, ref: SessionRef | Path | str) -> str:
         from .grok_parse import list_turn_outcome_for_dir
 
-        return list_turn_outcome_for_dir(_locator(ref))
+        return list_turn_outcome_for_dir(SessionRef.path(ref))
 
     def reported_completion_ids(self, state: JsonObject) -> set[str]:
         block = state.get("grok_build.ReportedTaskCompletions")

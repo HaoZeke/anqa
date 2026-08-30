@@ -119,6 +119,66 @@ def json_as_object(value: JsonValue | None) -> JsonObject:
     return {}
 
 
+def json_mapping(raw: JsonValue) -> JsonObject:
+    """Dict, or a JSON object string; otherwise empty."""
+    if isinstance(raw, dict):
+        return as_json_object(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            val = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(val, dict):
+            return as_json_object(val)
+    return {}
+
+
+def json_count(raw: JsonValue, default: int = 0) -> int:
+    """Integer count from a store field. Bool is not a count."""
+    if raw is None or isinstance(raw, bool):
+        return default
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        return int(raw)
+    if isinstance(raw, str):
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+    return default
+
+
+def json_count_float(raw: JsonValue, default: float = 0.0) -> float:
+    """Float count from a store field. Bool is not a count."""
+    if raw is None or isinstance(raw, bool):
+        return default
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw)
+        except ValueError:
+            return default
+    return default
+
+
+def json_count_or_none(raw: JsonValue) -> int | None:
+    """Integer count, or None when missing, bool, empty, or unparseable."""
+    if raw is None or raw == "" or isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        return int(raw)
+    if isinstance(raw, str):
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+    return None
+
+
 def json_as_list(value: JsonValue | None) -> list[JsonValue]:
     """Coerce a JSON value to a list (empty if not a list)."""
     if isinstance(value, list):

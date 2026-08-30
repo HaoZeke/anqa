@@ -6,14 +6,14 @@ One file is one parent session. Children live under
 
 from __future__ import annotations
 
-import json
 import tarfile
-from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..json_lines import json_lines
+from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
+from ..stamp import Stamp
 from .ref import SessionRef
 
 CLAUDE_HARNESS_ID = "claude"
@@ -38,44 +38,6 @@ def default_projects_root() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _epoch(raw: object) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        return int(val / 1000.0) if val > 1e12 else int(val)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp())
-    return None
-
-
-def _iso(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        text = raw.strip()
-        if text.endswith("Z") or "+" in text[10:] or text.endswith("z"):
-            return text.replace("z", "Z")
-        sec = _epoch(text)
-        if sec is None:
-            return text
-        return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sec = _epoch(raw)
-    if sec is None:
-        return ""
-    return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _text_of(content: object) -> str:
     if isinstance(content, str):
         return content
@@ -94,22 +56,6 @@ def _text_of(content: object) -> str:
                         bits.append(nested)
         return "\n".join(bits)
     return ""
-
-
-def _iter_rows(path: Path) -> Iterator[JsonObject]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            val = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(val, dict):
-            yield as_json_object(val)
 
 
 def _is_child_file(path: Path) -> bool:
@@ -132,7 +78,7 @@ def _row_session_id(row: JsonObject, path: Path) -> str:
 
 
 def _first_row(path: Path) -> JsonObject | None:
-    for row in _iter_rows(path):
+    for row in json_lines(path):
         return row
     return None
 
@@ -225,7 +171,7 @@ def _ref_for_file(path: Path) -> SessionRef | None:
     row = _first_row(path) or {}
     cwd = ""
     sid = _row_session_id(row, path)
-    for item in _iter_rows(path):
+    for item in json_lines(path):
         if not cwd:
             cwd = str(item.get("cwd") or "").strip()
         if not sid:
@@ -270,7 +216,7 @@ def _title_from_rows(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("type") or "") != "user":
             continue
-        msg = _as_object(row.get("message"))
+        msg = json_mapping(row.get("message"))
         if _is_tool_result_user(msg):
             continue
         text = _text_of(msg.get("content")).strip()
@@ -291,7 +237,7 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     if last is None:
         return ""
     typ = str(last.get("type") or "")
-    msg = _as_object(last.get("message"))
+    msg = json_mapping(last.get("message"))
     if typ == "user":
         return "running"
     stop = str(msg.get("stop_reason") or "").strip()
@@ -300,14 +246,6 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     if stop in {"max_tokens", "refusal", "error"}:
         return "cancelled"
     return "running"
-
-
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
 
 
 def _child_dir(path: Path, session_id: str) -> Path:
@@ -334,7 +272,7 @@ def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> 
     branch = ""
     tools = 0
     for row in rows:
-        ts = _iso(row.get("timestamp"))
+        ts = Stamp.iso(row.get("timestamp"))
         if ts:
             last_ts = ts
             if not created:
@@ -347,14 +285,14 @@ def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> 
             cwd = str(row.get("cwd") or "").strip()
         if not branch:
             branch = str(row.get("gitBranch") or "").strip()
-        msg = _as_object(row.get("message"))
+        msg = json_mapping(row.get("message"))
         if not model:
             model = str(msg.get("model") or "").strip()
         for block in _content_blocks(msg):
             if str(block.get("type") or "") == "tool_use":
                 tools += 1
-    start = _epoch(created)
-    end = _epoch(last_ts)
+    start = Stamp.epoch(created)
+    end = Stamp.epoch(last_ts)
     duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
     children = _count_children(path, sid)
     return SessionMeta(
@@ -382,13 +320,13 @@ def _agent_children(rows: Sequence[JsonObject]) -> dict[str, tuple[str, str]]:
     for row in rows:
         if str(row.get("type") or "") != "user":
             continue
-        tur = _as_object(row.get("toolUseResult"))
+        tur = json_mapping(row.get("toolUseResult"))
         agent = str(tur.get("agentId") or "").strip()
         if not agent:
             continue
         typ = str(tur.get("agentType") or "").strip()
         call_id = ""
-        for block in _content_blocks(_as_object(row.get("message"))):
+        for block in _content_blocks(json_mapping(row.get("message"))):
             if str(block.get("type") or "") == "tool_result":
                 call_id = str(block.get("tool_use_id") or "").strip()
                 break
@@ -402,7 +340,7 @@ def _tool_names(rows: Sequence[JsonObject]) -> dict[str, str]:
     for row in rows:
         if str(row.get("type") or "") != "assistant":
             continue
-        for block in _content_blocks(_as_object(row.get("message"))):
+        for block in _content_blocks(json_mapping(row.get("message"))):
             if str(block.get("type") or "") != "tool_use":
                 continue
             call_id = str(block.get("id") or "").strip()
@@ -419,10 +357,10 @@ def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
     turn = 0
     for row in rows:
         typ = str(row.get("type") or "")
-        ts = _epoch(row.get("timestamp"))
+        ts = Stamp.epoch(row.get("timestamp"))
         if typ == "user":
             events.extend(_user_events(row, ts, turn, names))
-            msg = _as_object(row.get("message"))
+            msg = json_mapping(row.get("message"))
             if not _is_tool_result_user(msg) and _text_of(msg.get("content")).strip():
                 turn += 1
             continue
@@ -439,7 +377,7 @@ def _user_events(
     turn: int,
     names: dict[str, str],
 ) -> list[TraceEvent]:
-    msg = _as_object(row.get("message"))
+    msg = json_mapping(row.get("message"))
     if _is_tool_result_user(msg):
         return [_tool_result_event(row, ts, names)]
     text = _text_of(msg.get("content"))
@@ -467,7 +405,7 @@ def _assistant_events(
     children: dict[str, tuple[str, str]],
 ) -> list[TraceEvent]:
     out: list[TraceEvent] = []
-    for block in _content_blocks(_as_object(row.get("message"))):
+    for block in _content_blocks(json_mapping(row.get("message"))):
         kind = str(block.get("type") or "")
         if kind == "thinking":
             out.append(
@@ -541,7 +479,7 @@ def _tool_result_event(
     ts: int | None,
     names: dict[str, str],
 ) -> TraceEvent:
-    msg = _as_object(row.get("message"))
+    msg = json_mapping(row.get("message"))
     call_id = ""
     text = ""
     for block in _content_blocks(msg):
@@ -549,7 +487,7 @@ def _tool_result_event(
             continue
         call_id = str(block.get("tool_use_id") or call_id)
         text = _text_of(block.get("content"))
-    tur = _as_object(row.get("toolUseResult"))
+    tur = json_mapping(row.get("toolUseResult"))
     if not text:
         text = _text_of(tur.get("content") or tur.get("stdout") or tur)
     child = str(tur.get("agentId") or "").strip()
@@ -632,7 +570,7 @@ class ClaudeAdapter:
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"claude session not found: {sid}")
-        rows = list(_iter_rows(path))
+        rows = list(json_lines(path))
         if not rows:
             raise FileNotFoundError(f"claude session not found: {sid}")
         meta = _meta_from_rows(rows, path, sid)
@@ -643,7 +581,7 @@ class ClaudeAdapter:
         path, _sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             return []
-        return _timeline_for(list(_iter_rows(path)))
+        return _timeline_for(list(json_lines(path)))
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -696,7 +634,7 @@ class ClaudeAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         path, _sid = _jsonl_from_ref(ref, self.root())
-        return _file_stamp(path)
+        return Stamp.file(path)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]

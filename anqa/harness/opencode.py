@@ -10,12 +10,20 @@ import json
 import sqlite3
 import tarfile
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 from .. import event_types as et
-from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..models import (
+    JsonObject,
+    JsonValue,
+    SessionMeta,
+    ToolInputBag,
+    TraceEvent,
+    as_json_object,
+    json_mapping,
+)
+from ..stamp import Stamp
 from .ref import SessionRef
 
 OPENCODE_HARNESS_ID = "opencode"
@@ -24,36 +32,6 @@ OPENCODE_HARNESS_ID = "opencode"
 def default_db_path() -> Path:
     """Host OpenCode database path (resolved at call time)."""
     return Path.home() / ".local" / "share" / "opencode" / "opencode.db"
-
-
-def _iso_ms(ms: object) -> str:
-    if not isinstance(ms, (int, float)) or isinstance(ms, bool) or ms <= 0:
-        return ""
-    sec = float(ms) / 1000.0 if ms > 1e12 else float(ms)
-    try:
-        return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    except (OSError, OverflowError, ValueError):
-        return ""
-
-
-def _epoch_s(ms: object) -> int | None:
-    if not isinstance(ms, (int, float)) or isinstance(ms, bool) or ms <= 0:
-        return None
-    raw = float(ms)
-    return int(raw / 1000.0) if raw > 1e12 else int(raw)
-
-
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(cast(dict[str, JsonValue], raw))
-    if isinstance(raw, str) and raw.strip():
-        try:
-            val = json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-        if isinstance(val, dict):
-            return as_json_object(cast(dict[str, JsonValue], val))
-    return {}
 
 
 def _connect(db: Path) -> sqlite3.Connection:
@@ -85,16 +63,8 @@ def _db_from_ref(ref: SessionRef | Path | str, fallback: Path) -> tuple[Path, st
     return fallback, path.name
 
 
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
-
-
-def _model_id(raw: object) -> str:
-    bag = _as_object(raw)
+def _model_id(raw: JsonValue) -> str:
+    bag = json_mapping(raw)
     mid = str(bag.get("id") or bag.get("modelID") or "").strip()
     provider = str(bag.get("providerID") or bag.get("provider") or "").strip()
     if mid and provider:
@@ -128,8 +98,8 @@ def _is_child(row: sqlite3.Row) -> bool:
 
 def _meta_from_row(row: sqlite3.Row, db: Path) -> SessionMeta:
     sid = str(row["id"])
-    created = _iso_ms(row["time_created"])
-    updated = _iso_ms(row["time_updated"] or row["time_created"])
+    created = Stamp.iso(row["time_created"])
+    updated = Stamp.iso(row["time_updated"] or row["time_created"])
     duration = 0.0
     start = row["time_created"]
     end = row["time_updated"] or row["time_created"]
@@ -158,10 +128,10 @@ def _part_is_running(con: sqlite3.Connection, session_id: str) -> bool:
     ).fetchone()
     if last_part is None:
         return False
-    pdata = _as_object(last_part["data"])
+    pdata = json_mapping(last_part["data"])
     if str(pdata.get("type") or "") == "step-start":
         return True
-    status = str(_as_object(pdata.get("state")).get("status") or "").strip().lower()
+    status = str(json_mapping(pdata.get("state")).get("status") or "").strip().lower()
     return status in {"running", "pending", "in_progress", "executing"}
 
 
@@ -178,10 +148,10 @@ def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) ->
     ).fetchone()
     if last_msg is None:
         return ""
-    data = _as_object(last_msg["data"])
+    data = json_mapping(last_msg["data"])
     role = str(data.get("role") or "")
     if role == "user" or (
-        role == "assistant" and _as_object(data.get("time")).get("completed") in (None, 0, "")
+        role == "assistant" and json_mapping(data.get("time")).get("completed") in (None, 0, "")
     ):
         return "running"
     return "complete"
@@ -350,7 +320,7 @@ class OpenCodeAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         db, _sid = _db_from_ref(ref, self.db())
-        return _file_stamp(db)
+        return Stamp.file(db)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]
@@ -547,7 +517,7 @@ def _timeline_for(con: sqlite3.Connection, session_id: str) -> list[TraceEvent]:
     turn = 0
     for msg in messages:
         _append_message(events, msg, by_msg.get(str(msg["id"]), []), turn)
-        data = _as_object(msg["data"])
+        data = json_mapping(msg["data"])
         if str(data.get("role") or "") == "user":
             turn += 1
     for i, ev in enumerate(events):
@@ -561,9 +531,9 @@ def _append_message(
     parts: list[sqlite3.Row],
     turn: int,
 ) -> None:
-    data = _as_object(msg["data"])
+    data = json_mapping(msg["data"])
     role = str(data.get("role") or "")
-    ts = _epoch_s(msg["time_created"])
+    ts = Stamp.epoch(msg["time_created"])
     if role == "user":
         events.append(
             TraceEvent(
@@ -590,7 +560,7 @@ def _append_message(
 def _parts_text(parts: list[sqlite3.Row]) -> str:
     bits: list[str] = []
     for part in parts:
-        data = _as_object(part["data"])
+        data = json_mapping(part["data"])
         if str(data.get("type") or "") != "text":
             continue
         text = str(data.get("text") or "").strip()
@@ -600,9 +570,9 @@ def _parts_text(parts: list[sqlite3.Row]) -> str:
 
 
 def _append_part(events: list[TraceEvent], part: sqlite3.Row) -> None:
-    data = _as_object(part["data"])
+    data = json_mapping(part["data"])
     kind = str(data.get("type") or "")
-    ts = _epoch_s(part["time_created"])
+    ts = Stamp.epoch(part["time_created"])
     if kind == "text":
         events.append(
             TraceEvent(
@@ -628,9 +598,9 @@ def _append_part(events: list[TraceEvent], part: sqlite3.Row) -> None:
 
 
 def _task_child_id(data: JsonObject, state: JsonObject, inn: JsonObject) -> str:
-    meta = _as_object(state.get("metadata"))
+    meta = json_mapping(state.get("metadata"))
     if not meta:
-        meta = _as_object(data.get("metadata"))
+        meta = json_mapping(data.get("metadata"))
     child = str(meta.get("sessionId") or "").strip()
     if child:
         return child
@@ -646,9 +616,9 @@ def _task_child_id(data: JsonObject, state: JsonObject, inn: JsonObject) -> str:
 def _tool_events(data: JsonObject, ts: int | None) -> list[TraceEvent]:
     name = str(data.get("tool") or "tool").strip() or "tool"
     call_id = str(data.get("callID") or data.get("call_id") or "").strip()
-    state = _as_object(data.get("state"))
+    state = json_mapping(data.get("state"))
     raw_in = state.get("input")
-    inn = _as_object(raw_in)
+    inn = json_mapping(raw_in)
     bag = ToolInputBag(inn)
     status = str(state.get("status") or "").strip().lower()
     failed = status in {"error", "failed"} or bool(state.get("error"))
@@ -698,7 +668,7 @@ def _task_bookends(
             "description": desc,
         }
     )
-    times = _as_object(state.get("time"))
+    times = json_mapping(state.get("time"))
     start, end = times.get("start"), times.get("end")
     duration_ms: int | None = None
     if isinstance(start, (int, float)) and isinstance(end, (int, float)):

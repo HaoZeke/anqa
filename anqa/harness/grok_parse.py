@@ -14,7 +14,6 @@ import re
 import threading
 from concurrent.futures import Future
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -44,6 +43,7 @@ from ..scan import find_sessions as walk_sessions
 from ..scan import keep_updates_line, skip_dir_name
 from ..session.tagged_blocks import operator_prompt_text
 from ..session.workflows import WorkflowRun
+from ..stamp import Stamp
 from ..tool_display import job_list_preview, web_search_from_raw_output
 
 logger = logging.getLogger(__name__)
@@ -203,39 +203,9 @@ def resolve_tool_display_name(title: str, raw_input: ToolInput | None = None) ->
     return normalize_tool_id(title_s)
 
 
-def _as_epoch_ts(value: str | int | float | bool | None) -> int | None:
-    """Coerce event timestamps to epoch seconds."""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(float(value))
-        except ValueError:
-            return None
-    return None
-
-
 def _parse_runtime_ts(ev: dict) -> int | None:
     """Epoch seconds from an events.jsonl row (ISO string or numeric)."""
-    ts_raw = ev.get("ts") or ev.get("timestamp")
-    if ts_raw is None:
-        return None
-    if isinstance(ts_raw, (int, float)):
-        v = int(ts_raw)
-        if v > 10_000_000_000:
-            v = v // 1000
-        return v
-    try:
-        dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-        return int(dt.timestamp())
-    except (ValueError, TypeError, OverflowError):
-        return None
+    return Stamp.epoch(ev.get("ts") or ev.get("timestamp"))
 
 
 def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int]:
@@ -584,12 +554,7 @@ def parse_tool_calls(session_dir: Path) -> list[ToolCall]:
             update_raw = params.get("update") if isinstance(params, dict) else None
             update: JsonObject = as_json_object(update_raw) if isinstance(update_raw, dict) else {}
             event_type = str(update.get("sessionUpdate") or "")
-            timestamp = _as_epoch_ts(
-                event.get("timestamp")  # type: ignore[arg-type]  # JsonValue; narrowed below
-                if isinstance(event.get("timestamp"), (str, int, float))
-                or event.get("timestamp") is None
-                else None
-            )
+            timestamp = Stamp.epoch(event.get("timestamp"))
 
             if event_type == "tool_call":
                 call_id = json_as_str(update.get("toolCallId"))
@@ -725,7 +690,7 @@ def _coalesce_tool_result(
 
     Returns the (possibly incremented) event index.
     """
-    epoch_ts = _as_epoch_ts(ts) if not isinstance(ts, int) else ts
+    epoch_ts = Stamp.epoch(ts) if not isinstance(ts, int) else ts
     call_id = update.get("toolCallId", "")
     is_error = update.get("isError")
     status = update.get("status", "")
@@ -1089,7 +1054,7 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
     ts_raw = raw.get("timestamp")
     if ts_raw is None:
         ts_raw = raw.get("ts")
-    ts = _as_epoch_ts(ts_raw if isinstance(ts_raw, (str, int, float)) else None)
+    ts = Stamp.epoch(ts_raw if isinstance(ts_raw, (str, int, float)) else None)
 
     events = state.events
     idx = state.idx
@@ -1912,13 +1877,6 @@ def session_timeline_mtime(session_dir: Path) -> float:
     return newest
 
 
-def _file_size(path: Path) -> int:
-    try:
-        return int(path.stat().st_size) if path.is_file() else 0
-    except OSError:
-        return 0
-
-
 def session_timeline_stamp(session_dir: Path) -> TimelineStamp:
     """Identity for timeline cache / live refresh (mtime + sizes).
 
@@ -1928,9 +1886,9 @@ def session_timeline_stamp(session_dir: Path) -> TimelineStamp:
     sd = Path(session_dir)
     return (
         session_timeline_mtime(sd),
-        _file_size(sd / "updates.jsonl"),
-        _file_size(sd / "events.jsonl"),
-        _file_size(sd / "chat_history.jsonl") + _file_size(sd / "system_prompt.txt"),
+        Stamp.file(sd / "updates.jsonl")[1],
+        Stamp.file(sd / "events.jsonl")[1],
+        Stamp.file(sd / "chat_history.jsonl")[1] + Stamp.file(sd / "system_prompt.txt")[1],
     )
 
 

@@ -59,6 +59,13 @@ class SessionRef:
             return self.locator
         return APP_HOME / "notes" / self.harness / self.session_id
 
+    @classmethod
+    def path(cls, ref: SessionRef | Path | str) -> Path:
+        """Directory or file path from a ref, path, or string."""
+        if isinstance(ref, SessionRef):
+            return Path(ref.locator)
+        return Path(ref).expanduser()
+
 
 def parse_session_ref_string(raw: str) -> tuple[str, str] | None:
     """Return ``(harness, session_id)`` for ``harness:id``, else None.

@@ -5,15 +5,15 @@ One jsonl file is one conversation. Catalog path is ``codex:<session_id>``.
 
 from __future__ import annotations
 
-import json
 import re
 import tarfile
-from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..json_lines import json_lines
+from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
+from ..stamp import Stamp
 from .ref import SessionRef
 
 CODEX_HARNESS_ID = "codex"
@@ -30,64 +30,6 @@ _TURN_SIGNALS = _RUNNING_TAIL | _COMPLETE_TAIL | _CANCELLED_TAIL
 def default_sessions_root() -> Path:
     """Host Codex sessions tree (resolved at call time)."""
     return Path.home() / ".codex" / "sessions"
-
-
-def _as_object(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    return {}
-
-
-def _epoch(raw: object) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)) and raw > 0:
-        val = float(raw)
-        return int(val / 1000.0) if val > 1e12 else int(val)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp())
-    return None
-
-
-def _iso(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        text = raw.strip()
-        if text.endswith("Z") or "+" in text[10:]:
-            return text
-        sec = _epoch(text)
-        if sec is None:
-            return text
-        return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sec = _epoch(raw)
-    if sec is None:
-        return ""
-    return datetime.fromtimestamp(sec, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _file_stamp(path: Path) -> tuple[float, int, int, int]:
-    try:
-        st = Path(path).expanduser().stat()
-    except OSError:
-        return (0.0, 0, 0, 0)
-    return (float(st.st_mtime), int(st.st_size), 0, 0)
-
-
-def _iter_rows(path: Path) -> Iterator[JsonObject]:
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(raw, dict):
-            yield as_json_object(raw)
 
 
 def _session_id_from_name(path: Path) -> str:
@@ -112,23 +54,10 @@ def _blocks_text(raw: object, *, kinds: frozenset[str]) -> str:
     return "\n".join(bits)
 
 
-def _args_bag(raw: object) -> JsonObject:
-    if isinstance(raw, dict):
-        return as_json_object(raw)
-    if isinstance(raw, str) and raw.strip().startswith("{"):
-        try:
-            val = json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-        if isinstance(val, dict):
-            return as_json_object(val)
-    return {}
-
-
 def _meta_row(rows: Sequence[JsonObject]) -> JsonObject:
     for row in rows:
         if str(row.get("type") or "") == "session_meta":
-            return _as_object(row.get("payload"))
+            return json_mapping(row.get("payload"))
     return {}
 
 
@@ -137,7 +66,7 @@ def _last_event_msg_type(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("type") or "") != "event_msg":
             continue
-        typ = str(_as_object(row.get("payload")).get("type") or "").strip()
+        typ = str(json_mapping(row.get("payload")).get("type") or "").strip()
         if typ in _TURN_SIGNALS:
             last = typ
     return last
@@ -157,13 +86,13 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
 def _model_from_rows(rows: Sequence[JsonObject]) -> str:
     for row in reversed(rows):
         typ = str(row.get("type") or "")
-        pl = _as_object(row.get("payload"))
+        pl = json_mapping(row.get("payload"))
         if typ == "turn_context":
             mid = str(pl.get("model") or "").strip()
             if mid:
                 return mid
         if typ == "event_msg" and str(pl.get("type") or "") == "thread_settings_applied":
-            mid = str(_as_object(pl.get("thread_settings")).get("model") or "").strip()
+            mid = str(json_mapping(pl.get("thread_settings")).get("model") or "").strip()
             if mid:
                 return mid
     return ""
@@ -177,7 +106,7 @@ def _first_user_title(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("type") or "") != "response_item":
             continue
-        pl = _as_object(row.get("payload"))
+        pl = json_mapping(row.get("payload"))
         if str(pl.get("type") or "") != "message" or str(pl.get("role") or "") != "user":
             continue
         text = _blocks_text(pl.get("content"), kinds=frozenset({"input_text"}))
@@ -191,7 +120,7 @@ def _count_tools(rows: Sequence[JsonObject]) -> int:
     for row in rows:
         if str(row.get("type") or "") != "response_item":
             continue
-        pt = str(_as_object(row.get("payload")).get("type") or "")
+        pt = str(json_mapping(row.get("payload")).get("type") or "")
         if pt in {"custom_tool_call", "function_call"}:
             n += 1
     return n
@@ -209,10 +138,10 @@ def _count_subagents(rows: Sequence[JsonObject]) -> int:
 def _subagent_item(row: JsonObject) -> JsonObject | None:
     if str(row.get("type") or "") != "event_msg":
         return None
-    pl = _as_object(row.get("payload"))
+    pl = json_mapping(row.get("payload"))
     if str(pl.get("type") or "") != "item_completed":
         return None
-    item = _as_object(pl.get("item"))
+    item = json_mapping(pl.get("item"))
     if str(item.get("type") or "") != "SubAgentActivity":
         return None
     return item
@@ -228,8 +157,8 @@ def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
 
 def _events_from_row(index: int, row: JsonObject) -> list[TraceEvent]:
     typ = str(row.get("type") or "")
-    ts = _epoch(row.get("timestamp"))
-    pl = _as_object(row.get("payload"))
+    ts = Stamp.epoch(row.get("timestamp"))
+    pl = json_mapping(row.get("payload"))
     if typ == "event_msg":
         return _from_event_msg(index, ts, pl)
     if typ == "response_item":
@@ -269,7 +198,7 @@ def _from_event_msg(index: int, ts: int | None, pl: JsonObject) -> list[TraceEve
                 update_index=index,
             )
         ]
-    item = _as_object(pl.get("item")) if kind == "item_completed" else {}
+    item = json_mapping(pl.get("item")) if kind == "item_completed" else {}
     if str(item.get("type") or "") == "SubAgentActivity":
         ev = _from_subagent_item(index, ts, item)
         return [ev] if ev is not None else []
@@ -347,7 +276,7 @@ def _from_response_item(index: int, ts: int | None, pl: JsonObject) -> list[Trac
     if kind == "custom_tool_call":
         name = str(pl.get("name") or "").strip()
         raw = pl.get("input")
-        bag = _args_bag(raw)
+        bag = json_mapping(raw)
         if not bag and isinstance(raw, str) and raw.strip():
             bag = as_json_object({"command": raw})
         return [
@@ -383,7 +312,7 @@ def _from_response_item(index: int, ts: int | None, pl: JsonObject) -> list[Trac
                 timestamp=ts,
                 tool_name=name,
                 tool_call_id=str(pl.get("call_id") or pl.get("id") or ""),
-                raw_input=ToolInputBag(_args_bag(pl.get("arguments"))),
+                raw_input=ToolInputBag(json_mapping(pl.get("arguments"))),
                 update_index=index,
             )
         ]
@@ -406,12 +335,12 @@ def _from_response_item(index: int, ts: int | None, pl: JsonObject) -> list[Trac
 def _meta_from_rows(rows: Sequence[JsonObject], path: Path, sid: str) -> SessionMeta:
     header = _meta_row(rows)
     sid = str(header.get("session_id") or header.get("id") or sid).strip() or sid
-    created = _iso(header.get("timestamp") or (rows[0].get("timestamp") if rows else ""))
+    created = Stamp.iso(header.get("timestamp") or (rows[0].get("timestamp") if rows else ""))
     last_ts = ""
     for row in rows:
-        last_ts = _iso(row.get("timestamp")) or last_ts
-    start = _epoch(header.get("timestamp") or (rows[0].get("timestamp") if rows else None))
-    end = _epoch(rows[-1].get("timestamp")) if rows else None
+        last_ts = Stamp.iso(row.get("timestamp")) or last_ts
+    start = Stamp.epoch(header.get("timestamp") or (rows[0].get("timestamp") if rows else None))
+    end = Stamp.epoch(rows[-1].get("timestamp")) if rows else None
     duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
     kids = _count_subagents(rows)
     return SessionMeta(
@@ -449,7 +378,7 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not path.is_file():
         return None
-    rows = list(_iter_rows(path))
+    rows = list(json_lines(path))
     header = _meta_row(rows)
     sid = str(header.get("session_id") or header.get("id") or _session_id_from_name(path)).strip()
     if not sid:
@@ -484,7 +413,7 @@ def _find_file(root: Path, session_id: str) -> Path | None:
         return None
     for path in _collect_jsonl([root]):
         if sid in path.name:
-            header = _meta_row(list(_iter_rows(path)))
+            header = _meta_row(list(json_lines(path)))
             hid = str(header.get("session_id") or header.get("id") or _session_id_from_name(path))
             if hid == sid:
                 return path
@@ -538,7 +467,7 @@ class CodexAdapter:
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"codex session not found: {sid}")
-        rows = list(_iter_rows(path))
+        rows = list(json_lines(path))
         if not rows:
             raise FileNotFoundError(f"codex session not found: {sid}")
         return _meta_from_rows(rows, path, sid)
@@ -547,7 +476,7 @@ class CodexAdapter:
         path, _sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             return []
-        return _timeline_for(list(_iter_rows(path)))
+        return _timeline_for(list(json_lines(path)))
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -592,7 +521,7 @@ class CodexAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         path, _sid = _jsonl_from_ref(ref, self.root())
-        return _file_stamp(path)
+        return Stamp.file(path)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]

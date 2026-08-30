@@ -53,7 +53,9 @@ from ..control.contract import (
     list_query_values,
 )
 from ..harness.registry import scheduler_state
-from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_as_str
+from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_as_str, json_count
+from ..paths import is_import_locator
+from ..stamp import Stamp
 
 # Language comes from the published control contract. Row attributes for
 # ``has:`` stay here (implementation, not the token list).
@@ -185,11 +187,11 @@ class CatalogQueryRow:
             git_repo=json_as_str(row.get("gitRepo")),
             run_dir=json_as_str(row.get("runDir")),
             task_id=json_as_str(row.get("taskId")),
-            error_count=_as_int(row.get("errorCount")),
-            turn_count=_as_int(row.get("turnCount")),
-            tool_count=_as_int(row.get("toolCallCount")),
-            event_count=_as_int(row.get("numEvents")),
-            duration_seconds=_as_int(row.get("durationSeconds")),
+            error_count=json_count(row.get("errorCount")),
+            turn_count=json_count(row.get("turnCount")),
+            tool_count=json_count(row.get("toolCallCount")),
+            event_count=json_count(row.get("numEvents")),
+            duration_seconds=json_count(row.get("durationSeconds")),
             updated_at=json_as_str(row.get("updatedAt") or row.get("updated_at")),
             has_workflows=bool(row.get("hasWorkflows")),
             has_notes=bool(row.get("hasNotes")),
@@ -221,7 +223,7 @@ class CatalogQueryRow:
             status=meta.list_status_label() or "",
             outcome=meta.turn_outcome or "",
             origin=meta.origin or "",
-            imported=_locator_is_import(path),
+            imported=bool(path) and is_import_locator(path),
             harness=meta.harness or "",
             path=path,
             git_repo=meta.git_repo or "",
@@ -492,21 +494,6 @@ def _last_token(query: str) -> str:
     return text.rsplit(None, 1)[-1]
 
 
-def _as_int(value: object) -> int:
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return 0
-    return 0
-
-
 def _eval(node: Item, row: CatalogQueryRow) -> bool:
     if isinstance(node, Group):
         children = list(node.children)
@@ -547,17 +534,11 @@ def _eval_field(field: str, expr: Item, row: CatalogQueryRow) -> bool:
     return _match_number(field, expr, row)
 
 
-def _locator_is_import(path: str) -> bool:
-    from ..paths import is_import_locator
-
-    return bool(path) and is_import_locator(path)
-
-
 def _match_is(value: str, row: CatalogQueryRow) -> bool:
     if value == "import":
-        return bool(row.imported) or _locator_is_import(row.path)
+        return bool(row.imported) or (bool(row.path) and is_import_locator(row.path))
     if value == "host":
-        if row.imported or _locator_is_import(row.path):
+        if row.imported or (bool(row.path) and is_import_locator(row.path)):
             return False
         return (row.origin or "host").strip().casefold() == "host"
     status = row.status.strip().casefold()
@@ -645,7 +626,7 @@ def _expand_path(raw: str) -> str:
 
 
 def _match_date(updated: str, raw: str, *, after: bool) -> bool:
-    stamp = _parse_epoch(updated)
+    stamp = float(Stamp.epoch(updated) or 0)
     bound = _parse_when(raw)
     if bound <= 0:
         return True
@@ -664,7 +645,7 @@ def _parse_when(raw: str) -> float:
 
 @lru_cache(maxsize=256)
 def _parse_when_cached(text: str) -> float:
-    iso = _parse_epoch(text)
+    iso = float(Stamp.epoch(text) or 0)
     if iso > 0:
         return iso
     span = _parse_duration_seconds(text)
@@ -682,19 +663,6 @@ def _parse_when_cached(text: str) -> float:
         },
     )
     if parsed is None:
-        return 0.0
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.timestamp()
-
-
-def _parse_epoch(raw: str) -> float:
-    text = (raw or "").strip().strip('"')
-    if not text:
-        return 0.0
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
         return 0.0
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
@@ -810,7 +778,7 @@ def _match_words(row: CatalogQueryRow, words: Sequence[str]) -> bool:
 
 
 def _counts_from_wire(row: JsonObject) -> dict[str, int]:
-    return {name: _as_int(row.get(wire)) for name, wire in COUNT_FIELDS.items()}
+    return {name: json_count(row.get(wire)) for name, wire in COUNT_FIELDS.items()}
 
 
 def _counts_from_meta(meta: SessionMeta) -> dict[str, int]:
@@ -1372,13 +1340,13 @@ def apply_catalog_presence_row(meta: SessionMeta, row: JsonObject) -> None:
     for key, attr in _PRESENCE_ATTRS:
         setattr(meta, attr, bool(row.get(key)))
     for wire, attr in _COUNT_META_ATTR:
-        setattr(meta, attr, _as_int(row.get(wire)))
+        setattr(meta, attr, json_count(row.get(wire)))
     if "failureCount" in row:
-        meta.tool_failure_count = _as_int(row.get("failureCount"))
+        meta.tool_failure_count = json_count(row.get("failureCount"))
     if "compactionCount" in row:
-        meta.compaction_count = _as_int(row.get("compactionCount"))
+        meta.compaction_count = json_count(row.get("compactionCount"))
     if "doomCount" in row:
-        meta.doom_loop_warnings = _as_int(row.get("doomCount"))
+        meta.doom_loop_warnings = json_count(row.get("doomCount"))
 
 
 __all__ = [
