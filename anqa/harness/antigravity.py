@@ -18,6 +18,7 @@ from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 ANTIGRAVITY_HARNESS_ID = "antigravity"
 _USER_REQUEST = "USER_REQUEST"
@@ -183,9 +184,9 @@ def _first_user_title(rows: Sequence[JsonObject], summary: JsonObject) -> str:
 
 def _turn_outcome(rows: Sequence[JsonObject], summary: JsonObject) -> str:
     if summary.get("killed"):
-        return "cancelled"
+        return from_last("killed")
     if summary.get("not_fully_idle"):
-        return "running"
+        return from_last("not_fully_idle")
     last: JsonObject | None = None
     for row in rows:
         typ = str(row.get("type") or "")
@@ -193,14 +194,11 @@ def _turn_outcome(rows: Sequence[JsonObject], summary: JsonObject) -> str:
             last = row
     if last is None:
         return ""
-    status = str(last.get("status") or "").strip().upper()
-    if status in {"PENDING", "RUNNING", "IN_PROGRESS", "ACTIVE"}:
-        return "running"
-    if str(last.get("type") or "") == "USER_INPUT":
-        return "running"
-    if status in {"FAILED", "ERROR", "CANCELLED", "CANCELED"}:
-        return "cancelled"
-    return "complete"
+    status = str(last.get("status") or "").strip()
+    mapped = from_last(status)
+    if mapped:
+        return mapped
+    return ""
 
 
 def _count_tools(rows: Sequence[JsonObject]) -> int:

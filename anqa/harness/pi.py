@@ -14,6 +14,7 @@ from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 PI_HARNESS_ID = "pi"
 
@@ -171,15 +172,13 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     msg = json_mapping(last.get("message"))
     role = str(msg.get("role") or "")
     if role in {"user", "toolResult"}:
-        return "running"
+        return from_last(role)
     if role != "assistant":
-        return ""
+        return from_last(role)
     stop = str(msg.get("stopReason") or "").strip()
-    if stop in {"aborted", "error"}:
-        return "cancelled"
-    if stop in {"", "toolUse"}:
-        return "running"
-    return "complete"
+    if stop:
+        return from_last(stop)
+    return from_last("in_progress")
 
 
 def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> SessionMeta:

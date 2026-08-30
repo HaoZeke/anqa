@@ -124,7 +124,7 @@ def test_list_status_complete_and_running(tmp_path: Path) -> None:
     )
     (live / "events.jsonl").write_text('{"type":"turn_started"}\n', encoding="utf-8")
     assert require_adapter(done).load_meta(done).list_status_label() == "complete"
-    assert require_adapter(live).load_meta(live).list_status_label() == "running"
+    assert require_adapter(live).load_meta(live).list_status_label() == "—"
 
 
 def test_watch_hints_include_updates_jsonl() -> None:

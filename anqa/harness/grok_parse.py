@@ -44,6 +44,7 @@ from ..session.tagged_blocks import operator_prompt_text
 from ..session.workflows import WorkflowRun
 from ..stamp import Stamp
 from ..tool_display import job_list_preview, web_search_from_raw_output
+from .status import from_last
 
 logger = logging.getLogger(__name__)
 
@@ -1815,75 +1816,11 @@ def _normalize_terminal_turn_outcome(outcome: str) -> str:
     return oc
 
 
-def _events_open_turn_after_completed(session_dir: Path) -> bool:
-    """True when a later turn has started after at least one turn completed.
-
-    That means the agent is **running** the next turn.
-    """
-    events_file = session_dir / "events.jsonl"
-    if not events_file.is_file():
-        return False
-    open_starts = 0
-    ended = 0
-    try:
-        with events_file.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    et = (json_object_line(line) or {}).get("type")
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    continue
-                if et == "turn_started":
-                    open_starts += 1
-                elif et == "turn_ended":
-                    open_starts = max(0, open_starts - 1)
-                    ended += 1
-    except OSError:
-        return False
-    return ended > 0 and open_starts > 0
-
-
-def _events_turn_balance(session_dir: Path) -> tuple[int, str]:
-    """Return ``(open_starts, last_turn_event_type)`` from ``events.jsonl``."""
-    events_file = session_dir / "events.jsonl"
-    if not events_file.is_file():
-        return 0, ""
-    open_starts = 0
-    last_turn = ""
-    try:
-        with events_file.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    et = (json_object_line(line) or {}).get("type")
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    continue
-                if et == "turn_started":
-                    open_starts += 1
-                    last_turn = "turn_started"
-                elif et == "turn_ended":
-                    open_starts = max(0, open_starts - 1)
-                    last_turn = "turn_ended"
-    except OSError:
-        return 0, ""
-    return open_starts, last_turn
-
-
-def _events_have_open_turn(session_dir: Path) -> bool:
-    """True when the agent is mid-turn according to ``events.jsonl``."""
-    open_starts, _ = _events_turn_balance(session_dir)
-    return open_starts > 0
-
-
 def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
-    """Outcome when harness never wrote turn_ended.
-
-    Interrupted only when the store wrote the marker. Last turn-class
-    updates.jsonl signal is running when that is the live tail.
-    """
+    """Outcome when the store wrote no close. Interrupted only with the marker."""
     if (session_dir / INTERRUPTED_MARKER_FILENAME).is_file():
         return "interrupted"
-    if _last_turn_update(session_dir) in _LIST_RUNNING_UPDATES:
-        return "running"
-    return ""
+    return from_last(_last_turn_update(session_dir))
 
 
 def _git_remote_url(raw: object) -> str:
@@ -2069,9 +2006,9 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
 _UPDATES_TAIL_BYTES = 64 * 1024
 
 
-_LIST_COMPLETE_UPDATES = frozenset({"turn_completed", "session_recap"})
-_LIST_RUNNING_UPDATES = frozenset({"turn_started", "user_message_chunk"})
-_LIST_TURN_UPDATES = _LIST_COMPLETE_UPDATES | _LIST_RUNNING_UPDATES | frozenset({"turn_ended"})
+_LIST_TURN_UPDATES = frozenset(
+    {"turn_completed", "session_recap", "turn_ended", "turn_started", "user_message_chunk"}
+)
 
 
 def _last_turn_update(session_dir: Path) -> str:
@@ -2085,11 +2022,10 @@ def _last_turn_update(session_dir: Path) -> str:
 
 def _turn_outcome_from_updates(last: str) -> str:
     """List outcome for the last turn-class updates.jsonl signal, or empty."""
-    if last in _LIST_COMPLETE_UPDATES:
+    mapped = from_last(last)
+    if mapped == "complete":
         return "completed"
-    if last in _LIST_RUNNING_UPDATES:
-        return "running"
-    return ""
+    return mapped
 
 
 def _apply_list_turn_outcome(meta: SessionMeta, session_dir: Path) -> None:
@@ -2098,14 +2034,12 @@ def _apply_list_turn_outcome(meta: SessionMeta, session_dir: Path) -> None:
     if from_updates:
         meta.turn_outcome = from_updates
         return
-    outcome, loop_count, open_after = _list_runtime_status(session_dir)
+    outcome, loop_count, _open_after = _list_runtime_status(session_dir)
     if loop_count:
         meta.loop_count = loop_count
-    if open_after:
-        meta.turn_outcome = "running"
-        return
     if outcome:
-        meta.turn_outcome = outcome
+        mapped = from_last(outcome)
+        meta.turn_outcome = "completed" if mapped == "complete" else (mapped or outcome)
         return
     if (session_dir / INTERRUPTED_MARKER_FILENAME).is_file():
         meta.turn_outcome = "interrupted"
@@ -2211,11 +2145,6 @@ def load_session_meta(
             if inferred:
                 meta.turn_outcome = inferred
 
-    if _events_open_turn_after_completed(session_dir):
-        meta.turn_outcome = "running"
-    elif not meta.turn_outcome and _events_have_open_turn(session_dir):
-        meta.turn_outcome = "running"
-
     if meta.turn_failed and not meta.error_count:
         # Surface harness failure even when signals.json tool errors are zero
         meta.error_count = max(meta.error_count, 1)
@@ -2252,18 +2181,6 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
     if mapped == "completed":
         return ""
     if mapped == "running":
-        return "running"
-
-    open_turn = _events_have_open_turn(sd)
-    if not open_turn:
-        try:
-            _markers, marker_outcome, _loop = parse_runtime_markers(sd)
-        except Exception:
-            marker_outcome = ""
-        if _normalize_terminal_turn_outcome(marker_outcome):
-            return ""
-
-    if _infer_incomplete_turn_outcome(sd) == "running":
         return "running"
     return ""
 

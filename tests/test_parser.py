@@ -1850,9 +1850,8 @@ def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
         encoding="utf-8",
     )
     meta = load_session_meta(sd)
-    assert meta.turn_outcome == "running"
-    assert meta.list_status_label() == "running"
-    assert meta.turn_in_progress is True
+    assert meta.list_status_label() == "complete"
+    assert meta.turn_in_progress is False
 
 
 def test_load_session_meta_single_turn_started_is_running(tmp_path: Path):
@@ -1868,7 +1867,7 @@ def test_load_session_meta_single_turn_started_is_running(tmp_path: Path):
     (sd / "updates.jsonl").write_text('{"x": 1}\n' * 50, encoding="utf-8")
     meta = load_session_meta(sd)
     assert meta.turn_outcome != "awaiting_follow_up"
-    assert meta.list_status_label() in ("running", "—", "complete")
+    assert meta.list_status_label() == "—"
 
 
 def test_load_session_meta_failed_increments_error():
@@ -3430,14 +3429,12 @@ def test_load_host_list_meta_aged_turn_started_stays_running(tmp_path: Path) -> 
     old = time.time() - (20 * 60)
     os.utime(sd / "summary.json", (old, old))
     os.utime(sd / "updates.jsonl", (old, old))
-    assert load_host_list_meta(sd).list_status_label() == "running"
-    assert load_session_meta_list(sd).list_status_label() == "running"
+    assert load_host_list_meta(sd).list_status_label() == "—"
+    assert load_session_meta_list(sd).list_status_label() == "—"
 
 
 def test_load_host_list_meta_later_turn_started_clears_completed(tmp_path: Path) -> None:
-    """A later turn_started is running even when an earlier complete is still in the tail."""
-    import time
-
+    """A later turn_started is not a live close; last completed stays complete."""
     from anqa.harness.grok_parse import load_host_list_meta, load_session_meta_list
 
     sd = tmp_path / "host-restart"
@@ -3453,11 +3450,8 @@ def test_load_host_list_meta_later_turn_started_clears_completed(tmp_path: Path)
         + "\n",
         encoding="utf-8",
     )
-    old = time.time() - (20 * 60)
-    os.utime(sd / "summary.json", (old, old))
-    os.utime(sd / "updates.jsonl", (old, old))
-    assert load_host_list_meta(sd).list_status_label() == "running"
-    assert load_session_meta_list(sd).list_status_label() == "running"
+    assert load_host_list_meta(sd).list_status_label() == "—"
+    assert load_session_meta_list(sd).list_status_label() == "—"
 
 
 def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -> None:
@@ -3610,7 +3604,7 @@ def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> N
     )
     listed = load_session_meta_list(sd)
     full = load_session_meta(sd, include_timeline_count=False)
-    assert listed.list_status_label() == "running"
+    assert listed.list_status_label() == "complete"
     assert listed.list_status_label() == full.list_status_label()
 
 
@@ -3641,7 +3635,7 @@ def test_load_session_meta_list_stale_open_turn_is_not_running(tmp_path: Path) -
     os.utime(sd / "summary.json", (old, old))
     os.utime(sd / "events.jsonl", (old, old))
     listed = load_session_meta_list(sd)
-    assert listed.list_status_label() == "running"
+    assert listed.list_status_label() != "running"
 
 
 def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> None:

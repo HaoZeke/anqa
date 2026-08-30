@@ -17,6 +17,7 @@ from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_map
 from ..session.tagged_blocks import operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 CURSOR_HARNESS_ID = "cursor"
 _CANCELLED = frozenset({"cancelled", "canceled", "aborted", "interrupted", "error"})
@@ -135,12 +136,11 @@ def _last_signal(rows: Sequence[JsonObject]) -> tuple[str, str]:
 def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     kind, status = _last_signal(rows)
     if kind == "turn_ended":
-        if status.casefold() in _CANCELLED:
-            return "cancelled"
-        return "complete"
-    if status in {"user", "assistant"}:
-        return "running"
-    return ""
+        mapped = from_last(status)
+        return mapped or "complete"
+    if status == "assistant":
+        return from_last("in_progress")
+    return from_last(status)
 
 
 def _from_message(index: int, row: JsonObject) -> list[TraceEvent]:

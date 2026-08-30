@@ -16,19 +16,18 @@ from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 COPILOT_HARNESS_ID = "copilot"
-_RUNNING_TAIL = frozenset(
+_TURN_SIGNALS = frozenset(
     {
         "assistant.turn_start",
         "tool.execution_start",
-        "user.message",
-        "assistant.message",
         "subagent.started",
+        "session.shutdown",
+        "assistant.turn_end",
     }
 )
-_COMPLETE_TAIL = frozenset({"session.shutdown", "assistant.turn_end"})
-_TURN_SIGNALS = _RUNNING_TAIL | _COMPLETE_TAIL
 
 
 def default_store_root() -> Path:
@@ -105,12 +104,7 @@ def _last_turn_type(events: list[JsonObject]) -> str:
 
 
 def _turn_outcome(events: list[JsonObject]) -> str:
-    last = _last_turn_type(events)
-    if last in _RUNNING_TAIL:
-        return "running"
-    if last in _COMPLETE_TAIL:
-        return "complete"
-    return ""
+    return from_last(_last_turn_type(events))
 
 
 def _text_of(raw: object) -> str:

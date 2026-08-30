@@ -16,6 +16,7 @@ from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_
 from ..session.tagged_blocks import is_harness_user_chrome, operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 GEMINI_HARNESS_ID = "gemini"
 _PENDING_TOOL = frozenset(
@@ -248,9 +249,9 @@ def _turn_outcome(messages: Sequence[JsonObject]) -> str:
         return ""
     typ = str(last.get("type") or "")
     if typ == "user":
-        return "running"
+        return from_last("user")
     if typ == "error":
-        return "cancelled"
+        return from_last("error")
     tools = last.get("toolCalls")
     if isinstance(tools, list):
         for item in tools:
@@ -258,8 +259,8 @@ def _turn_outcome(messages: Sequence[JsonObject]) -> str:
                 continue
             status = str(item.get("status") or "").strip().lower()
             if status in _PENDING_TOOL or not status:
-                return "running"
-    return "complete"
+                return from_last("in_progress")
+    return from_last("complete")
 
 
 def _thought_text(item: object) -> str:

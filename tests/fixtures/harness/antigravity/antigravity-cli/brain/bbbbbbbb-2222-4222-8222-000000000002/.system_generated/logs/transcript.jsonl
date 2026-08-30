@@ -1,1 +1,1 @@
-{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-08-09T12:01:00Z","content":"<USER_REQUEST>\nStill waiting for a reply\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\n{}\n</ADDITIONAL_METADATA>"}
+{"type":"USER_INPUT","status":"RUNNING","content":"live"}

@@ -15,6 +15,7 @@ from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 CLAUDE_HARNESS_ID = "claude"
 _CHROME_TYPES = frozenset(
@@ -239,13 +240,11 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     typ = str(last.get("type") or "")
     msg = json_mapping(last.get("message"))
     if typ == "user":
-        return "running"
+        return from_last("user")
     stop = str(msg.get("stop_reason") or "").strip()
-    if stop in {"end_turn", "stop_sequence"}:
-        return "complete"
-    if stop in {"max_tokens", "refusal", "error"}:
-        return "cancelled"
-    return "running"
+    if stop:
+        return from_last(stop)
+    return from_last("in_progress")
 
 
 def _child_dir(path: Path, session_id: str) -> Path:

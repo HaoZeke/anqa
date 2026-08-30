@@ -15,16 +15,14 @@ from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 CODEX_HARNESS_ID = "codex"
 _ROLL_ID = re.compile(
     r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$",
     re.IGNORECASE,
 )
-_RUNNING_TAIL = frozenset({"task_started", "user_message"})
-_COMPLETE_TAIL = frozenset({"task_complete"})
-_CANCELLED_TAIL = frozenset({"turn_aborted"})
-_TURN_SIGNALS = _RUNNING_TAIL | _COMPLETE_TAIL | _CANCELLED_TAIL
+_TURN_SIGNALS = frozenset({"task_started", "task_complete", "turn_aborted"})
 
 
 def default_sessions_root() -> Path:
@@ -73,14 +71,7 @@ def _last_event_msg_type(rows: Sequence[JsonObject]) -> str:
 
 
 def _turn_outcome(rows: Sequence[JsonObject]) -> str:
-    last = _last_event_msg_type(rows)
-    if last in _RUNNING_TAIL:
-        return "running"
-    if last in _COMPLETE_TAIL:
-        return "complete"
-    if last in _CANCELLED_TAIL:
-        return "cancelled"
-    return ""
+    return from_last(_last_event_msg_type(rows))
 
 
 def _model_from_rows(rows: Sequence[JsonObject]) -> str:

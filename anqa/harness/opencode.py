@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..stamp import Stamp
 from .ref import SessionRef
+from .status import from_last
 
 OPENCODE_HARNESS_ID = "opencode"
 
@@ -139,9 +140,9 @@ def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) ->
     """List status from the last message/part. Archived or finished assistant is complete."""
     archived = row["time_archived"] if "time_archived" in row.keys() else None
     if archived not in (None, 0, ""):
-        return "complete"
+        return from_last("complete")
     if _part_is_running(con, session_id):
-        return "running"
+        return from_last("in_progress")
     last_msg = con.execute(
         "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC, id DESC LIMIT 1",
         (session_id,),
@@ -150,11 +151,11 @@ def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) ->
         return ""
     data = json_mapping(last_msg["data"])
     role = str(data.get("role") or "")
-    if role == "user" or (
-        role == "assistant" and json_mapping(data.get("time")).get("completed") in (None, 0, "")
-    ):
-        return "running"
-    return "complete"
+    if role == "assistant" and json_mapping(data.get("time")).get("completed") in (None, 0, ""):
+        return from_last("in_progress")
+    if role == "assistant":
+        return from_last("complete")
+    return from_last(role)
 
 
 def _count_parts(con: sqlite3.Connection, session_id: str) -> int:

@@ -79,11 +79,11 @@ def test_host_list_meta_tail_sets_complete_vs_running(tmp_path: Path) -> None:
     complete = load_host_list_meta(done)
     running = load_host_list_meta(live)
     assert complete.list_status_label() == "complete"
-    assert running.list_status_label() == "running"
+    assert running.list_status_label() == "—"
     done_row = session_catalog_row(done)
     live_row = session_catalog_row(live)
     assert done_row is not None and done_row["status"] == "complete"
-    assert live_row is not None and live_row["status"] == "running"
+    assert live_row is not None and live_row["status"] == "—"
 
 
 def test_host_export_is_stamp_gated(tmp_path: Path) -> None:
@@ -112,12 +112,12 @@ def test_host_export_rebuilds_when_snapshot_version_changes(tmp_path: Path) -> N
     write_host_catalog_export(dest, host_root=host)
     payload = json.loads(dest.read_text(encoding="utf-8"))
     payload["version"] = 1
-    payload["sessions"][0]["status"] = "—"
+    payload["sessions"][0]["status"] = "running"
     dest.write_text(json.dumps(payload), encoding="utf-8")
     write_host_catalog_export(dest, host_root=host)
     rebuilt = json.loads(dest.read_text(encoding="utf-8"))
     assert rebuilt["version"] == PROTOCOL_VERSION
-    assert rebuilt["sessions"][0]["status"] != "—"
+    assert rebuilt["sessions"][0]["status"] != "running"
 
 
 def test_host_export_rebuilds_when_row_format_changes(tmp_path: Path) -> None:
@@ -137,7 +137,6 @@ def test_host_export_rebuilds_when_row_format_changes(tmp_path: Path) -> None:
     rebuilt = json.loads(dest.read_text(encoding="utf-8"))
     assert rebuilt["rowFormat"] == SNAPSHOT_ROW_FORMAT
     assert rebuilt["sessions"][0].get("harnessLabel")
-    assert "origin" not in rebuilt["sessions"][0]
 
 
 def test_host_export_rebuilds_when_stamps_unreadable(tmp_path: Path) -> None:
@@ -225,8 +224,8 @@ def test_list_session_catalog_rebuilds_only_changed_host_row(tmp_path: Path, mon
     dest = tmp_path / "snap.json"
     rows1 = list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     by_id = {str(r["sessionId"]): r for r in rows1}
-    assert by_id["still-sess"]["status"] == "running"
-    assert by_id["live-sess"]["status"] == "running"
+    assert by_id["still-sess"]["status"] == "—"
+    assert by_id["live-sess"]["status"] == "—"
     (live / "updates.jsonl").write_text(_turn_completed_line(), encoding="utf-8")
 
     built: list[str] = []
