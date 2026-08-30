@@ -230,7 +230,7 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
         await wait_until(pilot, lambda: table.row_count >= 1, description="table populated")
 
         app.query_one("#session-search-input", Input)
-        assert app.query_one("#session-paths")
+        assert app.query_one("#chrome-lead")
         assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
@@ -865,12 +865,20 @@ async def test_session_row_selection_markers(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_paths_banner_is_label_only(tmp_path: Path) -> None:
-    """Work/traces appear as a read-only banner (no path Input)."""
+async def test_home_chrome_has_no_catalog_path(tmp_path: Path) -> None:
+    """Header does not paint a store path; there is no path Input."""
+    from textual.widgets import Static
+
+    from .pilot_helpers import static_plain
+
     app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        assert app.query_one("#session-paths")
+        lead = app.query_one("#chrome-lead", Static)
+        assert static_plain(lead) == ""
+        title = static_plain(app.query_one("#app-chrome-title", Static))
+        assert "Catalog" not in title
+        assert str(traces) not in title
         assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
@@ -1203,13 +1211,6 @@ async def test_load_sessions_from_subdirs(tmp_path: Path) -> None:
             description="session found in subdir",
             attempts=120,
         )
-
-
-@pytest.mark.asyncio
-def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
-    """_update_session_paths_banner is a no-op when the banner is not mounted."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    app._update_session_paths_banner()
 
 
 def test_constructor_explicit_store(tmp_path: Path) -> None:

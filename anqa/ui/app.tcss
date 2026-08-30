@@ -157,12 +157,6 @@ TabPane {
 /* ── Session load bar (main screen) ───────────────────────────────────── */
 /* Do not force height: 1 on toolbars that contain Input/Button — clips chrome. */
 
-#session-paths {
-    padding: 0 1;
-    height: 1;
-    color: $text-muted;
-}
-
 #session-summary {
     height: auto;
     padding: 0 1;

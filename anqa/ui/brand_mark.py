@@ -1,12 +1,10 @@
 """TUI chrome and help brand.
 
-The header is one row: folders when wide, wordmark, activity.
+The header is one row: lead spacer, wordmark, activity.
 Help has room for the three-slat small mark.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -24,7 +22,6 @@ RUNNING = "#F5A81A"
 
 _BAR = "█████"
 _CAP = "█"
-_PATHS_MIN_WIDTH = 100
 
 
 def small_mark() -> Text:
@@ -41,12 +38,6 @@ def small_mark() -> Text:
     return out
 
 
-def paths_banner(host: Path) -> str:
-    """Host catalog folder line."""
-    host_bit = t("chrome-folder", label=t("ui-catalog"), path=str(host))
-    return f"[dim]{host_bit}[/dim]"
-
-
 def help_mark() -> Text:
     """Small mark for the help panel.
 
@@ -56,7 +47,7 @@ def help_mark() -> Text:
 
 
 class AppChrome(Widget):
-    """One-row bar: folders, centered wordmark, activity."""
+    """One-row bar: lead spacer, centered wordmark, activity."""
 
     DEFAULT_CSS = """
     AppChrome {
@@ -67,14 +58,9 @@ class AppChrome(Widget):
         background: $panel;
         color: $text;
     }
-    AppChrome #session-paths {
+    AppChrome #chrome-lead {
         width: 1fr;
         height: 1;
-        padding: 0 1 0 1;
-        color: $text-muted;
-        text-overflow: ellipsis;
-        overflow-x: hidden;
-        content-align: left middle;
     }
     AppChrome .chrome-rule {
         width: 1;
@@ -104,30 +90,15 @@ class AppChrome(Widget):
     def compose(self) -> ComposeResult:
         from .widgets.activity_bar import ActivityBar
 
-        yield Static("", id="session-paths")
+        yield Static("", id="chrome-lead")
         yield Static("│", classes="chrome-rule")
         yield Static(t("help-brand-name"), id="app-chrome-title")
         yield Static("│", classes="chrome-rule")
         yield ActivityBar()
 
-    def on_mount(self) -> None:
-        self._sync_paths()
-
-    def on_resize(self) -> None:
-        self._sync_paths()
-
     def set_wordmark(self, text: str) -> None:
         """Set the centered location line (brand on home, session when open)."""
         self.query_one("#app-chrome-title", Static).update(text)
-
-    def _sync_paths(self) -> None:
-        slot = self.query_one("#session-paths", Static)
-        if self.size.width < _PATHS_MIN_WIDTH:
-            slot.update("")
-            return
-        update = getattr(self.app, "_update_session_paths_banner", None)
-        if callable(update):
-            update()
 
 
 class AppFooter(Footer):

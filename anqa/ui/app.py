@@ -59,7 +59,7 @@ from .bindings import (
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
-from .brand_mark import AppChrome, AppFooter, paths_banner
+from .brand_mark import AppChrome, AppFooter
 from .control_notice import control_operator_text
 from .data_table import (
     cursor_row_key,
@@ -360,14 +360,6 @@ class AnqaApp(App):
 
         return default_host_sessions_root()
 
-    def _update_session_paths_banner(self) -> None:
-        """Catalog store (host sessions)."""
-        try:
-            banner = self.query_one("#session-paths", Static)
-        except Exception:
-            return
-        banner.update(paths_banner(self._session_traces_root()))
-
     def _load_config(self) -> JsonObject:
         """Load the canonical app config (defaults when the file is missing)."""
         from ..config import config_dump, load_app_config
@@ -649,7 +641,6 @@ class AnqaApp(App):
         )
         self.sub_title = ""
         self._refresh_query_hints()
-        self._update_session_paths_banner()
         # Attach-only: start control client first so home list loads via RPC.
         self._start_control_service()
         self._load_sessions(include_host=None)
@@ -1904,7 +1895,6 @@ class AnqaApp(App):
         def _done() -> None:
             try:
                 self.traces_path = traces_root
-                self._update_session_paths_banner()
             except Exception:
                 pass
             try:
@@ -2583,7 +2573,6 @@ class AnqaApp(App):
         if not any(r.path.exists() for r in roots):
             self.notify(t("notify-nothing-to-refresh", path=desc), severity="warning")
             return
-        self._update_session_paths_banner()
         self._schedule_sessions_reload(delay=0.05)
 
     def action_open_session(self) -> None:

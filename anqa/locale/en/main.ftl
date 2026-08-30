@@ -376,7 +376,6 @@ help-brand-name = anqa
 
 help-brand-tagline = Inspect harness sessions
 
-chrome-folder = { $label }  { $path }
 
 load = load
 
@@ -1413,7 +1412,6 @@ export-task-failed = Export task failed: { $exc }
 export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 
-ui-catalog = Catalog
 ui-harness = Harness
 ui-origin = Origin
 ui-origin-work = Work
