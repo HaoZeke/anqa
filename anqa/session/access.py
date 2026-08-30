@@ -36,7 +36,6 @@ from ..session.control_views import (
     build_session_timeline,
     build_session_turns,
 )
-from ..session.turn_gate import write_done_for_session, write_follow_up_for_session
 from .document import SUPPORTED_FORMATS, render_editor_document
 
 if TYPE_CHECKING:
@@ -287,18 +286,6 @@ class LocalSessionAccess:
         if self._directory_session(ref):
             return build_session_diff(ref.locator)
         return harness_views.session_diff(ref)
-
-    def session_follow_up(self, session: str, prompt: str, *, final: bool = False) -> JsonObject:
-        """Stage or queue a follow-up prompt on the session gate."""
-        path = self.require_session(session)
-        how = write_follow_up_for_session(path, prompt, final=final)
-        return {"ok": True, "how": how}
-
-    def session_done(self, session: str) -> JsonObject:
-        """Ask a live entrypoint to stop."""
-        path = self.require_session(session)
-        write_done_for_session(path)
-        return {"ok": True}
 
     def session_import(self, path: Path | str) -> JsonObject:
         """Open an archive or export and return the catalog ref."""

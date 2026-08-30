@@ -201,7 +201,6 @@ The footer lists the keys that apply now; `?` is the full list.
 | N | browser / HUD | New note (TUI Notes); Notes pane (HUD) |
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
 | Ctrl+Shift+C | browser | Same as y |
-| s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
 | x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session |
 | s | pickers | Select |
@@ -233,7 +232,7 @@ accepts a dropped archive. `anqa import PATH` does the same from
 the shell. The owner unpacks the
 native harness archive (or an anqa `E` export) into
 `~/.anqa/imports/<harness>/` and lists it with `is:import`. Browse
-it like any other session. Next prompt and Done stay off.
+it like any other session.
 
 ### Catalog search
 

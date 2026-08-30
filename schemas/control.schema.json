@@ -424,8 +424,6 @@
         "session/open",
         "session/import",
         "session/render",
-        "session/follow_up",
-        "session/done",
         "notes/list",
         "notes/upsert",
         "notes/delete"
@@ -835,75 +833,6 @@
             },
             "result": {
               "title": "session/render result",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {}
-            }
-          },
-          "required": [
-            "params"
-          ]
-        },
-        "session/follow_up": {
-          "description": "Stage or queue the next prompt (`session`, `prompt`, optional `final`)",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "params": {
-              "title": "session/follow_up params",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "session": {
-                  "description": "Session id or path.",
-                  "type": "string"
-                },
-                "prompt": {
-                  "description": "Follow-up text.",
-                  "type": "string"
-                },
-                "final": {
-                  "description": "Mark the turn done after this prompt.",
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "session",
-                "prompt"
-              ]
-            },
-            "result": {
-              "title": "session/follow_up result",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {}
-            }
-          },
-          "required": [
-            "params"
-          ]
-        },
-        "session/done": {
-          "description": "Mark a live session done (`session`)",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "params": {
-              "title": "session/done params",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "session": {
-                  "description": "Session id or path.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "session"
-              ]
-            },
-            "result": {
-              "title": "session/done result",
               "type": "object",
               "additionalProperties": true,
               "properties": {}

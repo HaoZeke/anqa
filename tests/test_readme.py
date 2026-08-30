@@ -14,7 +14,7 @@ AGENTS = ROOT / "AGENTS.md"
 
 _TOOLKIT = re.compile(r"Textual|icedtea|\biced\b")
 _VOICE = re.compile(r"first path|operator first path|operator surface|operator protocol")
-_METHODS = re.compile(r"session/list|session/follow_up|session/done")
+_METHODS = re.compile(r"session/list|session/import|session/render")
 
 
 def _help_rows() -> list[tuple[str, str]]:
@@ -69,7 +69,6 @@ def test_help_rich_actions_appear_in_readme_key_table() -> None:
     missing = [f"{key} {action}" for key, action in rows if action not in readme]
     assert missing == [], missing
     assert "| s / Space |" in readme
-    assert "Open the share link when the session has one" in readme
 
 
 def test_readmes_have_no_toolkit_or_process_labels() -> None:
@@ -82,7 +81,7 @@ def test_readmes_have_no_toolkit_or_process_labels() -> None:
 
 def test_method_inventory_lives_only_in_control_doc() -> None:
     control = CONTROL.read_text(encoding="utf-8")
-    for method in ("session/list", "session/follow_up", "session/done"):
+    for method in ("session/list", "session/import", "session/render"):
         assert method in control, method
     assert "session/selected" in control
     assert "notes/changed" in control

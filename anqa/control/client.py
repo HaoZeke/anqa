@@ -500,21 +500,6 @@ class ControlClient:
         )
         return as_json_object(result) if isinstance(result, dict) else {}
 
-    async def session_follow_up(
-        self, session: str, prompt: str, *, final: bool = False
-    ) -> JsonObject:
-        """Call ``session/follow_up``."""
-        result = await self.request(
-            "session/follow_up",
-            {"session": session, "prompt": prompt, "final": bool(final)},
-        )
-        return as_json_object(result) if isinstance(result, dict) else {}
-
-    async def session_done(self, session: str) -> JsonObject:
-        """Call ``session/done``."""
-        result = await self.request("session/done", {"session": session})
-        return as_json_object(result) if isinstance(result, dict) else {}
-
     async def session_import(self, path: str) -> JsonObject:
         """Call ``session/import`` for an archive, bundle, or session directory."""
         result = await self.request("session/import", {"path": path})

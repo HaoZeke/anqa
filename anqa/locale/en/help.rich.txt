@@ -15,7 +15,7 @@
   s               Select (also Space)
   S               Select all
   E               Export a session bundle
-  Ctrl+O          Import a harness archive or anqa export (file picker; h / Left / Backspace parent folder)
+  Ctrl+O          Import a harness archive or anqa export
   x               Delete (press twice)
 
 %%catalog-query%%
@@ -29,7 +29,6 @@
   N               New note
   y               Copy the selection or the focused / primary pane body
   Ctrl+Shift+C    Same as y
-  s               Open the share link when the session has one
   E               Export a session bundle
   x               Delete (press twice)
 
@@ -46,4 +45,4 @@ turns (all / next).
 A keys.toml remap applies on both surfaces. An overlay may set one
 leader key, then one letter (leader+X). Esc or timeout cancels.
 Copy examples/keys/colemak.toml to ~/.anqa/keys.toml for Colemak
-home-row n/e list motion (leader then letter).
+home-row n/e list motion.

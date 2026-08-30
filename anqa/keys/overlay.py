@@ -462,7 +462,7 @@ def sequence_unbound_slot(action_id: str, *, index: int) -> str:
     """Distinct Textual chord so each sequence id keeps its own binding.
 
     Bare function keys are product-reachable. ``ctrl+shift+alt+fN`` is not
-    a catalog default, so a physical F24 cannot fire follow-up.
+    a catalog default, so a physical F24 cannot fire that action.
 
     :param action_id: Catalog id (unused; slots are assigned by *index*).
     :param index: Zero-based order among sequence remaps in catalog order.

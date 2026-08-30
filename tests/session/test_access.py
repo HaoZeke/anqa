@@ -161,29 +161,3 @@ def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
 
     got = access.session_overview(session.name)
     assert got.get("sessionId") == session.name or "path" in got
-
-
-def test_local_access_follow_up_and_done(tmp_path: Path) -> None:
-    import json
-
-    vol = tmp_path / "traces" / "run"
-    sess = vol / "%2Fworkspace" / "sess-follow"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "awaiting_follow_up", "session_id": "sess-follow", "turn": 1}) + "\n",
-        encoding="utf-8",
-    )
-
-    access = LocalSessionAccess(
-        resolve_session=lambda ref: sess if ref in {sess.name, str(sess)} else None,
-        list_sessions=lambda: [],
-    )
-    sent = access.session_follow_up(str(sess), "continue")
-    assert sent["ok"] is True
-    assert sent["how"] in {"sent", "queued"}
-    done = access.session_done(str(sess))
-    assert done["ok"] is True
-    assert (gate / "command").read_text(encoding="utf-8").strip() == "done"

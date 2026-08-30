@@ -77,18 +77,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "session.follow",
-        scope: "home",
-        default: "n",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "session.done",
-        scope: "home",
-        default: "e",
-        remappable: true,
-    },
-    CatalogRow {
         id: "pane.notes",
         scope: "browser",
         default: "N",
@@ -302,12 +290,6 @@ const ACTIONS: &[CatalogRow] = &[
         id: "browser.clear_filters",
         scope: "browser",
         default: "c",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "session.share",
-        scope: "browser",
-        default: "s",
         remappable: true,
     },
     CatalogRow {
@@ -675,13 +657,7 @@ fn overlay_scope_ok(row: &CatalogRow, scope: &str) -> bool {
     if row.scope == scope {
         return true;
     }
-    matches!(
-        (row.id, scope),
-        (
-            "list.down" | "list.up" | "session.follow" | "session.done",
-            "browser"
-        )
-    )
+    matches!((row.id, scope), ("list.down" | "list.up", "browser"))
 }
 
 fn merge_document(doc: &Document) -> Option<KeyOverlay> {
@@ -1047,13 +1023,9 @@ mod tests {
     }
 
     #[test]
-    fn remap_list_down_requires_moving_follow() {
-        let refused = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n");
-        assert!(refused.is_none());
-        let ok = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n")
-            .expect("valid swap");
+    fn remap_list_down_to_n() {
+        let ok = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n").expect("valid remap");
         assert_eq!(ok.chord("list.down", "j"), "n");
-        assert_eq!(ok.chord("session.follow", "n"), "z");
         assert_eq!(ok.chord("list.up", "k"), "k");
     }
 
@@ -1077,49 +1049,45 @@ mod tests {
             "[home]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"session.follow\" = \"leader+n\"\n",
-            "\"session.done\" = \"leader+e\"\n",
+            "\"sessions.home\" = \"leader+e\"\n",
             "[browser]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"session.follow\" = \"leader+n\"\n",
-            "\"session.done\" = \"leader+e\"\n",
+            "\"edit.copy\" = \"leader+n\"\n",
         );
         let overlay = KeyOverlay::parse(text).expect("colemak overlay");
         assert_eq!(overlay.leader(), Some(";"));
         assert_eq!(overlay.leader_timeout_ms(), 800);
         assert_eq!(overlay.chord("list.down", "j"), "n");
-        assert_eq!(overlay.chord("session.follow", "n"), "leader+n");
+        assert_eq!(overlay.chord("edit.copy", "y"), "leader+n");
         assert!(!overlay.matches(
-            "session.follow",
-            "n",
+            "edit.copy",
+            "y",
             &Key::Character("n".into()),
             KeyMods::empty()
         ));
         assert!(overlay.is_leader_key(&Key::Character(";".into()), KeyMods::empty()));
         assert_eq!(
             overlay.lookup_sequence(&Key::Character("n".into()), KeyMods::empty()),
-            Some("session.follow")
+            Some("edit.copy")
         );
         assert_eq!(
             overlay.lookup_sequence(&Key::Character("e".into()), KeyMods::empty()),
-            Some("session.done")
+            Some("sessions.home")
         );
         assert_eq!(
-            overlay.sequence_display("session.follow", "n").as_deref(),
+            overlay.sequence_display("edit.copy", "y").as_deref(),
             Some("; n")
         );
         assert_eq!(
-            overlay.sequence_display("session.done", "e").as_deref(),
+            overlay.sequence_display("sessions.home", "u").as_deref(),
             Some("; e")
         );
     }
 
     #[test]
     fn matches_remapped_n_like_default_j() {
-        let overlay =
-            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n")
-                .unwrap();
+        let overlay = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n").unwrap();
         assert!(overlay.matches(
             "list.down",
             "j",
@@ -1176,7 +1144,6 @@ mod tests {
             "list.down",
             "list.up",
             "search.focus",
-            "session.done",
             "edit.copy",
             "pane.notes",
             "search.focus",
@@ -1220,7 +1187,7 @@ mod tests {
             "../../tests/keys/fixtures/overlay_single_quote.toml"
         ))
         .expect("single-quoted remap");
-        assert_eq!(quoted.chord("session.follow", "n"), "z");
+        assert_eq!(quoted.chord("sessions.home", "u"), "z");
     }
 
     #[test]

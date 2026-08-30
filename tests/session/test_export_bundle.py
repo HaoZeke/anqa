@@ -29,11 +29,7 @@ def _seed_session(root: Path) -> Path:
     (sess / "system_prompt.txt").write_text("sys\n", encoding="utf-8")
     (run / "run.json").write_text('{"run_id":"r1"}\n', encoding="utf-8")
     (run / "anqa-prompt.txt").write_text("hello\n", encoding="utf-8")
-    (run / "anqa-launch.json").write_text("{}\n", encoding="utf-8")
     (run / "%2Fworkspace" / "prompt_history.jsonl").write_text("p\n", encoding="utf-8")
-    turn = run / ".anqa-turn"
-    turn.mkdir()
-    (turn / "scripted-turns.json").write_text("[]\n", encoding="utf-8")
     return sess
 
 

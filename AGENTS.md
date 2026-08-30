@@ -112,7 +112,7 @@ later.”
 
 **Parity rules**
 
-1. **One implementation, many front doors.** Catalog, notes, and follow-up
+1. **One implementation, many front doors.** Catalog and notes
    live in domain modules. TUI, HUD, and ``anqa serve`` call those APIs.
 2. **Operator docs are part of done.** README key tables / CLI sections and
    in-app help must match bindings. Leaving “only Fluent” or “only code”
@@ -149,7 +149,7 @@ anqa/
   keys/                  # action catalog + keys.toml overlay
   harness/               # disk adapters (docs/harness-adapters.md);
                          #   grok.py + grok_parse.py is the Grok Build store
-  session/               # turns, turn_gate, usage_stats, workspace_diff,
+  session/               # turns, usage_stats, workspace_diff,
                          #   context_samples, models_catalog, export_bundle,
                          #   sources, catalog (domain session list for control),
                          #   jobs (background / monitor / schedule merge),
@@ -168,7 +168,7 @@ anqa/
     widgets/             # timeline, detail, help_modal, controls, activity_bar, …
     bindings.py, commands.py, i18n.py, text.py, styles.py, prefs.py
     data_table.py, panel_render.py, render_detail.py, forms.py, fuzzy.py
-    session_summary.py, session_status.py, tab_panes.py, threads.py
+    session_summary.py, tab_panes.py, threads.py
     delete_confirm.py, confirm_modal.py, quit_actions.py
     app.tcss
 

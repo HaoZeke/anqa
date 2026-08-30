@@ -139,7 +139,6 @@ BROWSER: tuple[Binding, ...] = (
         _b("slash", "search", U.bind_search(), id="search.focus", show=True),
         _b("c", "clear_filters", U.bind_clear_view(), id="browser.clear_filters", show=False),
         _b("x,delete", "delete_session", U.bind_delete(), id="session.delete", show=True),
-        _b("s", "open_share", U.bind_share(), id="session.share", show=False),
         # y = yank detail / selection to clipboard (Textual mouse select + OSC 52).
         _b("y", "copy_detail", U.bind_copy_detail(), id="edit.copy", show=True),
         _b(

@@ -1109,21 +1109,6 @@ class TestCollectSessionUsageDeep:
         result = _find_run_parent(sd)
         assert result is None
 
-    def test_load_run_manifest_ancestor_walk(self, tmp_path: Path):
-        """_load_run_manifest walks ancestors for run.json."""
-        from anqa.session.usage_stats import _load_run_manifest
-
-        grand = tmp_path / "top"
-        parent = grand / "mid"
-        sd = parent / "sess"
-        sd.mkdir(parents=True)
-        (grand / "run.json").write_text(
-            json.dumps({"persona_id": "ancestor"}),
-            encoding="utf-8",
-        )
-        manifest = _load_run_manifest(sd)
-        assert manifest.get("persona_id") == "ancestor"
-
     def test_skills_dir_oserror(self, tmp_path: Path):
         """_skills_from_skills_dir returns empty when dir is not accessible."""
         from anqa.session.usage_stats import _skills_from_skills_dir

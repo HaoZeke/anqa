@@ -70,20 +70,7 @@ def render_session_summary(
     dur = fmt_duration(meta.duration_seconds) if meta.duration_seconds else "—"
     model = (meta.model_display or "").strip() or "—"
     kind = _outcome_kind(outcome)
-    pending = ""
-    try:
-        from ..session.turn_gate import session_pending_label
-
-        pending = session_pending_label(
-            meta.session_dir, turn_in_progress=bool(meta.turn_in_progress)
-        )
-    except Exception:
-        pending = ""
-    if pending:
-        from .session_status import localize_session_pending_label
-
-        outcome, kind = localize_session_pending_label(pending)
-    elif (meta.turn_outcome or "").strip().lower().replace(" ", "_") in (
+    if (meta.turn_outcome or "").strip().lower().replace(" ", "_") in (
         "ending",
         "finishing",
     ):

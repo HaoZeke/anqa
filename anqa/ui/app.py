@@ -2365,11 +2365,11 @@ class AnqaApp(App):
                 new_metas.append((key, meta, label))
                 continue
 
-            # Known session: gate probe + light meta for live rows (title, status).
-            # Always allow live outcomes even when the row was ``completed`` —
-            # multi-turn harness marks each closed turn complete, then the next
-            # follow-up is running / awaiting again. Never apply non-live probe
-            # results (that would invent interrupted/cancelled).
+            # Known session: last-turn store probe + light meta for live rows
+            # (title, status). Always allow live outcomes even when the row was
+            # ``completed`` — a later turn can be running / awaiting again.
+            # Never apply non-live probe results (that would invent
+            # interrupted/cancelled).
             if mtime > 0:
                 previous_mtime = self._session_mtimes.get(key)
                 if previous_mtime is not None and mtime > previous_mtime:

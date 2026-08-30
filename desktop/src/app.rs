@@ -173,7 +173,7 @@ pub enum Message {
         attempt: u8,
     },
     Hide,
-    /// Leave a focused search / follow-up field so list keys work.
+    /// Leave a focused search field so list keys work.
     LeaveInput,
     /// Leave the open session and show Recent + session search.
     SessionsHome,
@@ -221,9 +221,6 @@ pub enum Message {
         id: String,
         open: bool,
     },
-    FollowDraft(String),
-    SendFollow,
-    MarkDone,
     CopyPath,
     CopyText(String),
     Yank,
@@ -236,7 +233,6 @@ pub enum Message {
         action: iced::widget::text_editor::Action,
     },
     ToastDismiss(u64),
-    FollowDone(Result<Value, String>),
     /// Toggle the keyboard-shortcut cheatsheet (`?`).
     ToggleHelp,
     /// Hidden look drawer (F12). Gallery density / type / shape / elevation.
@@ -434,8 +430,6 @@ pub struct Hud {
     diff_hunk_scroll_id: Id,
     diff_point_options: Vec<DiffPointPick>,
     diff_context: DiffContext,
-    follow_draft: String,
-    follow_id: Id,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
     md_docs: HashMap<String, icedtea::widget::MarkdownDoc>,
@@ -618,8 +612,6 @@ impl Default for Hud {
             diff_hunk_scroll_id: Id::new("diff-hunk"),
             diff_point_options: vec![],
             diff_context: DiffContext::Prompt,
-            follow_draft: String::new(),
-            follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
             md_docs: HashMap::new(),
@@ -1560,12 +1552,6 @@ impl Hud {
                 self.bind_copy_bodies();
                 Task::none()
             }
-            Message::FollowDraft(s) => {
-                self.follow_draft = s;
-                Task::none()
-            }
-            Message::SendFollow => self.send_follow(),
-            Message::MarkDone => self.mark_done(),
             Message::CopyPath => self.copy_path(),
             Message::CopyText(s) => self.copy_text(s),
             Message::Select { id, action } => {
@@ -1588,19 +1574,6 @@ impl Hud {
                 Task::none()
             }
             Message::Noop => Task::none(),
-            Message::FollowDone(result) => {
-                match result {
-                    Ok(_) => {
-                        self.follow_draft.clear();
-                        self.toasts.push_success("Follow-up sent");
-                    }
-                    Err(e) => {
-                        crate::log::error(&format!("session/follow_up: {e}"));
-                        self.toasts.push_danger(control_down_message(&e));
-                    }
-                }
-                Task::none()
-            }
             Message::Tick => self.on_tick(),
             Message::FocusSearch(attempt) => {
                 if self.browse_mode() {
@@ -2099,7 +2072,6 @@ impl Hud {
             help_open: self.help_open,
             timeline_detail: self.tab == Tab::Timeline
                 && (self.timeline_open.is_some() || self.workflow_inspect_id.is_some()),
-            awaiting: self.selected_awaiting(),
             child_open: !self.parent_stack.is_empty(),
             compact_child: self.compact_child_chrome(),
             turn_pick: !self.hide_events_turn_pick(),
@@ -5702,22 +5674,6 @@ impl Hud {
     pub fn turns_search_id(&self) -> Id {
         self.turns_search_id.clone()
     }
-    pub fn follow_draft(&self) -> &str {
-        &self.follow_draft
-    }
-    pub fn follow_id(&self) -> Id {
-        self.follow_id.clone()
-    }
-    pub fn selected_awaiting(&self) -> bool {
-        if self.sessions().get(self.active).is_some_and(|r| r.imported) {
-            return false;
-        }
-        crate::live::is_live_status(&self.selected_status())
-            && self
-                .selected_status()
-                .to_ascii_lowercase()
-                .contains("await")
-    }
 
     fn pick_import() -> Task<Message> {
         Task::perform(
@@ -5732,33 +5688,6 @@ impl Hud {
                 .flatten()
             },
             Message::ImportPicked,
-        )
-    }
-
-    fn send_follow(&mut self) -> Task<Message> {
-        let prompt = self.follow_draft.trim().to_string();
-        if prompt.is_empty() {
-            self.toasts.push_warning("Follow-up is empty");
-            return Task::none();
-        }
-        let Some(sid) = self.selected_rpc_ref() else {
-            self.toasts.push_warning("No session");
-            return Task::none();
-        };
-        Task::perform(
-            rpc(move || control::session_follow_up(&sid, &prompt, false)),
-            Message::FollowDone,
-        )
-    }
-
-    fn mark_done(&mut self) -> Task<Message> {
-        let Some(sid) = self.selected_rpc_ref() else {
-            self.toasts.push_warning("No session");
-            return Task::none();
-        };
-        Task::perform(
-            rpc(move || control::session_done(&sid)),
-            Message::FollowDone,
         )
     }
 
@@ -6690,7 +6619,7 @@ fn pane_digit_from_event(kev: &keyboard::Event) -> Option<u8> {
 
 /// Escape + pane digits while a field is focused (Captured).
 ///
-/// Enter is **not** here: notes/follow-up use `on_submit`, and search uses
+/// Enter is **not** here: notes use `on_submit`, and search uses
 /// `on_submit(ActivateSelected)`. Bare Enter on Ignored still goes through
 /// `RawEvent` → open selected session.
 fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
@@ -7424,10 +7353,8 @@ mod tests {
     #[test]
     fn on_key_remapped_list_down_uses_n() {
         use iced::keyboard::{Key, Modifiers};
-        let overlay = crate::keys::KeyOverlay::parse(
-            "[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
-        )
-        .expect("valid overlay");
+        let overlay = crate::keys::KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n")
+            .expect("valid overlay");
         let mut hud = Hud {
             visible: true,
             query: "x".into(),
@@ -7459,44 +7386,47 @@ mod tests {
             "[home]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"session.follow\" = \"leader+n\"\n",
-            "\"session.done\" = \"leader+e\"\n",
         ))
         .expect("colemak")
     }
 
     #[test]
-    fn leader_arms_and_dispatches_follow_and_done() {
+    fn leader_plus_n_is_not_list_down() {
         use iced::keyboard::{Key, Modifiers};
         let overlay = colemak_overlay();
         let mut hud = Hud {
-            overview: Some(Overview {
-                meta: crate::wire::SessionMeta {
-                    status: "awaiting".into(),
-                    ..crate::wire::SessionMeta::default()
-                },
-                ..Overview::default()
-            }),
-            tab: Tab::Overview,
             keys: overlay,
-            all_sessions: vec![SessionRow {
-                session_id: "s1".into(),
-                ..SessionRow::default()
-            }],
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "s1".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s2".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            query: "x".into(),
             ..Hud::default()
         };
         hud.sessions = hud.all_sessions.clone();
-        assert!(hud.browse_mode());
-        assert!(hud.selected_awaiting());
+        hud.set_active(0);
         let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
-        assert_eq!(hud.active, 0, "n is list.down only after leader");
+        assert_eq!(hud.active, 1, "n is list.down");
+        hud.set_active(0);
         let _ = hud.on_key(Key::Character(";".into()), Modifiers::empty());
         assert!(hud.leader_armed());
         let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
         assert!(!hud.leader_armed());
+        assert_eq!(hud.active, 0, "n after leader is not list.down");
         let _ = hud.on_key(Key::Character(";".into()), Modifiers::empty());
-        let _ = hud.on_key(Key::Character("e".into()), Modifiers::empty());
+        let _ = hud.on_key(
+            Key::Named(iced::keyboard::key::Named::Escape),
+            Modifiers::empty(),
+        );
         assert!(!hud.leader_armed());
+        let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
+        assert_eq!(hud.active, 1, "n after cancel is list.down");
     }
 
     #[test]
@@ -7575,30 +7505,34 @@ mod tests {
     }
 
     #[test]
-    fn on_key_n_e_and_shift_n_match_tui_when_awaiting() {
+    fn on_key_n_e_and_shift_n_match_tui() {
         use iced::keyboard::{Key, Modifiers};
         let mut hud = Hud {
-            overview: Some(Overview {
-                meta: crate::wire::SessionMeta {
-                    status: "awaiting".into(),
-                    ..crate::wire::SessionMeta::default()
-                },
-                ..Overview::default()
-            }),
+            overview: Some(Overview::default()),
             tab: Tab::Overview,
+            keys: colemak_overlay(),
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "s1".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s2".into(),
+                    ..SessionRow::default()
+                },
+            ],
             ..Hud::default()
         };
+        hud.sessions = hud.all_sessions.clone();
         assert!(hud.browse_mode());
-        assert!(hud.selected_awaiting());
-        assert!(hud.key_scope().awaiting);
         let _ = hud.on_key(Key::Character("n".into()), Modifiers::SHIFT);
         assert_eq!(hud.tab, Tab::Notes);
-        // `e` fires session/done; `n` focuses the follow-up field.
-        let _ = hud.on_key(Key::Character("e".into()), Modifiers::empty());
+        hud.query = "x".into();
+        hud.set_active(0);
         let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
-        hud.overview = Some(Overview::default());
-        assert!(!hud.selected_awaiting());
-        assert!(!hud.key_scope().awaiting);
+        assert_eq!(hud.active, 1, "n is list.down");
+        let _ = hud.on_key(Key::Character("e".into()), Modifiers::empty());
+        assert_eq!(hud.active, 0, "e is list.up");
     }
 
     fn question_pressed() -> Event {
@@ -8415,7 +8349,7 @@ mod tests {
 
     #[test]
     fn captured_enter_does_not_activate_session() {
-        // Notes/follow-up on_submit own Enter; chrome must not steal Captured Enter.
+        // Notes on_submit own Enter; chrome must not steal Captured Enter.
         let enter = Event::Keyboard(keyboard::Event::KeyPressed {
             key: Key::Named(Named::Enter),
             modified_key: Key::Named(Named::Enter),

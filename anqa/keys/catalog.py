@@ -157,20 +157,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     ),
     _row("edit.copy", ActionScope.BROWSER, "y", ActionSurface.SHARED),
     _row("edit.copy_chord", ActionScope.BROWSER, "ctrl+shift+c", ActionSurface.SHARED),
-    _row(
-        "session.follow",
-        ActionScope.HOME,
-        "n",
-        ActionSurface.SHARED,
-        overlay_scopes=_NAV,
-    ),
-    _row(
-        "session.done",
-        ActionScope.HOME,
-        "e",
-        ActionSurface.SHARED,
-        overlay_scopes=_NAV,
-    ),
     _row("pane.notes", ActionScope.BROWSER, "N", ActionSurface.SHARED),
     _row("events.prev_turn", ActionScope.BROWSER, "h,left", ActionSurface.SHARED),
     _row("events.next_turn", ActionScope.BROWSER, "l,right", ActionSurface.SHARED),
@@ -206,7 +192,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("browser.event_reader", ActionScope.BROWSER, "enter", ActionSurface.TUI),
     _row("session.note_edit", ActionScope.BROWSER, "O", ActionSurface.SHARED),
     _row("browser.clear_filters", ActionScope.BROWSER, "c", ActionSurface.TUI),
-    _row("session.share", ActionScope.BROWSER, "s", ActionSurface.TUI),
     _row("edit.save", ActionScope.MODAL, "ctrl+s", ActionSurface.TUI),
     # Generic modal / picker.
     _row("modal.submit", ActionScope.MODAL, "ctrl+r", ActionSurface.TUI),
@@ -235,7 +220,7 @@ ACTIONS_BY_ID: dict[str, KeyAction] = _index_by_id(ACTIONS)
 def action_by_id(action_id: str) -> KeyAction:
     """Return the catalog row for *action_id*.
 
-    :param action_id: Dotted id (``session.follow``, ``help.toggle``, …).
+    :param action_id: Dotted id (``help.toggle``, ``list.down``, …).
     :returns: The matching row.
     :raises KeyError: If *action_id* is not in the catalog.
     """

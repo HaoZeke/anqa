@@ -533,7 +533,6 @@ class TestParseChatHistory:
 
 
 from anqa.harness.grok_parse import (
-    _as_epoch_ts,
     _extract_message_text,
     _extract_tool_update_text,
     _infer_incomplete_turn_outcome,
@@ -543,16 +542,18 @@ from anqa.harness.grok_parse import (
     _parse_runtime_ts,
     session_trace_mtime,
 )
+from anqa.stamp import Stamp
 
 
 def test_as_epoch_ts_variants():
-    assert _as_epoch_ts(None) is None
-    assert _as_epoch_ts(True) == 1
-    assert _as_epoch_ts(1000) == 1000
-    assert _as_epoch_ts(1000.5) == 1000
-    assert _as_epoch_ts("1700000000") == 1700000000
-    assert _as_epoch_ts("not-a-date") is None
-    assert _as_epoch_ts(False) == 0
+    assert Stamp.epoch(None) is None
+    assert Stamp.epoch(True) is None
+    assert Stamp.epoch(1000) == 1000
+    assert Stamp.epoch(1000.5) == 1000
+    assert Stamp.epoch("2023-11-14T22:13:20Z") == 1700000000
+    assert Stamp.epoch("not-a-date") is None
+    assert Stamp.epoch(False) is None
+    assert Stamp.epoch("1700000000") is None
 
 
 def test_extract_text_helpers():
@@ -725,7 +726,7 @@ def test_model_helpers(tmp_path: Path):
 
 
 def test_as_epoch_ts_float_string():
-    assert _as_epoch_ts("1700000000.5") == 1700000000
+    assert Stamp.epoch("1700000000.5") is None
 
 
 # ── _parse_runtime_ts edge cases ─────────────────────────────────────────
@@ -1760,20 +1761,13 @@ def test_match_model_full_name_in_container():
 # ── load_session_meta edge cases ─────────────────────────────────────────
 
 
-def test_load_session_meta_run_json_from_parent(tmp_path: Path):
-    """run.json in a anqa-* parent dir is discovered."""
-    parent = tmp_path / "anqa-abc-model"
-    sd = parent / "sess"
-    sd.mkdir(parents=True)
+def test_load_session_meta_run_json_from_session_dir(tmp_path: Path):
+    """run.json in the session directory is read."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
     (sd / "summary.json").write_text("{}", encoding="utf-8")
-    (parent / "run.json").write_text(
-        json.dumps(
-            {
-                "run_id": "abc",
-                "models": ["v9-model"],
-                "sessions": {"anqa-abc-model": str(sd)},
-            }
-        ),
+    (sd / "run.json").write_text(
+        json.dumps({"run_id": "abc"}),
         encoding="utf-8",
     )
     meta = load_session_meta(sd)
@@ -1837,22 +1831,6 @@ def test_parse_timeline_prepends_system_prompt(tmp_path: Path) -> None:
     assert events[0].event_type == "system"
     assert "You are the system" in events[0].content
     assert events[0].type_label == "system"
-
-
-def test_load_session_meta_turn_gate_running(tmp_path: Path):
-    """Gate state=running overrides turn_outcome."""
-    vol = tmp_path / "traces" / "anqa-r-m"
-    sess = vol / "%2F" / "sess-gate"
-    sess.mkdir(parents=True)
-    (sess / "summary.json").write_text("{}", encoding="utf-8")
-    gate = vol / ".anqa-turn"
-    gate.mkdir()
-    (gate / "status.json").write_text(
-        json.dumps({"state": "running", "session_id": "sess-gate"}) + "\n",
-        encoding="utf-8",
-    )
-    meta = load_session_meta(sess)
-    assert meta.turn_outcome == "running"
 
 
 def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
@@ -2272,11 +2250,9 @@ def test_load_session_meta_infer_model_from_parent(tmp_path: Path):
 
 
 def test_as_epoch_ts_non_primitive():
-    """_as_epoch_ts returns None for non-primitive types like list or dict."""
-    from anqa.harness.grok_parse import _as_epoch_ts
-
-    assert _as_epoch_ts([1, 2, 3]) is None
-    assert _as_epoch_ts({"key": "value"}) is None
+    """Stamp.epoch returns None for non-primitive types like list or dict."""
+    assert Stamp.epoch([1, 2, 3]) is None
+    assert Stamp.epoch({"key": "value"}) is None
 
 
 def test_extract_message_text_list_content_json():
@@ -2343,44 +2319,6 @@ def test_find_sessions_empty_events_skipped(tmp_path: Path):
     (sd / "events.jsonl").write_text("", encoding="utf-8")
     sessions = find_sessions(tmp_path)
     assert not any(s.name == "empty-events" for s in sessions)
-
-
-def test_load_session_meta_turn_gate_awaiting(tmp_path: Path):
-    """load_session_meta picks up 'awaiting_follow_up' from turn gate status."""
-    parent = tmp_path / "anqa-run" / "traces"
-    sd = parent / "sess"
-    sd.mkdir(parents=True)
-    (sd / "summary.json").write_text(json.dumps({"info": {"id": "sess"}}), encoding="utf-8")
-    (sd / "events.jsonl").write_text(
-        json.dumps({"type": "turn_ended", "outcome": "success"}) + "\n",
-        encoding="utf-8",
-    )
-    # Create a turn gate with awaiting state
-    gate = parent / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "awaiting_follow_up", "session_id": "sess"}) + "\n",
-        encoding="utf-8",
-    )
-    meta = load_session_meta(sd)
-    assert meta.turn_outcome in ("awaiting_follow_up", "success")
-
-
-def test_load_session_meta_gate_running_with_summary(tmp_path: Path):
-    """load_session_meta picks up 'running' from turn gate status with summary."""
-    vol = tmp_path / "traces" / "anqa-run"
-    sd = vol / "%2Fworkspace" / "sess"
-    sd.mkdir(parents=True)
-    (sd / "summary.json").write_text(json.dumps({"info": {"id": "sess"}}), encoding="utf-8")
-    (sd / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "running", "session_id": "sess"}) + "\n",
-        encoding="utf-8",
-    )
-    meta = load_session_meta(sd)
-    assert meta.turn_outcome == "running"
 
 
 def test_match_model_to_container_v9_alias():
@@ -2542,8 +2480,8 @@ def test_find_sessions_events_only_oserror(tmp_path: Path):
     assert sd not in sessions
 
 
-def test_load_session_meta_turn_gate_exception(tmp_path: Path):
-    """load_session_meta handles turn_gate import exception gracefully."""
+def test_load_session_meta_success_outcome(tmp_path: Path):
+    """load_session_meta keeps a finished-turn success outcome."""
     from anqa.harness.grok_parse import load_session_meta
 
     sd = tmp_path / "s"
@@ -2900,33 +2838,6 @@ def test_model_from_run_json_run_id_suffix(tmp_path: Path):
     assert isinstance(result, str)
 
 
-def test_load_session_meta_gate_awaiting(tmp_path: Path):
-    """load_session_meta sets turn_outcome from turn gate awaiting state."""
-    sd = tmp_path / "sess"
-    sd.mkdir()
-    (sd / "updates.jsonl").write_text("", encoding="utf-8")
-    # Create a gate with awaiting_follow_up state
-    gate = tmp_path / ".anqa-turn"
-    gate.mkdir(parents=True)
-    status = {"state": "awaiting_follow_up", "turn": 1}
-    (gate / "status.json").write_text(json.dumps(status), encoding="utf-8")
-    meta = load_session_meta(sd)
-    assert isinstance(meta.turn_outcome, str)
-
-
-def test_load_session_meta_gate_running_override(tmp_path: Path):
-    """load_session_meta sets turn_outcome to running from gate state."""
-    sd = tmp_path / "sess"
-    sd.mkdir()
-    (sd / "updates.jsonl").write_text("", encoding="utf-8")
-    gate = tmp_path / ".anqa-turn"
-    gate.mkdir(parents=True)
-    status = {"state": "running", "turn": 2}
-    (gate / "status.json").write_text(json.dumps(status), encoding="utf-8")
-    meta = load_session_meta(sd)
-    assert isinstance(meta.turn_outcome, str)
-
-
 def test_infer_incomplete_mtime_zero(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns interrupted when mtime is zero."""
     from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
@@ -2961,262 +2872,6 @@ def test_resolve_tool_display_name_use_tool_mcp():
         )
         == "playwright__browser_navigate"
     )
-
-
-def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
-    """command=done with idle traces must not stay ``running`` forever."""
-    import json
-    import time
-
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-done-stale"
-    sess.mkdir(parents=True)
-    # Body present but mtime aged (stale).
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n",
-        encoding="utf-8",
-    )
-    old = time.time() - (21 * 60)
-    import os
-
-    os.utime(sess / "events.jsonl", (old, old))
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps(
-            {
-                "state": "awaiting_follow_up",
-                "session_id": "019f-done-stale",
-                "turn": 1,
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (gate / "command").write_text("done\n", encoding="utf-8")
-    meta = load_session_meta(sess)
-    assert meta.turn_outcome == "completed"
-    assert meta.list_status_label() == "complete"
-    assert list_turn_outcome_for_dir(sess) == ""
-
-
-def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
-    """command=done after turn_ended is lifecycle done (no open harness turn).
-
-    Host docker-stop after End often leaves status=running; lifecycle uses the
-    events contract, not mtimes.
-    """
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-    from anqa.session.turn_gate import lifecycle_state, session_pending_label
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-done-running"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n",
-        encoding="utf-8",
-    )
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps(
-            {
-                "state": "running",
-                "session_id": "019f-done-running",
-                "turn": 8,
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (gate / "command").write_text("done\n", encoding="utf-8")
-    assert lifecycle_state(sess) == "done"
-    meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "completed"
-    assert meta.list_status_label() == "complete"
-    assert list_turn_outcome_for_dir(sess) == ""
-    assert session_pending_label(sess) == ""
-
-
-def test_host_done_open_turn_is_ending(tmp_path: Path) -> None:
-    """command=done while turn_started is still open → ending (agent finishing)."""
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-    from anqa.session.turn_gate import lifecycle_state, session_pending_label
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-done-open"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0}) + "\n",
-        encoding="utf-8",
-    )
-    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "running", "session_id": "019f-done-open", "turn": 1}) + "\n",
-        encoding="utf-8",
-    )
-    (gate / "command").write_text("done\n", encoding="utf-8")
-    assert lifecycle_state(sess) == "ending"
-    meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "ending"
-    assert list_turn_outcome_for_dir(sess) == "ending"
-    assert session_pending_label(sess) == "ending_done"
-
-
-def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
-    """Last-turn follow-up left ``state=running`` after turn_ended must show complete."""
-    import os
-    import time
-
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-final-stale"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n"
-        + json.dumps({"type": "turn_started", "turn_number": 1})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n",
-        encoding="utf-8",
-    )
-    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    old = time.time() - (21 * 60)
-    os.utime(sess / "events.jsonl", (old, old))
-    os.utime(sess / "updates.jsonl", (old, old))
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps(
-            {
-                "state": "running",
-                "session_id": "019f-final-stale",
-                "turn": 2,
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (gate / "command").write_text("follow_up\n", encoding="utf-8")
-    (gate / "final_turn").write_text("1\n", encoding="utf-8")
-    (gate / "next-prompt.txt").write_text("last prompt\n", encoding="utf-8")
-    meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "completed"
-    assert meta.list_status_label() == "complete"
-    assert list_turn_outcome_for_dir(sess) == ""
-
-
-def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None:
-    """Closed last turn + final_turn settles without waiting for stale mtimes."""
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-final-fresh"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n"
-        + json.dumps({"type": "turn_started", "turn_number": 1})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n",
-        encoding="utf-8",
-    )
-    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "running", "session_id": "019f-final-fresh", "turn": 2}) + "\n",
-        encoding="utf-8",
-    )
-    (gate / "final_turn").write_text("1\n", encoding="utf-8")
-    (gate / "command").write_text("follow_up\n", encoding="utf-8")
-    meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "completed"
-    assert meta.list_status_label() == "complete"
-    assert list_turn_outcome_for_dir(sess) == ""
-
-
-def test_final_turn_open_events_show_ending(tmp_path: Path) -> None:
-    """Final turn still writing (open turn_started) shows ending."""
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-final-open"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n"
-        + json.dumps({"type": "turn_started", "turn_number": 1})
-        + "\n",
-        encoding="utf-8",
-    )
-    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "running", "session_id": "019f-final-open", "turn": 2}) + "\n",
-        encoding="utf-8",
-    )
-    (gate / "final_turn").write_text("1\n", encoding="utf-8")
-    meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "ending"
-    assert list_turn_outcome_for_dir(sess) == "ending"
-    assert meta.list_status_label() == "ending"
-
-
-def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
-    """command=done while gate was awaiting (no open turn) settles to complete."""
-    import json
-
-    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
-
-    vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-done-await"
-    sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started", "turn_number": 0})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n",
-        encoding="utf-8",
-    )
-    gate = vol / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps(
-            {
-                "state": "awaiting_follow_up",
-                "session_id": "019f-done-await",
-                "turn": 1,
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (gate / "command").write_text("done\n", encoding="utf-8")
-    meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "completed"
-    assert list_turn_outcome_for_dir(sess) == ""
-    assert meta.list_status_label() == "complete"
 
 
 def test_load_summary_git_remotes_and_head(tmp_path: Path) -> None:
@@ -4066,67 +3721,6 @@ def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> No
     listed = load_session_meta_list(sd)
     assert listed.list_status_label() == "complete"
     assert list_turn_outcome_for_dir(sd) == ""
-
-
-def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
-    """Eval list rows still honour an awaiting turn gate."""
-    from anqa.harness.grok_parse import load_session_meta_list
-
-    container = tmp_path / "anqa-eval1"
-    sd = container / "cwd" / "sess-gate"
-    sd.mkdir(parents=True)
-    (sd / "summary.json").write_text(
-        '{"generated_title":"Gated","num_messages":2}',
-        encoding="utf-8",
-    )
-    (sd / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started"})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "success"})
-        + "\n",
-        encoding="utf-8",
-    )
-    gate = container / ".anqa-turn"
-    gate.mkdir()
-    (gate / "status.json").write_text(
-        json.dumps({"state": "awaiting_follow_up", "session_id": "sess-gate"}) + "\n",
-        encoding="utf-8",
-    )
-    listed = load_session_meta_list(sd)
-    assert listed.list_status_label() == "awaiting"
-
-
-def test_load_session_meta_list_skips_gate_when_absent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Home-list meta must not walk the turn gate when no gate directory exists."""
-    import anqa.harness.grok_parse as parser_mod
-    from anqa.harness.grok_parse import load_session_meta_list
-
-    sd = tmp_path / "host-nogate"
-    sd.mkdir()
-    (sd / "summary.json").write_text(
-        '{"generated_title":"No gate","num_messages":2}',
-        encoding="utf-8",
-    )
-    (sd / "events.jsonl").write_text(
-        json.dumps({"type": "turn_started"})
-        + "\n"
-        + json.dumps({"type": "turn_ended", "outcome": "completed"})
-        + "\n",
-        encoding="utf-8",
-    )
-    calls = {"n": 0}
-    real = parser_mod._gate_override_turn_outcome
-
-    def tracked(session_dir: Path, marker_outcome: str = "") -> str | None:
-        calls["n"] += 1
-        return real(session_dir, marker_outcome)
-
-    monkeypatch.setattr(parser_mod, "_gate_override_turn_outcome", tracked)
-    meta = load_session_meta_list(sd)
-    assert meta.list_status_label() == "complete"
-    assert calls["n"] == 0
 
 
 def test_load_session_meta_list_reads_events_jsonl_once(

@@ -127,44 +127,6 @@ cmd-delete-sessions = Delete sessions
 
 cmd-delete-sessions-help = Delete selected traces (confirm twice)
 
-follow-up-empty = Enter a follow-up prompt
-
-follow-up-placeholder = Follow-up prompt…
-
-follow-up-placeholder-send = Follow-up prompt — Enter / Ctrl+Enter to send…
-
-follow-up-placeholder-awaiting = Follow-up — Enter sends now…
-
-follow-up-placeholder-queue = Follow-up — Enter queues until the agent is ready (Ctrl+D = done)…
-
-follow-up-btn-send = Send follow-up (Enter)
-
-follow-up-btn-done = Mark session done (Ctrl+D)
-
-follow-up-last-turn = Last turn (do not await after this)
-
-follow-up-queued = Follow-up queued (agent busy — will send when it awaits the next turn)
-
-follow-up-queued-final = Last-turn follow-up queued (no further awaits after it runs)
-
-follow-up-sent = Follow-up sent
-
-follow-up-sent-final = Last-turn follow-up sent (session ends after this turn)
-
-follow-up-failed = Follow-up failed: { $exc }
-
-mark-done-requested = Done requested — session stays live until the current turn finishes
-
-mark-sessions-done-requested = Done requested for { $n } session(s) — ending until the current turn finishes
-
-follow-up-sent-final-n = Last-turn follow-up sent for { $n } session(s) — ending after this turn
-
-mark-session-done-failed = Mark done failed: { $exc }
-
-interactive-modal-title = Follow-up ({ $n } awaiting)
-
-no-awaiting-sessions = No awaiting sessions in selection
-
 send = Send
 
 self-test-rerun = Re-run
@@ -297,8 +259,6 @@ configs = Configs
 max-turns-label = Max turns (per prompt)
 
 max-turns-placeholder = 50
-
-could-not-open-share = Could not open share: { $exc }
 
 delete = Delete
 
@@ -829,8 +789,6 @@ ui-finished-1 = finished:
 
 ui-finished-in-1 = [/bold] finished in
 
-ui-follow-up-failed-for-s = follow-up failed for %s
-
 ui-gh-write = GH Write
 
 runner-caps-section-mcp = [bold]MCP[/] ({$n})
@@ -893,8 +851,6 @@ ui-input = Input
 
 ui-output = Output
 
-ui-interactive-multi-turn-follow-ups-until-done = Interactive multi-turn (follow-ups until Done)
-
 ui-jobs-for-logs-esc-closes-jobs-run-keeps-going =  — Jobs for logs (Esc closes Jobs; run keeps going)
 
 ui-label = Label
@@ -912,8 +868,6 @@ ui-leave-blank-to-keep-existing-token = (leave blank to keep existing token)
 ui-local = Local
 
 ui-local-catalog-entry-configure-to-set-headers-env = [dim]Local/catalog entry — configure to set headers/env; no registry docs page unless you added one.[/dim]
-
-ui-mark-done-failed-for-s = mark done failed for %s
 
 ui-max-configs-in-flight-at-once-each-config-still = Max configs in flight at once (each config still runs all its models together):
 
@@ -1339,8 +1293,6 @@ ui-writing = Writing
 ui-turn-number = Turn { $turn }
 ui-recap-auto = auto
 ui-queued-count = { $n } queued
-ui-staged-follow-up = follow-up staged
-ui-staged-last-turn = last turn staged
 ui-session-prefix = Session { $id }
 ui-failed-paren =  ({ $n } failed)
 ui-batch-err-example = 
@@ -1357,20 +1309,11 @@ activity-sessions = Sessions { $n }
 # Session list turn / status column
 status-running = running
 status-ending = ending
-status-ending-done = ending (stop requested)
-status-ending-last-turn = ending (last turn)
 status-cancelled = cancelled
 status-complete = complete
 status-waiting-prompt = awaiting
 status-unknown = —
 
-# Next prompt / end session (sessions home + browser; off the footer rail)
-bind-next-prompt = Next prompt
-bind-end-session = End session
-cmd-next-prompt = Next prompt
-cmd-next-prompt-help = Send the next prompt to awaiting sessions
-cmd-end-session = End session
-cmd-end-session-help = Mark awaiting sessions done
 turn-filter-all = All turns
 turn-filter-n = Turn { $n }
 turn-filter-unnumbered = Unnumbered
@@ -1424,10 +1367,8 @@ title-chrome-session = { $brand } · { $label }
 title-chrome-subagent = { $brand } · { $kind } · { $label }
 title-chrome-subagent-under = { $brand } · { $parent } · { $kind } · { $label }
 notify-turn-ended-outcome = Turn ended with outcome { $outcome } — see Summary tab or session/session_error timeline events
-notify-queued-follow-up-sent = Queued follow-up sent: { $preview }
 notify-open-session-failed = Open session failed: { $exc }
 notify-no-session-yet = No session yet for { $container } — wait for traces to appear
-notify-share-open-failed = Could not open share for { $name }: { $exc }
 jobs-control-attached = Control: attached · { $path }
 jobs-control-offline = Control: offline (this TUI only)
 jobs-work-dir = work dir: { $path }
@@ -1438,9 +1379,6 @@ browser-notes-count = Notes ({ $n })
 browser-status-none = none
 browser-status-clean = clean
 browser-status-idle = idle
-browser-follow-ups-pending = { $n } follow-up(s) pending
-browser-follow-up-staged = Follow-up staged (waiting for agent)
-browser-follow-up-staged-final = Last turn staged (session ends after this turn)
 browser-more-queued = … +{ $n } more
 browser-viewing-focus = Viewing: { $focus }
 browser-more-children = … +{ $n } more
@@ -1451,7 +1389,7 @@ browser-last-turn-outcome-note = Last turn outcome={ $outcome } (session meta = 
 title-browser-extra-turn = · turn={ $outcome }
 title-browser-extra-live-turn = · LIVE turn={ $outcome }
 title-browser-extra-ending = · ending session
-title-browser-extra-awaiting = · awaiting follow-up
+title-browser-extra-awaiting = · awaiting
 notify-delete-session-arm = Press [x] again to DELETE 1 session(s) from disk
 notify-deleted-sessions = Deleted { $deleted }/{ $requested } session(s){ $err_suffix }
 notify-deleted-sessions-errors = , errors={ $n }

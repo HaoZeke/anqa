@@ -76,7 +76,7 @@ pub fn session_notice(title: &str, sid: &str, from: &str, to: &str) -> Option<De
     Some(match kind {
         "awaiting" => DesktopNotice {
             summary: "Awaiting a reply".into(),
-            body: format!("{label} is waiting for follow-up or Done"),
+            body: format!("{label} is waiting for a reply"),
             urgency: UrgencyKind::Normal,
         },
         "cancelled" => DesktopNotice {

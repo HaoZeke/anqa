@@ -20,7 +20,6 @@ def test_live_watch_root_is_session_dir(tmp_path: Path) -> None:
     """Watch only the session dir (not the whole traces volume)."""
     vol = tmp_path / "traces" / "ctr"
     vol.mkdir(parents=True)
-    (vol / ".anqa-turn").mkdir()
     sess = vol / "%2Fworkspace" / "019f-sess"
     sess.mkdir(parents=True)
     screen = BrowserScreen.__new__(BrowserScreen)
@@ -77,7 +76,7 @@ def test_live_refresh_from_fs_sets_pending_when_busy(tmp_path: Path) -> None:
     screen._live_refresh_pending = False
     screen._last_light_submit_at = 0.0
     screen._live_refresh_deferred = None
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_from_fs()
@@ -85,7 +84,7 @@ def test_live_refresh_from_fs_sets_pending_when_busy(tmp_path: Path) -> None:
 
 
 def test_live_watch_root_uuid_session_layout(tmp_path: Path) -> None:
-    """Typical eval layout still watches the session dir, not the volume root."""
+    """Typical host layout still watches the session dir, not the volume root."""
     vol = tmp_path / "traces" / "ctr"
     sess = vol / "%2Fworkspace" / "019fabc-session-id"
     sess.mkdir(parents=True)
@@ -113,7 +112,7 @@ def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
     screen._live_refresh_deferred = None
     screen._trace_watch = None
     screen._context_samples = ContextSampleStore()
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     screen._refresh_session_pending_bar = lambda: None  # type: ignore[method-assign]
     timers: list[float] = []
@@ -152,7 +151,7 @@ def test_schedule_live_refresh_idle_keeps_slow_recheck(tmp_path: Path) -> None:
     screen._live_recheck_timer = None
     screen._live_refresh_deferred = None
     screen._trace_watch = None
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: False  # type: ignore[method-assign]
     screen._refresh_session_pending_bar = lambda: None  # type: ignore[method-assign]
     timers: list[tuple[float, object]] = []
@@ -193,7 +192,7 @@ def test_live_recheck_tick_rearms_hot_live(tmp_path: Path) -> None:
     screen.set_interval = lambda interval, callback: _T()  # type: ignore[method-assign]
     screen._invalidate_live_timeline_cache = lambda: None  # type: ignore[method-assign]
     screen._invalidate_pending_cache = lambda: None  # type: ignore[method-assign]
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     screen._schedule_live_refresh = (  # type: ignore[method-assign]
         lambda: scheduled.append("hot")

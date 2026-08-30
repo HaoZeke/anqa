@@ -471,24 +471,7 @@ pub fn session_timeline(req: TimelineRequest<'_>) -> Result<Value, ControlError>
     request("session/timeline", params)
 }
 
-pub fn session_follow_up(
-    session: &str,
-    prompt: &str,
-    final_turn: bool,
-) -> Result<Value, ControlError> {
-    request(
-        "session/follow_up",
-        json!({
-            "session": session,
-            "prompt": prompt,
-            "final": final_turn,
-        }),
-    )
-}
 
-pub fn session_done(session: &str) -> Result<Value, ControlError> {
-    request("session/done", json!({ "session": session }))
-}
 
 pub fn session_diff(session: &str) -> Result<Value, ControlError> {
     request("session/diff", json!({ "session": session }))

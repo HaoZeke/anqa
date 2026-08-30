@@ -65,7 +65,7 @@ def test_live_refresh_skips_second_enqueue(tmp_path: Path) -> None:
     (sd / "summary.json").write_text("{}", encoding="utf-8")
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     screen = _screen(sd)
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     submitted: list[str] = []
     pool = get_live_refresh_pool()
@@ -89,7 +89,7 @@ def test_live_refresh_enqueues_when_lock_free(tmp_path: Path) -> None:
     (sd / "summary.json").write_text("{}", encoding="utf-8")
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     screen = _screen(sd)
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     submitted: list[str] = []
     pool = get_live_refresh_pool()
@@ -131,7 +131,7 @@ def test_live_refresh_heartbeat_coalesces_flag(tmp_path: Path) -> None:
     (sd / "summary.json").write_text("{}", encoding="utf-8")
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     screen = _screen(sd)
-    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     submitted: list[str] = []
     pool = get_live_refresh_pool()

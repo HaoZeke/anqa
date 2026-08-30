@@ -596,20 +596,6 @@ METHODS: tuple[MethodSpec, ...] = (
         extra_md="",  # filled after CONTENT_TYPES table in emit
     ),
     MethodSpec(
-        name="session/follow_up",
-        role="Stage or queue the next prompt (`session`, `prompt`, optional `final`)",
-        params=(
-            _SESSION,
-            FieldSpec("prompt", "Follow-up text.", required=True),
-            FieldSpec("final", "Mark the turn done after this prompt.", json_type="boolean"),
-        ),
-    ),
-    MethodSpec(
-        name="session/done",
-        role="Mark a live session done (`session`)",
-        params=(_SESSION,),
-    ),
-    MethodSpec(
         name="notes/list",
         role="Notes snapshot (`revision`, schema, notes)",
         params=(_SESSION,),

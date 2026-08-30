@@ -48,8 +48,7 @@ Cursor (`cursor`) are registered.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
-- Next prompt (`n`) and end session (`e`) apply while a session is
-  awaiting. Those keys stay off the footer and `?` tables.
+
 - Every note has a `source`. Extra field keys are stored as sent.
   Notes (terminal and HUD) show the writer badge and the stored fields.
 - Card, timeline, summary, and note stamps show the host local clock

@@ -29,8 +29,8 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
-def _follow_chord(keymap: Keymap) -> str:
-    return keymap.binding("session.follow").chord
+def _home_chord(keymap: Keymap) -> str:
+    return keymap.binding("sessions.home").chord
 
 
 def test_missing_file_keeps_defaults(tmp_path: Path, monkeypatch) -> None:
@@ -40,7 +40,7 @@ def test_missing_file_keeps_defaults(tmp_path: Path, monkeypatch) -> None:
     keymap = load_keymap()
     assert keymap.ok
     assert keymap.loaded_overlay is False
-    assert _follow_chord(keymap) == action_by_id("session.follow").default
+    assert _home_chord(keymap) == action_by_id("sessions.home").default
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 
@@ -66,15 +66,15 @@ def test_overlay_remaps_one_id(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "z"
+"sessions.home" = "z"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
     assert keymap.ok
     assert keymap.loaded_overlay is True
-    assert _follow_chord(keymap) == "z"
-    assert keymap.binding("session.done").chord == "e"
+    assert _home_chord(keymap) == "z"
+    assert keymap.binding("list.up").chord == "k,up"
 
 
 def test_unknown_id_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
@@ -82,7 +82,7 @@ def test_unknown_id_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "z"
+"sessions.home" = "z"
 "not.an.action" = "q"
 """,
     )
@@ -90,7 +90,7 @@ def test_unknown_id_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
     keymap = load_keymap()
     assert keymap.ok
     assert keymap.loaded_overlay is True
-    assert _follow_chord(keymap) == "z"
+    assert _home_chord(keymap) == "z"
 
 
 def test_unknown_scope_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
@@ -98,13 +98,13 @@ def test_unknown_scope_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [not_a_scope]
-"session.follow" = "z"
+"sessions.home" = "z"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
     assert not keymap.ok
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
     assert any(err.kind is OverlayErrorKind.UNKNOWN_SCOPE for err in keymap.errors)
 
 
@@ -119,7 +119,7 @@ def test_wrong_scope_table_is_unknown_id(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
     assert keymap.ok
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
 
 
 def test_reserved_steal_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
@@ -127,14 +127,14 @@ def test_reserved_steal_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "?"
+"sessions.home" = "?"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
     assert not keymap.ok
     assert keymap.loaded_overlay is False
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
     assert any(err.kind is OverlayErrorKind.RESERVED_STEAL for err in keymap.errors)
 
 
@@ -158,7 +158,7 @@ def test_overlay_clash_refuses_and_keeps_defaults(tmp_path: Path, monkeypatch) -
         tmp_path / "keys.toml",
         """
 [home]
-"list.down" = "n"
+"list.down" = "k"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -166,7 +166,7 @@ def test_overlay_clash_refuses_and_keeps_defaults(tmp_path: Path, monkeypatch) -
     assert not keymap.ok
     assert keymap.loaded_overlay is False
     assert keymap.binding("list.down").chord == "j,down"
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
 
 
@@ -175,7 +175,7 @@ def test_third_occupant_on_list_down_clashes(tmp_path: Path, monkeypatch) -> Non
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "j"
+"sessions.home" = "j"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -184,7 +184,7 @@ def test_third_occupant_on_list_down_clashes(tmp_path: Path, monkeypatch) -> Non
     assert keymap.loaded_overlay is False
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
     assert keymap.binding("list.down").chord == "j,down"
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
 
 
 def test_slash_and_slash_name_are_the_same_key(tmp_path: Path, monkeypatch) -> None:
@@ -192,7 +192,7 @@ def test_slash_and_slash_name_are_the_same_key(tmp_path: Path, monkeypatch) -> N
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "/"
+"sessions.home" = "/"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -216,14 +216,14 @@ leader_timeout_ms = 800
 [home]
 "list.down" = "n"
 "list.up" = "e"
-"session.follow" = "leader+n"
-"session.done" = "leader+e"
+"sessions.home" = "leader+n"
+"session.delete" = "leader+e"
 """
     doc = parse_overlay(text)
     assert doc.ok
     assert doc.leader == ";"
     assert doc.leader_timeout_ms == 800
-    assert any(r.action_id == "session.follow" and r.chord == "leader+n" for r in doc.remaps)
+    assert any(r.action_id == "sessions.home" and r.chord == "leader+n" for r in doc.remaps)
     assert chord_has_sequence("leader+n")
     path = _write(tmp_path / "keys.toml", text)
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -232,19 +232,19 @@ leader_timeout_ms = 800
     assert keymap.loaded_overlay is True
     assert keymap.leader == ";"
     assert keymap.leader_timeout_ms == 800
-    assert _follow_chord(keymap) == "leader+n"
-    assert keymap.binding("session.done").chord == "leader+e"
+    assert _home_chord(keymap) == "leader+n"
+    assert keymap.binding("session.delete").chord == "leader+e"
     assert keymap.binding("list.down").chord == "n"
     assert keymap.binding("list.up").chord == "e"
-    assert keymap.lookup_sequence("n") == "session.follow"
-    assert keymap.lookup_sequence("e") == "session.done"
+    assert keymap.lookup_sequence("n") == "sessions.home"
+    assert keymap.lookup_sequence("e") == "session.delete"
     mapped = textual_keymap(keymap)
     assert mapped["list.down"] == "n"
-    assert mapped["session.follow"].startswith("ctrl+shift+alt+f")
-    assert mapped["session.done"].startswith("ctrl+shift+alt+f")
-    assert mapped["session.follow"] != mapped["session.done"]
-    assert mapped["session.follow"] != "f24"
-    assert mapped["session.done"] != "f24"
+    assert mapped["sessions.home"].startswith("ctrl+shift+alt+f")
+    assert mapped["session.delete"].startswith("ctrl+shift+alt+f")
+    assert mapped["sessions.home"] != mapped["session.delete"]
+    assert mapped["sessions.home"] != "f24"
+    assert mapped["session.delete"] != "f24"
 
 
 def test_list_nav_sequence_is_refused(tmp_path: Path, monkeypatch) -> None:
@@ -268,14 +268,14 @@ def test_leader_sequence_without_leader_refuses(tmp_path: Path, monkeypatch) -> 
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "leader+n"
+"sessions.home" = "leader+n"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
     assert not keymap.ok
     assert keymap.loaded_overlay is False
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
     assert any(err.kind is OverlayErrorKind.INVALID_VALUE for err in keymap.errors)
 
 
@@ -286,7 +286,7 @@ def test_leader_clashes_with_single_chord(tmp_path: Path, monkeypatch) -> None:
 leader = "j"
 
 [home]
-"session.follow" = "z"
+"sessions.home" = "z"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -304,11 +304,8 @@ def test_colemak_example_is_clean(monkeypatch) -> None:
     keymap = load_keymap()
     assert keymap.ok
     assert keymap.loaded_overlay is True
-    assert keymap.leader == ";"
     assert keymap.binding("list.down").chord == "n"
     assert keymap.binding("list.up").chord == "e"
-    assert keymap.binding("session.follow").chord == "leader+n"
-    assert keymap.binding("session.done").chord == "leader+e"
     result = runner.invoke(app, ["keys", "--check"])
     assert result.exit_code == 0
     assert "OK" in (result.stdout or result.output or "")
@@ -320,7 +317,7 @@ def test_invalid_toml_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
     keymap = load_keymap()
     assert not keymap.ok
     assert any(err.kind is OverlayErrorKind.INVALID_TOML for err in keymap.errors)
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
 
 
 def test_non_utf8_file_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
@@ -331,7 +328,7 @@ def test_non_utf8_file_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
     assert not keymap.ok
     assert keymap.loaded_overlay is False
     assert any(err.kind is OverlayErrorKind.INVALID_TOML for err in keymap.errors)
-    assert _follow_chord(keymap) == "n"
+    assert _home_chord(keymap) == "u"
 
 
 def test_occupancy_lists_remapped_keys(tmp_path: Path, monkeypatch) -> None:
@@ -339,7 +336,7 @@ def test_occupancy_lists_remapped_keys(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "z"
+"sessions.home" = "z"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -347,12 +344,12 @@ def test_occupancy_lists_remapped_keys(tmp_path: Path, monkeypatch) -> None:
     assert keymap.ok
     rows = occupancy_rows(keymap)
     home_z = [r for r in rows if r[0] == "home" and r[1] == "z"]
-    assert home_z == [("home", "z", "session.follow")]
-    home_n = [r for r in rows if r[0] == "home" and r[1] == "n"]
-    assert home_n == []
+    assert home_z == [("home", "z", "sessions.home")]
+    home_u = [r for r in rows if r[0] == "home" and r[1] == "u"]
+    assert home_u == []
     text = format_occupancy(keymap)
     assert "z" in text
-    assert "session.follow" in text
+    assert "sessions.home" in text
 
 
 def test_default_check_is_clean() -> None:
@@ -372,12 +369,12 @@ def test_cli_prints_resolved_table() -> None:
     result = runner.invoke(app, ["keys"])
     assert result.exit_code == 0
     out = result.stdout or result.output or ""
-    assert "session.follow" in out
+    assert "sessions.home" in out
     assert "scope" in out
     assert "chord" in out
     assert "surface" in out
     table = format_keymap_table(load_keymap())
-    assert "session.follow" in table
+    assert "sessions.home" in table
 
 
 def test_cli_occupancy_and_check_conflict(tmp_path: Path, monkeypatch) -> None:
@@ -387,7 +384,7 @@ def test_cli_occupancy_and_check_conflict(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [home]
-"list.down" = "n"
+"list.down" = "k"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -395,17 +392,17 @@ def test_cli_occupancy_and_check_conflict(tmp_path: Path, monkeypatch) -> None:
     assert check.exit_code == 1
     check_out = check.stdout or ""
     assert "OK" not in check_out
-    assert "session.follow" not in check_out
+    assert "sessions.home" not in check_out
     assert "error:" in (check.stderr or check.output or "")
     occ = runner.invoke(app, ["keys", "--occupancy"])
     assert occ.exit_code == 1
     refused = load_keymap()
     assert not refused.ok
     rows = occupancy_rows(refused)
-    assert ("home", "n", "session.follow") in rows
+    assert ("home", "u", "sessions.home") in rows
     assert ("home", "j", "list.down") in rows
     occ_out = occ.stdout or occ.output or ""
-    assert "session.follow" in occ_out
+    assert "sessions.home" in occ_out
     assert "list.down" in occ_out
 
 
@@ -416,7 +413,7 @@ def test_cli_check_ok_after_remap(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "z"
+"sessions.home" = "z"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -425,7 +422,7 @@ def test_cli_check_ok_after_remap(tmp_path: Path, monkeypatch) -> None:
     assert str(path) in (result.stdout or result.output or "")
     listed = runner.invoke(app, ["keys"])
     assert listed.exit_code == 0
-    assert "session.follow" in (listed.stdout or listed.output or "")
+    assert "sessions.home" in (listed.stdout or listed.output or "")
     assert "z" in (listed.stdout or listed.output or "")
 
 
@@ -438,7 +435,7 @@ def test_textual_keymap_is_remappable_resolved_chords(tmp_path: Path, monkeypatc
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "z"
+"sessions.home" = "z"
 "list.down" = "h"
 """,
     )
@@ -446,9 +443,9 @@ def test_textual_keymap_is_remappable_resolved_chords(tmp_path: Path, monkeypatc
     keymap = load_keymap()
     assert keymap.ok
     mapped = textual_keymap(keymap)
-    assert mapped["session.follow"] == "z"
+    assert mapped["sessions.home"] == "z"
     assert mapped["list.down"] == "h"
-    assert mapped["session.done"] == "e"
+    assert mapped["list.up"] == "k,up"
     assert "help.toggle" not in mapped
     assert "overlay.hide" not in mapped
     assert "session.open" not in mapped
@@ -460,7 +457,7 @@ def test_textual_keymap_defaults_when_overlay_refused(tmp_path: Path, monkeypatc
         tmp_path / "keys.toml",
         """
 [home]
-"list.down" = "n"
+"list.down" = "k"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -468,13 +465,13 @@ def test_textual_keymap_defaults_when_overlay_refused(tmp_path: Path, monkeypatc
     assert not keymap.ok
     mapped = textual_keymap(keymap)
     assert mapped["list.down"] == "j,down"
-    assert mapped["session.follow"] == "n"
+    assert mapped["sessions.home"] == "u"
 
 
 def test_textual_keymap_defaults_without_overlay() -> None:
     mapped = textual_keymap(load_keymap())
     assert mapped["list.down"] == action_by_id("list.down").default
-    assert mapped["session.follow"] == action_by_id("session.follow").default
+    assert mapped["sessions.home"] == action_by_id("sessions.home").default
     assert "help.toggle" not in mapped
 
 
@@ -497,7 +494,7 @@ def test_parser_parity_fixtures_match_load_keymap(tmp_path: Path, monkeypatch) -
         keymap = load_keymap()
         assert keymap.ok is expect_ok, name
         if name == "overlay_single_quote.toml":
-            assert _follow_chord(keymap) == "z"
+            assert _home_chord(keymap) == "z"
         if not expect_ok:
             assert keymap.loaded_overlay is False
-            assert _follow_chord(keymap) == "n"
+            assert _home_chord(keymap) == "u"

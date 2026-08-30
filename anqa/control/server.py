@@ -966,24 +966,6 @@ class ControlServer:
         )
         return result
 
-    @_rpc("session/follow_up")
-    async def _rpc_session_follow_up(
-        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
-    ) -> JsonValue:
-        ref = self._session_ref(params)
-        prompt = json_as_str(params.get("prompt"))
-        final = bool(params.get("final"))
-        return await self._access_call(
-            ref, self._access.session_follow_up, ref, prompt, final=final
-        )
-
-    @_rpc("session/done")
-    async def _rpc_session_done(
-        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
-    ) -> JsonValue:
-        ref = self._session_ref(params)
-        return await self._access_call(ref, self._access.session_done, ref)
-
     async def notify(self, method: str, params: JsonObject) -> None:
         """Publish a notification to connected editor clients.
 

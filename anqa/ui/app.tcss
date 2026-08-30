@@ -154,41 +154,6 @@ TabPane {
     min-height: 5;
 }
 
-#interactive-sessions-modal {
-    width: 72;
-    height: auto;
-    max-height: 90%;
-    layout: vertical;
-    padding: 1 2;
-    background: $surface;
-    border: solid $primary;
-}
-
-#interactive-modal-title {
-    text-style: bold;
-    margin-bottom: 1;
-}
-
-#interactive-follow-input {
-    width: 100%;
-    margin-bottom: 0;
-}
-
-#interactive-follow-last-turn {
-    width: 100%;
-    height: auto;
-    margin: 0 0 1 0;
-}
-
-#interactive-modal-actions {
-    dock: bottom;
-    height: auto;
-    min-height: 3;
-    align: right middle;
-    padding: 1 0 0 0;
-    background: $surface;
-}
-
 /* ── Session load bar (main screen) ───────────────────────────────────── */
 /* Do not force height: 1 on toolbars that contain Input/Button — clips chrome. */
 

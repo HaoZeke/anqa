@@ -420,25 +420,6 @@ class TestBuildSessionSummaryException:
             assert "My Title" in result
 
 
-class TestSessionSummaryPendingLabel:
-    def test_pending_label_exception(self, session_dir):
-        """render_session_summary handles session_pending_label import failure."""
-        from unittest.mock import patch
-
-        meta = SessionMeta(
-            session_id="pend",
-            session_dir=session_dir,
-            turn_outcome="success",
-        )
-        with patch(
-            "anqa.session.turn_gate.session_pending_label",
-            side_effect=ImportError("no module"),
-        ):
-            result = render_session_summary(meta, [])
-            plain = rich_plain(result)
-            assert "pend" in plain or "success" in plain.lower() or plain.strip() != ""
-
-
 class TestSessionSummaryTurnSegmentationFail:
     def test_turn_segmentation_exception(self, session_dir):
         """render_session_summary handles segment_timeline_turns exception."""
@@ -457,59 +438,6 @@ class TestSessionSummaryTurnSegmentationFail:
             result = render_session_summary(meta, timeline)
             # Segmentation failed; still render identity / outcome for the session.
             assert_rich_contains(result, "segf", "complete")
-
-
-class TestSessionSummaryShareDisplay:
-    def test_share_url_present(self, session_dir):
-        """Share URL is included in the session summary."""
-        import json
-
-        (session_dir / "anqa-share.json").write_text(
-            json.dumps({"share_url": "https://share.example.com/abc", "session_id": "test"}),
-        )
-        meta = SessionMeta(
-            session_id="share-ok",
-            session_dir=session_dir,
-            turn_outcome="success",
-        )
-        result = build_session_summary(meta, [])
-        assert "share" in result.lower() or "Share" in result
-
-    def test_share_pending(self, session_dir):
-        """Pending share state is represented in the summary."""
-        import json
-
-        (session_dir / "anqa-share.json").write_text(
-            json.dumps({"source": "pending", "session_id": "test"}),
-        )
-        meta = SessionMeta(
-            session_id="share-pend",
-            session_dir=session_dir,
-            turn_outcome="success",
-        )
-        result = build_session_summary(meta, [])
-        assert "share" in result.lower() or "pending" in result.lower() or len(result) > 0
-        assert (
-            "share-pend" in result
-            or "Share" in result
-            or "pending" in result.lower()
-            or "share" in result.lower()
-        )
-
-    def test_share_failed(self, session_dir):
-        """Failed share state is represented in the summary."""
-        import json
-
-        (session_dir / "anqa-share.json").write_text(
-            json.dumps({"error": "no messages to share", "session_id": "test"}),
-        )
-        meta = SessionMeta(
-            session_id="share-fail",
-            session_dir=session_dir,
-            turn_outcome="success",
-        )
-        result = build_session_summary(meta, [])
-        assert "share-fail" in result
 
 
 class TestSessionSummaryUsageException:
@@ -551,25 +479,3 @@ class TestSessionSummaryMultiTurnToolMix:
         result = build_session_summary(meta, timeline)
         assert "Last turn" in result or "turn" in result.lower()
         assert "Tools" in result
-
-
-class TestSessionSummaryShareSection:
-    def test_share_section_no_url_not_pending(self, session_dir):
-        """Share section with error and no URL renders without crash."""
-        import json
-
-        (session_dir / "anqa-share.json").write_text(
-            json.dumps({"error": "auth failed", "session_id": "test", "snapshot_n": 2}),
-        )
-        meta = SessionMeta(
-            session_id="noshare",
-            session_dir=session_dir,
-            turn_outcome="success",
-        )
-        result = build_session_summary(meta, [])
-        assert (
-            "error" in result.lower()
-            or "share" in result.lower()
-            or "fail" in result.lower()
-            or "no messages" in result.lower()
-        )

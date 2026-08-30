@@ -23,6 +23,7 @@ from ..models import (
     ToolInput,
     ToolInputBag,
     TraceEvent,
+    as_json_object,
     json_as_list,
     json_as_str,
 )
@@ -150,10 +151,15 @@ def _find_run_parent(session_dir: Path) -> Path | None:
 
 
 def _load_run_manifest(session_dir: Path) -> JsonObject:
-    """Load launch recipe (session, traces volume, or fork parent seed)."""
-    from .recipe import load_run_recipe
-
-    return load_run_recipe(session_dir)
+    """Load ``run.json`` from the session directory when present."""
+    path = Path(session_dir) / "run.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return as_json_object(data) if isinstance(data, dict) else {}
 
 
 def _skills_from_skills_dir(session_dir: Path) -> list[str]:

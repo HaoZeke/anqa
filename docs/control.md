@@ -67,8 +67,6 @@ The owner accepts either and replies in the same frame the client used.
 | `session/open` | Resolve a session and notify `session/selected` |
 | `session/import` | Open a harness archive or anqa export and add it to the catalog |
 | `session/render` | Project a document (`format`: below) |
-| `session/follow_up` | Stage or queue the next prompt (`session`, `prompt`, optional `final`) |
-| `session/done` | Mark a live session done (`session`) |
 | `notes/list` | Notes snapshot (`revision`, schema, notes) |
 | `notes/upsert` | Write a note (`expectedRevision`) |
 | `notes/delete` | Delete a note (`expectedRevision`) |

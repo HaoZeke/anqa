@@ -60,8 +60,8 @@ def build_activity_line(
         Building │ Running │ Ending │ Extracting │ Awaiting │ Analysis │ Sessions
 
     * **Pending / Building / Running / Extracting** — leftover work-tree phases.
-    * **Ending** — interactive sessions shutting down after Done / last turn.
-    * **Awaiting** — interactive sessions waiting for a follow-up prompt.
+    * **Ending** — store last-turn signal is ending.
+    * **Awaiting** — store last-turn signal is awaiting a reply.
     * **Analysis / Refresh** — background pools (only when inflight > 0).
     * **Sessions** — rows loaded on the home list (always shown; catalog size).
 
@@ -197,7 +197,7 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
         counts["running"] = meta_running
     elif meta_only and meta_running == 0 and (meta_awaiting > 0 or meta_ending > 0):
         # List shows only awaiting/ending/complete: suppress ghost Running from
-        # in-flight statuses while the operator is in follow-up wait or shutdown.
+        # in-flight statuses while the store last turn is awaiting or ending.
         counts["running"] = 0
 
     # Never surface refresh pool pulses in the strip (see build_activity_line).

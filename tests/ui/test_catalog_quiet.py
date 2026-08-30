@@ -298,7 +298,6 @@ def test_browser_screen_init_sets_pending_and_live_attrs(tmp_path: Path) -> None
     assert screen._detail_debounce is None
     assert screen._live_refresh_deferred is None
     assert isinstance(screen._context_samples, ContextSampleStore)
-    assert screen._session_is_pending() is False
 
 
 def test_load_sessions_is_threaded_worker() -> None:

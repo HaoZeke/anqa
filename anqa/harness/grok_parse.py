@@ -13,7 +13,6 @@ import logging
 import re
 import threading
 from concurrent.futures import Future
-from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -407,13 +406,6 @@ def _list_runtime_status(session_dir: Path) -> tuple[str, int, bool]:
     return turn_outcome, loop_count, has_open_turn
 
 
-def _session_has_turn_gate(session_dir: Path) -> bool:
-    """True when this session's traces volume has a ``.anqa-turn`` directory."""
-    from ..session.turn_gate import turn_gate_dirs_for_session
-
-    return bool(turn_gate_dirs_for_session(session_dir))
-
-
 def _stringify_tool_payload(value: object) -> str:
     """Turn a tool output field into display text (str, MCP wrappers, JSON)."""
     if value is None:
@@ -768,125 +760,11 @@ def _coalesce_tool_result(
     return idx
 
 
-def _fork_event_signature(ev: TraceEvent) -> tuple[str, str, str, str]:
-    """Stable identity for matching re-stamped parent replay in a fork child."""
-    return (
-        ev.event_type,
-        ev.tool_name or "",
-        ev.tool_call_id or "",
-        (ev.content or "")[:240],
-    )
-
-
-def _fork_is_lifecycle_chrome(ev: TraceEvent) -> bool:
-    """Turn lifecycle rows that sit between matched parent work in a replay."""
-    return ev.event_type in ("turn_started", "turn_ended", "turn_completed") or (
-        ev.event_type in ("session", "session_error")
-        and (
-            "turn started" in (ev.content or "").lower()
-            or "turn ended" in (ev.content or "").lower()
-        )
-    )
-
-
-def _fork_child_timeline_suffix(
-    parent_tl: list[TraceEvent],
-    child_tl: list[TraceEvent],
-) -> list[TraceEvent]:
-    """Select child events that continue after inherited parent history.
-
-    Grok ``--fork-session`` often writes the child ``updates.jsonl`` as a
-    **re-timestamped full replay** of the parent conversation plus the new
-    continuation, with a single ``turn_number=N`` marker wrapping all of it.
-    The seeded parent timeline is authoritative for history; only the child's
-    **new** work (after the parent content prefix) is appended.
-    """
-    child = [e for e in child_tl if e.event_type != "system"]
-    if not child:
-        return []
-
-    parent_work = [
-        _fork_event_signature(e)
-        for e in parent_tl
-        if e.event_type != "system" and not _fork_is_lifecycle_chrome(e)
-    ]
-    if not parent_work:
-        return child
-
-    # Walk the child in order: consume a sequential match of parent work,
-    # skipping lifecycle chrome that Grok injects around the restamped block.
-    pi = 0
-    split_at = 0
-    for i, ev in enumerate(child):
-        if _fork_is_lifecycle_chrome(ev):
-            if pi < len(parent_work):
-                split_at = i + 1
-            continue
-        if pi < len(parent_work) and _fork_event_signature(ev) == parent_work[pi]:
-            pi += 1
-            split_at = i + 1
-            continue
-        # First non-matching substantive event — start of the fork continuation.
-        split_at = i
-        break
-    else:
-        # Exhausted child while still matching (or only chrome after match).
-        if pi >= len(parent_work):
-            return child[split_at:] if split_at < len(child) else []
-        return []
-
-    if pi == 0:
-        # No parent prefix — child is only the new branch (or unrelated).
-        return child
-
-    suffix = child[split_at:]
-    if suffix and suffix[0].event_type != "turn_started":
-        started = [ev for ev in child[:split_at] if ev.event_type == "turn_started"]
-        if started:
-            return [started[-1], *suffix]
-    return suffix
-
-
-def _merge_fork_parent_timeline(
-    session_dir: Path,
-    local: list[TraceEvent],
-) -> list[TraceEvent]:
-    """Prepend seeded parent timeline for forked child sessions."""
-    from ..session.resume import fork_parent_session_dir
-
-    parent = fork_parent_session_dir(session_dir)
-    if parent is None:
-        return local
-    parent_tl = parse_timeline(parent)
-    if not parent_tl:
-        return local
-    suffix = _fork_child_timeline_suffix(parent_tl, local)
-    if not suffix:
-        # Parent-only: reindex copies so cache entries stay independent.
-        return [replace(e, index=i) for i, e in enumerate(parent_tl)]
-    # Parent then continuation in order — do not re-sort by timestamp, or a
-    # restamped child prefix (if any slips through) could interleave wrongly.
-    merged = [replace(e, index=i) for i, e in enumerate([*parent_tl, *suffix])]
-    return merged
-
-
 def _timeline_stamp_for(session_dir: Path) -> tuple[str, TimelineStamp]:
-    """Return ``(cache_key, stamp)`` for *session_dir* (includes fork parent)."""
+    """Return ``(cache_key, stamp)`` for *session_dir*."""
     sd = Path(session_dir)
     cache_key = str(sd.resolve()) if sd.exists() else str(sd)
-    from ..session.resume import fork_parent_session_dir
-
-    parent = fork_parent_session_dir(sd)
-    stamp = session_timeline_stamp(sd)
-    if parent is not None:
-        parent_stamp = session_timeline_stamp(parent)
-        stamp = (
-            max(stamp[0], parent_stamp[0]),
-            stamp[1],
-            stamp[2],
-            stamp[3],
-        )
-    return cache_key, stamp
+    return cache_key, session_timeline_stamp(sd)
 
 
 def _parse_timeline_body(
@@ -911,7 +789,6 @@ def _parse_timeline_body(
         idx += 1
 
     out = _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
-    out = _merge_fork_parent_timeline(sd, out)
     _timeline_cache[cache_key] = (stamp, out, scan)
     return out
 
@@ -928,10 +805,6 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     errors) are merged with update rows and **ordered by timestamp** (then
     original index) so multi-turn sessions do not pile all starts at the top
     and all ends at the bottom.
-
-    Fork-resume children also inherit the seeded parent timeline (see
-    :func:`~anqa.session.resume.fork_parent_session_dir`): Grok often writes
-    only the new turn into the child session dir.
 
     Results are cached by :func:`session_timeline_stamp` (not signals.json) so
     live context heartbeats do not re-read multi‑MB ``updates.jsonl``. When the
@@ -1945,8 +1818,7 @@ def _normalize_terminal_turn_outcome(outcome: str) -> str:
 def _events_open_turn_after_completed(session_dir: Path) -> bool:
     """True when a later turn has started after at least one turn completed.
 
-    That means the agent is **running** the next turn (not waiting for a
-    follow-up prompt). Awaiting is only from the interactive turn gate.
+    That means the agent is **running** the next turn.
     """
     events_file = session_dir / "events.jsonl"
     if not events_file.is_file():
@@ -1996,69 +1868,9 @@ def _events_turn_balance(session_dir: Path) -> tuple[int, str]:
 
 
 def _events_have_open_turn(session_dir: Path) -> bool:
-    """True when the agent is mid-turn according to ``events.jsonl``.
-
-    Delegates to :func:`~anqa.session.turn_gate.events_have_open_turn` so
-    gate lifecycle and parser share one harness-turn definition.
-    """
-    from ..session.turn_gate import events_have_open_turn
-
-    return events_have_open_turn(session_dir)
-
-
-def _settle_idle_gate_outcome(marker_outcome: str) -> str:
-    """Outcome when the gate looks live but the container is idle."""
-    terminal = _normalize_terminal_turn_outcome(marker_outcome)
-    return terminal or "completed"
-
-
-def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str | None:
-    """Map interactive gate lifecycle onto turn_outcome, or ``None``.
-
-    Gate ownership: :mod:`anqa.session.turn_gate` (see
-    :func:`~anqa.session.turn_gate.lifecycle_state`). This only translates
-    that lifecycle into list/browser outcomes.
-    """
-    from ..session.turn_gate import lifecycle_state
-
-    life = lifecycle_state(session_dir)
-    if life == "done":
-        return _settle_idle_gate_outcome(marker_outcome)
-    if life == "ending":
-        return "ending"
-    if life == "awaiting_follow_up":
-        return "awaiting_follow_up"
-    if life == "timeout":
-        return "timeout"
-    if life == "running":
-        return _running_gate_outcome(session_dir, marker_outcome)
-    if not life:
-        return None
-    if (
-        _events_have_open_turn(session_dir)
-        or _last_turn_update(session_dir) in _LIST_RUNNING_UPDATES
-    ):
-        return "running"
-    return None
-
-
-def _running_gate_outcome(session_dir: Path, marker_outcome: str) -> str:
-    """Outcome while the turn-gate file still says ``running``."""
-    from ..session.turn_gate import final_turn_requested
-
-    if _events_have_open_turn(session_dir):
-        return "running"
-    last = _last_turn_update(session_dir)
-    if last in _LIST_COMPLETE_UPDATES:
-        return _normalize_terminal_turn_outcome(marker_outcome) or "completed"
-    if last in _LIST_RUNNING_UPDATES:
-        return "running"
-    terminal = _normalize_terminal_turn_outcome(marker_outcome)
-    if terminal:
-        return terminal
-    if final_turn_requested(session_dir):
-        return _settle_idle_gate_outcome(marker_outcome)
-    return "running"
+    """True when the agent is mid-turn according to ``events.jsonl``."""
+    open_starts, _ = _events_turn_balance(session_dir)
+    return open_starts > 0
 
 
 def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
@@ -2216,27 +2028,8 @@ def _load_signals(meta: SessionMeta, session_dir: Path) -> None:
 
 
 def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
-    """Populate meta from launch record, then legacy run.json / path hints.
-
-    Prefer ``anqa-launch.json`` on the traces volume (written at container
-    start with the operator-selected model and effort). Older traces without
-    that file fall back to ``run.json`` mapping and directory-name inference.
-    """
-    from ..session.launch_meta import apply_launch_meta, read_launch_meta
-
-    launch = read_launch_meta(session_dir)
-    if launch is not None:
-        apply_launch_meta(meta, launch)
-
+    """Populate meta from ``session_dir/run.json`` / path hints when present."""
     run_json = session_dir / "run.json"
-    if not run_json.exists():
-        for ancestor in session_dir.parents:
-            if is_run_dir_name(ancestor.name):
-                run_json = ancestor / "run.json"
-                break
-            if ancestor.name == "traces":
-                break
-
     if run_json.exists():
         try:
             with open(run_json) as f:
@@ -2249,22 +2042,18 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
                 meta.git_repo = run_data.get("repo_url", "")
             if not meta.git_branch:
                 meta.git_branch = run_data.get("repo_branch", "")
-            if launch is None:
-                resolved = _model_from_run_json(session_dir, run_data)
-                if resolved:
-                    from ..session.models_catalog import split_model_effort
+            resolved = _model_from_run_json(session_dir, run_data)
+            if resolved:
+                from ..session.models_catalog import split_model_effort
 
-                    mid, eff = split_model_effort(resolved)
-                    meta.model_id = mid or resolved
-                    if eff:
-                        meta.reasoning_effort = eff
+                mid, eff = split_model_effort(resolved)
+                meta.model_id = mid or resolved
+                if eff:
+                    meta.reasoning_effort = eff
         except (json.JSONDecodeError, KeyError):
             pass
 
-    if launch is not None:
-        return
-
-    # Legacy traces: infer from anqa-* parent slug / config.toml.
+    # Directory-name hints when run.json did not set model.
     if not meta.model_id or meta.model_id in ("unknown", "v9", "grok-build"):
         inferred = _model_from_run_parent(session_dir)
         if inferred and inferred not in ("unknown",) and inferred != meta.model_id:
@@ -2377,13 +2166,6 @@ def load_session_meta_list(session_dir: Path) -> SessionMeta:
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
     _apply_list_turn_outcome(meta, session_dir)
-    if _session_has_turn_gate(session_dir):
-        try:
-            override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
-            if override is not None:
-                meta.turn_outcome = override
-        except Exception:
-            logger.debug("turn gate status for list %s", session_dir, exc_info=True)
     if meta.turn_failed and not meta.error_count:
         meta.error_count = max(meta.error_count, 1)
     _load_run_meta(meta, session_dir)
@@ -2429,17 +2211,10 @@ def load_session_meta(
             if inferred:
                 meta.turn_outcome = inferred
 
-    # Interactive gate overrides from store files (not wall-clock freshness).
-    try:
-        override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
-        if override is not None:
-            meta.turn_outcome = override
-        elif _events_open_turn_after_completed(session_dir):
-            meta.turn_outcome = "running"
-    except Exception:
-        logger.debug("turn gate status for %s", session_dir, exc_info=True)
-        if _events_have_open_turn(session_dir):
-            meta.turn_outcome = "running"
+    if _events_open_turn_after_completed(session_dir):
+        meta.turn_outcome = "running"
+    elif not meta.turn_outcome and _events_have_open_turn(session_dir):
+        meta.turn_outcome = "running"
 
     if meta.turn_failed and not meta.error_count:
         # Surface harness failure even when signals.json tool errors are zero
@@ -2467,21 +2242,12 @@ def load_session_meta(
 def list_turn_outcome_for_dir(session_dir: Path) -> str:
     """Live-only turn status for the sessions list poll.
 
-    Returns ``running`` / ``ending`` / ``awaiting_follow_up`` / ``""``. Does
+    Returns ``running`` / ``""``. Does
     **not** return ``interrupted`` — that inference is for full
     :func:`load_session_meta` only (overwriting finished sessions with
     interrupted made the list show "cancelled" for old successful runs).
     """
     sd = Path(session_dir)
-    try:
-        override = _gate_override_turn_outcome(sd, "")
-        if override in ("awaiting_follow_up", "running", "ending"):
-            return override
-        if override is not None:
-            return ""
-    except Exception:
-        logger.debug("list turn outcome gate for %s", sd, exc_info=True)
-
     mapped = _turn_outcome_from_updates(_last_turn_update(sd))
     if mapped == "completed":
         return ""
@@ -2727,9 +2493,6 @@ def _prune_session_walk_dirs(dirnames: list[str]) -> None:
 
 def _scan_hit_is_listed(root: Path, path: Path) -> bool:
     """Apply the Python walk policy to one compiled ``find_sessions`` hit."""
-    # session/__init__ imports sources, which import find_sessions.
-    from ..session.resume import is_resume_seed_path
-
     try:
         rel = path.resolve().relative_to(root.resolve())
     except ValueError:
@@ -2738,7 +2501,12 @@ def _scan_hit_is_listed(root: Path, path: Path) -> bool:
         return False
     if _is_subagent_session_dir(path):
         return False
-    return not is_resume_seed_path(path)
+    try:
+        if ".anqa-resume-seed" in path.resolve().parts:
+            return False
+    except OSError:
+        pass
+    return True
 
 
 def _is_subagent_session_dir(path: Path) -> bool:
@@ -2782,8 +2550,7 @@ def find_sessions(root: Path) -> list[Path]:
     or a non-empty events.jsonl (live mid-run).
 
     Skips leftover staging trees (``anqa-plugins``, ``anqa-skills``, ``*.stage``,
-    ``.anqa-resume-seed``), Grok subagent sessions, and live paths that are
-    only symlinks into resume substrate (see :mod:`anqa.session.resume`).
+    ``.anqa-resume-seed``) and Grok subagent sessions.
 
     Once a session dir is recognized, the walk does **not** descend into it
     (workspaces under a session are not nested sessions). Descending was the

@@ -473,99 +473,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 pass
 
-    def _session_is_pending(self) -> bool:
-        """True only for interactive multi-turn follow-up / Done UI.
-
-        A leftover work tree may still create a turn gate with ``state=running``
-        and never set ``awaiting_follow_up``; do not treat that as a follow-up bar.
-        Stale / finalized gates never show the bar (see settle_stale_session_gates).
-
-        Uses a short-lived cache so Textual ``check_action`` (every key / footer
-        refresh) does not re-walk gates and ``events.jsonl`` on the UI thread.
-        """
-        if self._pending_cache_valid:
-            return self._pending_actions_enabled
-        return self._recompute_session_pending()
-
-    def _recompute_session_pending(self) -> bool:
-        """Disk probe for follow-up bar / action enablement; updates the cache."""
-        from ...session.turn_gate import (
-            final_turn_requested,
-            host_requested_done,
-            list_queued_follow_ups,
-            read_staged_follow_up,
-            read_turn_gate_status,
-            session_activity_stale,
-            session_awaits_follow_up,
-            settle_stale_session_gates,
-        )
-
-        try:
-            settle_stale_session_gates(self.session_dir)
-        except Exception:
-            pass
-
-        pending = False
-        try:
-            st = read_turn_gate_status(self.session_dir)
-        except Exception:
-            st = {}
-        gstate = str(st.get("state") or "")
-
-        if gstate != "done":
-            stale = False
-            try:
-                stale = bool(session_activity_stale(self.session_dir))
-            except Exception:
-                stale = False
-            if not stale:
-                if host_requested_done(self.session_dir) or final_turn_requested(self.session_dir):
-                    pending = True
-                else:
-                    try:
-                        if read_staged_follow_up(self.session_dir) is not None:
-                            pending = True
-                    except Exception:
-                        pass
-                    if not pending and session_awaits_follow_up(self.session_dir):
-                        pending = True
-                    if not pending:
-                        try:
-                            if list_queued_follow_ups(self.session_dir):
-                                pending = True
-                        except Exception:
-                            pass
-
-        self._pending_actions_enabled = pending
-        self._pending_cache_valid = True
-        return pending
-
     def _invalidate_pending_cache(self) -> None:
-        """Drop cached follow-up enablement (call after gate / FS updates)."""
-        self._pending_cache_valid = False
         self._needs_live_timeline_valid = False
 
     def _session_needs_live_timeline(self) -> bool:
-        """True while the agent may still append traces (not idle follow-up wait).
-
-        Domain rule: :func:`~anqa.session.turn_gate.session_needs_live_timeline`.
-        Orphan ``final_turn`` / stale ``status=running`` do **not** keep reloading.
-
-        Cached between light refreshes so debounced FS events do not re-walk
-        gates on the UI thread every few hundred ms during a live turn.
-        """
+        """True while the store's last turn signal is still running."""
         if self._needs_live_timeline_valid:
             return self._needs_live_timeline
         return self._recompute_needs_live_timeline()
 
     def _recompute_needs_live_timeline(self) -> bool:
-        """Disk probe for live-timeline need; updates the cache."""
-        from ...session.turn_gate import session_needs_live_timeline
-
-        try:
-            need = bool(session_needs_live_timeline(self.session_dir))
-        except Exception:
-            need = False
+        meta = self.meta
+        oc = (meta.turn_outcome or "").strip().lower().replace(" ", "_") if meta else ""
+        need = oc in {"running", "in_progress", "pending", "ending"}
         self._needs_live_timeline = need
         self._needs_live_timeline_valid = True
         return need
@@ -574,7 +494,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._needs_live_timeline_valid = False
 
     def _refresh_session_pending_bar(self) -> None:
-        """Refresh live Tail / footer after a gate or timeline change."""
+        """Refresh live Tail / footer after a timeline change."""
         self._invalidate_pending_cache()
         self._sync_timeline_tail_checkbox()
         with suppress(Exception):
@@ -585,8 +505,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         Watch the **session dir only** (``updates.jsonl`` / ``events.jsonl`` /
         ``signals.json``). Watching the whole traces volume doubles FS noise
-        (sibling sessions, seed trees) and freezes the TUI mid-run. Turn-gate
-        transitions are polled on the snapshot / pending-bar path instead.
+        (sibling sessions, leftover staging trees) and freezes the TUI mid-run.
 
         Host session dirs (and any symlink) are resolved so the OS watch
         sees real file writes on the adapter store.
@@ -608,13 +527,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         rows appear without exiting the screen. Content-only stream rewrites
         are ignored by :meth:`TimelineTable.load_events` (append-only).
 
-        When the session looks idle (common for **host** sessions with no turn
-        gate, once ``updates.jsonl`` ages past the fresh window), keep a slow
-        recheck so a resumed agent re-arms hot live without F5.
+        When the session looks idle (once ``updates.jsonl`` ages past the
+        fresh window), keep a slow recheck so a resumed agent re-arms hot
+        live without F5.
         """
-        pending_ui = self._session_is_pending()
         live_traces = self._session_needs_live_timeline()
-        if not pending_ui and not live_traces:
+        if not live_traces:
             self._downgrade_live_refresh_to_recheck()
             self._refresh_session_pending_bar()
             return
@@ -669,10 +587,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _downgrade_live_refresh_to_recheck(self) -> None:
         """Drop hot FS/snapshot polling; keep a slow re-arm probe.
 
-        Imported live sessions often have no ``.anqa-turn`` gate, so
-        :func:`~anqa.session.turn_gate.session_needs_live_timeline` is only
-        true while ``updates.jsonl`` is fresh. Fully stopping live left the
-        browser frozen after a quiet gap until the operator hit refresh.
+        Live timeline follows the store's last turn signal. Fully
+        stopping live left the browser frozen after a quiet gap until
+        the operator hit refresh.
         """
         self._stop_hot_live_refresh()
         if self._live_recheck_timer is not None:
@@ -688,14 +605,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """UI thread: cheap probe; re-arm hot live if the session woke up."""
         self._invalidate_live_timeline_cache()
         self._invalidate_pending_cache()
-        if self._session_is_pending() or self._session_needs_live_timeline():
+        if self._session_needs_live_timeline():
             self._stop_live_recheck_timer()
             self._schedule_live_refresh()
             # Pull immediately so the first new rows are not delayed a full interval.
             self._live_refresh_from_fs(heartbeat=False)
 
     def _live_refresh_heartbeat(self) -> None:
-        """UI thread: periodic read-only refresh (context meter / gate status)."""
+        """UI thread: periodic read-only refresh (context meter)."""
         self._live_refresh_from_fs(heartbeat=True)
 
     def _live_refresh_snapshot(self) -> None:
@@ -705,7 +622,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _live_refresh_from_fs(self, *, heartbeat: bool = False) -> None:
         """UI thread: debounced FS event, snapshot timer, or heartbeat."""
-        if not self._session_is_pending() and not self._session_needs_live_timeline():
+        if not self._session_needs_live_timeline():
             self._downgrade_live_refresh_to_recheck()
             self._refresh_session_pending_bar()
             return
@@ -1188,7 +1105,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return bool(store.record(self._current_turn_index(), self.meta))
 
     def _populate_ui_light(self) -> None:
-        """Update title + timeline + share/stats without rebuilding Summary tables.
+        """Update title + timeline + stats without rebuilding Summary tables.
 
         Skips clearing/rebuilding the timeline table when the light fingerprint
         is unchanged so live polling does not flicker mid-turn. Context-only
@@ -1211,7 +1128,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             active = str(self.query_one("#browser-tabs", TabbedContent).active or "")
         if not unchanged:
             self._last_light_fp = fp
-            # Turn dropdown must track follow-ups even when Timeline is not focused.
+            # Turn dropdown must track new turns even when Timeline is not focused.
             with suppress(Exception):
                 self._rebuild_turn_select()
             # Skip DataTable work when Timeline is not visible (still keep data).
@@ -1798,8 +1715,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _set_title_from_meta(self) -> None:
         label = self.meta.label if self.meta else self.session_dir.name
         model = self.meta.model_display if self.meta else "unknown"
-        # Full Fluent extras (not edge-space fragments). LIVE only while the agent
-        # is writing traces — not for idle awaiting_follow_up or settled outcomes.
+        # Full Fluent extras (not edge-space fragments). LIVE only while the
+        # store's last turn is still writing — not for idle awaiting or settled.
         outcome_bit = ""
         if is_subagent_session_dir(self.session_dir):
             outcome_bit = t("title-browser-extra-subagent")
@@ -1918,7 +1835,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Show Tail only while a turn is still open."""
         live = False
         with suppress(Exception):
-            live = bool(self._session_is_pending() or self._session_needs_live_timeline())
+            live = bool(self._session_needs_live_timeline())
         try:
             cluster = self.query_one("#timeline-tail-cluster", Horizontal)
             box = self.query_one("#timeline-tail", Switch)
@@ -2394,25 +2311,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Reload timeline/meta for this session."""
         self.notify(U.refreshing_session_view(), severity="information", timeout=3)
         self._load_data()
-
-    def action_open_share(self) -> None:
-        """Open the share URL for this session (from anqa-share.json) in the browser."""
-        try:
-            from ...session.share import get_share_display, refresh_share_from_disk
-
-            url = refresh_share_from_disk(self.session_dir)
-            info = get_share_display(self.session_dir)
-            if not url:
-                _ = info
-                return
-            try:
-                import webbrowser
-
-                webbrowser.open(url)
-            except Exception as exc:
-                self.notify(U.could_not_open_share(str(exc)), severity="error", timeout=10)
-        except Exception as exc:
-            self.notify(U.share_failed(str(exc)), severity="error")
 
     _TIMELINE_VIEWS: tuple[str, ...] = (
         "all",

@@ -115,12 +115,6 @@ def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-p
         encoding="utf-8",
     )
 
-    gate = container / ".anqa-turn"
-    gate.mkdir(parents=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "awaiting_follow_up", "session_id": session_id, "turn": 2}) + "\n",
-        encoding="utf-8",
-    )
     return sess
 
 
@@ -300,28 +294,6 @@ async def test_summary_pairs_stack_when_narrow(tmp_path: Path) -> None:
         screen._SUMMARY_STACK_WIDTH = 40
         screen._sync_summary_stack()
         assert not scroll.has_class("summary-stack")
-
-
-@pytest.mark.asyncio
-async def test_browser_idle_awaiting_skips_live_timeline(tmp_path: Path) -> None:
-    """Awaiting follow-up keeps the pending bar but does not need timeline polls."""
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        assert screen._session_is_pending() is True
-        # Gate idle wait — not agent writing traces.
-        assert screen._session_needs_live_timeline() is False
-        screen._set_title_from_meta()
-        assert "LIVE" not in (screen.title or "")
-        assert "awaiting" in (screen.title or "").lower()
-        chrome = static_plain(screen.query_one("#app-chrome-title", Static))
-        assert "Pilot multi-turn" in chrome
-        assert "LIVE" not in chrome
-        assert "awaiting" not in chrome.lower()
 
 
 @pytest.mark.asyncio
@@ -985,6 +957,18 @@ async def test_browser_first_paint_defers_summary_and_notes(tmp_path: Path) -> N
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
+    with (sess / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(
+            json.dumps(
+                {
+                    "ts": "2026-06-25T00:07:00Z",
+                    "type": "turn_started",
+                    "turn_number": 2,
+                    "model_id": "pilot-model",
+                }
+            )
+            + "\n"
+        )
     app = _host_app(work, traces)
 
     async with app.run_test(size=(140, 48)) as pilot:
@@ -1425,19 +1409,6 @@ async def test_browser_footer_hides_timeline_keys_off_timeline(tmp_path: Path) -
 
 
 # ── Open share (no URL) ─────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_browser_open_share_no_url(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        screen.action_open_share()
-        await pilot.pause()
 
 
 @pytest.mark.asyncio

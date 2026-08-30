@@ -17,7 +17,6 @@ pub struct KeyScope {
     pub browse: bool,
     pub help_open: bool,
     pub timeline_detail: bool,
-    pub awaiting: bool,
     pub child_open: bool,
     pub compact_child: bool,
     /// Events turn pick is shown (more than one turn).
@@ -544,7 +543,6 @@ mod tests {
             browse: false,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -596,7 +594,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -613,7 +610,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -633,7 +629,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -673,7 +668,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -696,7 +690,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -715,7 +708,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -738,7 +730,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: true,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -757,7 +748,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -782,7 +772,6 @@ mod tests {
             browse: true,
             help_open: true,
             timeline_detail: true,
-            awaiting: true,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -806,7 +795,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: true,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -825,7 +813,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: true,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -848,7 +835,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -870,7 +856,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -893,7 +878,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -914,7 +898,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -933,7 +916,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: true,
@@ -961,7 +943,6 @@ mod tests {
             browse: false,
             help_open: false,
             timeline_detail: false,
-            awaiting: true,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -979,14 +960,13 @@ mod tests {
     #[test]
     fn armed_leader_shows_in_footer() {
         let overlay = crate::keys::KeyOverlay::parse(
-            "leader = \";\"\n[home]\n\"search.focus\" = \"leader+slash\"\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
+            "leader = \";\"\n[home]\n\"search.focus\" = \"leader+slash\"\n\"list.down\" = \"n\"\n[browser]\n\"edit.copy\" = \"z\"\n",
         )
         .expect("leader overlay");
         let scope = KeyScope {
             browse: false,
             help_open: false,
             timeline_detail: false,
-            awaiting: false,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -1012,15 +992,15 @@ mod tests {
         let overlay = crate::keys::KeyOverlay::parse(concat!(
             "leader = \";\"\n",
             "[home]\n",
-            "\"session.follow\" = \"leader+n\"\n",
             "\"sessions.home\" = \"leader+u\"\n",
+            "[browser]\n",
+            "\"edit.copy\" = \"leader+n\"\n",
         ))
         .expect("sequence overlay");
         let scope = KeyScope {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: true,
             child_open: false,
             compact_child: false,
             turn_pick: false,
@@ -1046,7 +1026,7 @@ mod tests {
     #[test]
     fn overlay_remap_shows_in_footer_and_help() {
         let overlay = crate::keys::KeyOverlay::parse(
-            "[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
+            "[home]\n\"list.down\" = \"n\"\n[browser]\n\"edit.copy\" = \"z\"\n",
         )
         .expect("valid overlay");
         let hints = footer_table_for(picker(), &overlay).footer_hints();
@@ -1057,7 +1037,6 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
-            awaiting: true,
             child_open: false,
             compact_child: false,
             turn_pick: false,

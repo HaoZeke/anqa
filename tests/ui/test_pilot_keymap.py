@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-from anqa.session.turn_gate import session_awaits_follow_up
 from anqa.ui.app import AnqaApp
 from textual.widgets import DataTable
 
@@ -78,32 +77,21 @@ async def test_overlay_remap_updates_footer_binding(
 
 
 @pytest.mark.asyncio
-async def test_refused_overlay_keeps_default_follow_and_list_down(
+async def test_refused_overlay_keeps_default_list_down(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     keys = tmp_path / "keys.toml"
-    keys.write_text('[home]\n"list.down" = "n"\n', encoding="utf-8")
+    keys.write_text('[home]\n"list.down" = "k"\n', encoding="utf-8")
     monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    gate = traces / ".anqa-turn"
-    gate.mkdir(parents=True, exist_ok=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "awaiting_follow_up", "session_id": "pilot-keymap-1", "turn": 1})
-        + "\n",
-        encoding="utf-8",
-    )
     app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
-            lambda: (
-                app._keymap.get("session.follow") == "n"
-                and app._keymap.get("list.down") == "j,down"
-            ),
-            description="refused overlay leaves follow=n and list.down=j,down",
+            lambda: app._keymap.get("list.down") == "j,down",
+            description="refused overlay leaves list.down=j,down",
         )
-        assert app._keymap["session.follow"] == "n"
         assert app._keymap["list.down"] == "j,down"
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 1, description="session row")
@@ -188,12 +176,14 @@ def _colemak_text() -> str:
     return (root / "examples" / "keys" / "colemak.toml").read_text(encoding="utf-8")
 
 
-def _write_awaiting(traces: Path, session_id: str) -> None:
-    gate = traces / ".anqa-turn"
-    gate.mkdir(parents=True, exist_ok=True)
-    (gate / "status.json").write_text(
-        json.dumps({"state": "awaiting_follow_up", "session_id": session_id, "turn": 1}) + "\n",
-        encoding="utf-8",
+def _leader_nav_text() -> str:
+    return (
+        'leader = ";"\n'
+        "leader_timeout_ms = 800\n\n"
+        "[home]\n"
+        '"list.down" = "n"\n'
+        '"list.up" = "e"\n'
+        '"sessions.home" = "leader+n"\n'
     )
 
 
@@ -251,40 +241,11 @@ async def test_colemak_n_e_are_list_nav(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_colemak_leader_does_not_send_follow_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    keys = tmp_path / "keys.toml"
-    keys.write_text(_colemak_text(), encoding="utf-8")
-    monkeypatch.setenv("ANQA_KEYS", str(keys))
-    work = tmp_path / "w"
-    traces = _minimal_traces(work)
-    _write_awaiting(traces, "pilot-keymap-1")
-    app = AnqaApp(traces_path=traces)
-    async with app.run_test(size=(120, 40)) as pilot:
-        table = app.query_one("#session-table", DataTable)
-        await wait_until(pilot, lambda: table.row_count >= 1, description="session row")
-        table.focus()
-        await wait_until(
-            pilot,
-            lambda: app._resolved_keymap is not None and app._resolved_keymap.leader == ";",
-            description="colemak leader loaded",
-        )
-        await pilot.press("semicolon")
-        await wait_until(pilot, lambda: app._leader_armed, description="leader armed")
-        await pilot.press("n")
-        await pilot.pause()
-        sess = traces / "pilot-keymap-1"
-        assert session_awaits_follow_up(sess)
-        assert not any(type(s).__name__ == "InteractiveSessionsModal" for s in app.screen_stack)
-
-
-@pytest.mark.asyncio
 async def test_leader_cancelled_by_escape_and_timeout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     keys = tmp_path / "keys.toml"
-    keys.write_text(_colemak_text(), encoding="utf-8")
+    keys.write_text(_leader_nav_text(), encoding="utf-8")
     monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
@@ -331,7 +292,7 @@ async def test_leader_not_armed_in_search_input(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     keys = tmp_path / "keys.toml"
-    keys.write_text(_colemak_text(), encoding="utf-8")
+    keys.write_text(_leader_nav_text(), encoding="utf-8")
     monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
