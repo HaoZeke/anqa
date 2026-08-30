@@ -133,6 +133,7 @@ that store writes. An adapter never invents those.
 | `antigravity` | Antigravity | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
 | `copilot` | GitHub Copilot | `~/.copilot/session-store.db` | `copilot:<id>` |
 | `codex` | Codex | `~/.codex/sessions/**/rollout-*.jsonl` | `codex:<id>` |
+| `cursor` | Cursor | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` | `cursor:<id>` |
 
 Notes for a host adapter session live under
 `~/.anqa/notes/<session_id>/`. A session directory you open with

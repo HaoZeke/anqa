@@ -9,8 +9,8 @@ First release. Anqa is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. The catalog lists every shipped
 harness store. Grok Build (`grok`), OpenCode (`opencode`), Pi
 (`pi`), Claude Code (`claude`), Gemini CLI (`gemini`), Antigravity
-(`antigravity`), GitHub Copilot (`copilot`), and Codex (`codex`) are
-registered.
+(`antigravity`), GitHub Copilot (`copilot`), Codex (`codex`), and
+Cursor (`cursor`) are registered.
 
 ### Install
 

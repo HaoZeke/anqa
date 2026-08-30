@@ -148,7 +148,8 @@
         "gemini",
         "antigravity",
         "copilot",
-        "codex"
+        "codex",
+        "cursor"
       ],
       "compare": false
     },

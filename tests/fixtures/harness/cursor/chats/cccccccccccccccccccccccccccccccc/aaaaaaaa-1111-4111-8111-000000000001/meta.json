@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "createdAtMs": 1704067200000,
+  "updatedAtMs": 1704067260000,
+  "hasConversation": true,
+  "title": "Reply with CURSOR_PROBE_OK",
+  "cwd": "/tmp/cursor-probe-ws"
+}
