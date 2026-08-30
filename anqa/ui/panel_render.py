@@ -93,7 +93,7 @@ def section_header(title: str) -> Text:
 
 
 def format_stamp(iso: str) -> str:
-    """Short card time in the host zone: ``2026-08-22T03:25:29Z`` → ``Aug 21, 20:25``."""
+    """Short card time in the host zone: ``2026-08-22T03:25:29Z`` → ``2026-08-21 20:25:29``."""
     from ..utils import fmt_local_card
 
     return fmt_local_card(iso)

@@ -52,6 +52,8 @@ Cursor (`cursor`) are registered.
   awaiting. Those keys stay off the footer and `?` tables.
 - Every note has a `source`. Extra field keys are stored as sent.
   Notes (terminal and HUD) show the writer badge and the stored fields.
+- Card, timeline, summary, and note stamps show the host local clock
+  as `YYYY-MM-DD HH:MM:SS`.
 
 ### Terminal app
 

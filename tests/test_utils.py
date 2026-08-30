@@ -54,10 +54,10 @@ class TestLocalStamps:
     def test_card_and_created_use_host_zone(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TZ", "America/Los_Angeles")
         time.tzset()
-        assert fmt_local_card("2026-08-08T18:02:00Z") == "Aug 8, 11:02"
+        assert fmt_local_card("2026-08-08T18:02:00Z") == "2026-08-08 11:02:00"
         assert fmt_local_created("2026-08-08T18:02:00.123Z") == "2026-08-08 11:02:00"
         ts = 1786212120  # 2026-08-08 18:02:00 UTC
-        assert fmt_local_hms(ts) == "11:02:00"
+        assert fmt_local_hms(ts) == "2026-08-08 11:02:00"
 
     def test_unparsed_iso_stays(self) -> None:
         assert fmt_local_card("") == ""

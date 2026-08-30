@@ -1,6 +1,6 @@
 //! Display helpers for notes, status, and errors.
 
-use chrono::{DateTime, Datelike, Local, Timelike};
+use chrono::{DateTime, Local};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -781,43 +781,7 @@ fn overview_job_count_value(total: usize, running: usize, done: usize, failed: u
 }
 
 pub fn format_note_time(iso: &str) -> String {
-    let s = iso.trim();
-    if s.is_empty() {
-        return String::new();
-    }
-    if let Some(dt) = parse_iso_local(s) {
-        const MONTHS: [&str; 12] = [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-        ];
-        return format!(
-            "{} {}, {:02}:{:02}",
-            MONTHS[dt.month0() as usize],
-            dt.day(),
-            dt.hour(),
-            dt.minute()
-        );
-    }
-    if s.len() >= 16 && s.as_bytes()[4] == b'-' {
-        let day: u32 = s[8..10].parse().unwrap_or(0);
-        let month = match &s[5..7] {
-            "01" => "Jan",
-            "02" => "Feb",
-            "03" => "Mar",
-            "04" => "Apr",
-            "05" => "May",
-            "06" => "Jun",
-            "07" => "Jul",
-            "08" => "Aug",
-            "09" => "Sep",
-            "10" => "Oct",
-            "11" => "Nov",
-            "12" => "Dec",
-            _ => &s[5..7],
-        };
-        let hm = if s.len() >= 16 { &s[11..16] } else { "" };
-        return format!("{month} {day}, {hm}");
-    }
-    s.to_string()
+    short_created(iso)
 }
 
 /// Operator label for a note field. Same words as the TUI: schema label, or
@@ -2840,6 +2804,7 @@ mod tests {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         assert_eq!(short_created("2026-08-08T18:02:00.123Z"), local);
+        assert_eq!(format_note_time("2026-08-08T18:02:00.123Z"), local);
         assert_eq!(short_created("  "), "");
         assert_eq!(short_created("already plain"), "already plain");
     }

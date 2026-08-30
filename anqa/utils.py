@@ -120,22 +120,6 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
-_MONTHS = (
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-)
-
-
 def parse_iso_local(raw: str) -> datetime | None:
     """Parse an ISO stamp and return it in the host zone.
 
@@ -153,16 +137,20 @@ def parse_iso_local(raw: str) -> datetime | None:
     return dt.astimezone()
 
 
+def _fmt_local_dt(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def fmt_local_card(iso: str) -> str:
-    """Card time: ``2026-08-08T18:02:00Z`` → host ``Aug 8, 11:02``.
+    """Card time: ``2026-08-08T18:02:00Z`` → host ``2026-08-08 11:02:00``.
 
     :param iso: Stored ISO stamp (UTC).
-    :returns: Local card face, or the trimmed input when it is not a stamp.
+    :returns: Local ``YYYY-MM-DD HH:MM:SS``, or the trimmed input when unparsed.
     """
     dt = parse_iso_local(iso)
     if dt is None:
         return (iso or "").strip()
-    return f"{_MONTHS[dt.month - 1]} {dt.day}, {dt.strftime('%H:%M')}"
+    return _fmt_local_dt(dt)
 
 
 def fmt_local_created(iso: str) -> str:
@@ -171,22 +159,20 @@ def fmt_local_created(iso: str) -> str:
     :param iso: Stored ISO stamp (UTC).
     :returns: ``YYYY-MM-DD HH:MM:SS`` locally, or the trimmed input when unparsed.
     """
-    dt = parse_iso_local(iso)
-    if dt is None:
-        return (iso or "").strip()
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return fmt_local_card(iso)
 
 
 def fmt_local_hms(epoch: int) -> str:
-    """Timeline clock ``HH:MM:SS`` in the host zone.
+    """Timeline stamp in the host zone: ``2026-08-08 11:02:00``.
 
     :param epoch: Unix seconds.
-    :returns: Local clock, or ``str(epoch)`` when the value is not a time.
+    :returns: Local ``YYYY-MM-DD HH:MM:SS``, or ``str(epoch)`` when unparsed.
     """
     try:
-        return datetime.fromtimestamp(int(epoch), tz=UTC).astimezone().strftime("%H:%M:%S")
+        dt = datetime.fromtimestamp(int(epoch), tz=UTC).astimezone()
     except (OSError, OverflowError, ValueError):
         return str(epoch)
+    return _fmt_local_dt(dt)
 
 
 def slug_text(text: str, max_len: int = 40, *, fallback: str = "item") -> str:
