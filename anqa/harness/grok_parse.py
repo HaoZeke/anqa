@@ -14,13 +14,12 @@ import re
 import threading
 from concurrent.futures import Future
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
 from ..bounded_cache import BoundedCache
 from ..constants import (
-    INCOMPLETE_STALE_SECONDS,
     INTERRUPTED_MARKER_FILENAME,
     LIST_RUNTIME_CACHE_MAXSIZE,
     RUNTIME_MARKERS_CACHE_MAXSIZE,
@@ -396,7 +395,7 @@ def _apply_list_runtime_event(
 def _list_runtime_status(session_dir: Path) -> tuple[str, int, bool]:
     """Home-list turn status from ``events.jsonl`` in one pass.
 
-    Returns ``(turn_outcome, loop_count, open_after_completed)``. Does not
+    Returns ``(turn_outcome, loop_count, has_open_turn)``. Does not
     build marker events. Lines that cannot be turn/loop/error markers are
     not JSON-parsed (those are the multi‑MB tool payloads).
     """
@@ -433,9 +432,9 @@ def _list_runtime_status(session_dir: Path) -> tuple[str, int, bool]:
     except OSError:
         return "", 0, False
 
-    open_after = ended > 0 and open_starts > 0
-    _list_runtime_cache[cache_key] = (mtime_ns, size, turn_outcome, loop_count, open_after)
-    return turn_outcome, loop_count, open_after
+    has_open_turn = open_starts > 0
+    _list_runtime_cache[cache_key] = (mtime_ns, size, turn_outcome, loop_count, has_open_turn)
+    return turn_outcome, loop_count, has_open_turn
 
 
 def _session_has_turn_gate(session_dir: Path) -> bool:
@@ -2071,67 +2070,50 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
         return "ending"
     if life == "awaiting_follow_up":
         return "awaiting_follow_up"
-    if life == "running":
-        traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
-        turns_open = _events_have_open_turn(session_dir)
-        if turns_open:
-            if not traces_live:
-                return _settle_idle_gate_outcome(marker_outcome)
-            return "running"
-        if traces_live:
-            return "running"
-        terminal = _normalize_terminal_turn_outcome(marker_outcome)
-        if terminal:
-            # Entrypoint left status=running after the last turn_ended.
-            return terminal
-        # Leftover last-turn flag with idle/closed harness: settle so the list
-        # is not stuck on "running". Plain state=running with no markers is
-        # still "about to start".
-        from ..session.turn_gate import final_turn_requested
-
-        if final_turn_requested(session_dir):
-            return _settle_idle_gate_outcome(marker_outcome)
-        return "running"
     if life == "timeout":
         return "timeout"
-    if life:
-        # Unknown gate state: only force when a turn is actively open and live.
-        traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
-        turns_open = _events_have_open_turn(session_dir)
-        if turns_open and traces_live:
-            return "running"
+    if life == "running":
+        return _running_gate_outcome(session_dir, marker_outcome)
+    if not life:
         return None
+    if (
+        _events_have_open_turn(session_dir)
+        or _last_turn_update(session_dir) in _LIST_RUNNING_UPDATES
+    ):
+        return "running"
     return None
 
 
-def _traces_are_fresh(session_dir: Path) -> bool:
-    """True when session traces were written inside the live window."""
-    mtime = session_trace_mtime(session_dir)
-    if mtime <= 0:
-        return False
-    return (datetime.now(UTC).timestamp() - mtime) < INCOMPLETE_STALE_SECONDS
+def _running_gate_outcome(session_dir: Path, marker_outcome: str) -> str:
+    """Outcome while the turn-gate file still says ``running``."""
+    from ..session.turn_gate import final_turn_requested
+
+    if _events_have_open_turn(session_dir):
+        return "running"
+    last = _last_turn_update(session_dir)
+    if last in _LIST_COMPLETE_UPDATES:
+        return _normalize_terminal_turn_outcome(marker_outcome) or "completed"
+    if last in _LIST_RUNNING_UPDATES:
+        return "running"
+    terminal = _normalize_terminal_turn_outcome(marker_outcome)
+    if terminal:
+        return terminal
+    if final_turn_requested(session_dir):
+        return _settle_idle_gate_outcome(marker_outcome)
+    return "running"
 
 
 def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
     """Outcome when harness never wrote turn_ended.
 
-    Live sessions write traces incrementally; those should show ``running``,
-    not ``interrupted``. Only mark interrupted when an explicit marker exists,
-    or trace data is present but has gone stale.
+    Interrupted only when the store wrote the marker. Last turn-class
+    updates.jsonl signal is running when that is the live tail.
     """
     if (session_dir / INTERRUPTED_MARKER_FILENAME).is_file():
         return "interrupted"
-
-    has_body = any(
-        (session_dir / n).is_file() and (session_dir / n).stat().st_size > 200
-        for n in ("events.jsonl", "chat_history.jsonl", "updates.jsonl")
-    )
-    if not has_body:
-        return ""
-
-    if _traces_are_fresh(session_dir):
+    if _last_turn_update(session_dir) in _LIST_RUNNING_UPDATES:
         return "running"
-    return "interrupted"
+    return ""
 
 
 def _git_remote_url(raw: object) -> str:
@@ -2191,11 +2173,11 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
     """Host home-list meta from summary, signals, and the updates tail.
 
     Reads ``summary.json``, ``signals.json``, and the 64 KiB
-    ``updates.jsonl`` tail for live status. A completed, stale tail
-    does not open ``events.jsonl``. When the tail has no close, a
-    marker pass on ``events.jsonl`` fills the same turn status Summary
-    uses. Does not infer a title from the trace. Opening a session
-    still uses :func:`load_session_meta`.
+    ``updates.jsonl`` tail for live status. List status is the last
+    turn-class store signal. When the tail has no close, a marker pass
+    on ``events.jsonl`` fills the same turn status Summary uses. Does
+    not infer a title from the trace. Opening a session still uses
+    :func:`load_session_meta`.
     """
     meta = SessionMeta(
         session_id=session_dir.name,
@@ -2205,27 +2187,7 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
     _load_signals(meta, session_dir)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
-    last, terminal = _updates_tail_status(session_dir)
-    fresh = _traces_are_fresh(session_dir)
-    closed = last in _LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh)
-    if closed and not fresh:
-        meta.turn_outcome = "completed"
-        return meta
-    outcome, loop_count, open_after = _list_runtime_status(session_dir)
-    if loop_count:
-        meta.loop_count = loop_count
-    if outcome:
-        meta.turn_outcome = outcome
-        if open_after and fresh:
-            meta.turn_outcome = "running"
-    elif closed:
-        meta.turn_outcome = "completed"
-    else:
-        inferred = _infer_incomplete_turn_outcome(session_dir)
-        if inferred:
-            meta.turn_outcome = inferred
-        elif fresh:
-            meta.turn_outcome = "running"
+    _apply_list_turn_outcome(meta, session_dir)
     return meta
 
 
@@ -2361,32 +2323,45 @@ _UPDATES_TAIL_BYTES = 64 * 1024
 
 
 _LIST_COMPLETE_UPDATES = frozenset({"turn_completed", "session_recap"})
-_LIST_TURN_UPDATES = frozenset(
-    {
-        "turn_started",
-        "turn_completed",
-        "turn_ended",
-        "user_message_chunk",
-        "session_recap",
-    }
-)
+_LIST_RUNNING_UPDATES = frozenset({"turn_started", "user_message_chunk"})
+_LIST_TURN_UPDATES = _LIST_COMPLETE_UPDATES | _LIST_RUNNING_UPDATES | frozenset({"turn_ended"})
 
 
-def _updates_tail_status(session_dir: Path) -> tuple[str, str]:
-    """Last turn-class ``sessionUpdate`` and last terminal outcome in the tail."""
-    last, terminal = "", ""
+def _last_turn_update(session_dir: Path) -> str:
+    """Last turn-class ``sessionUpdate`` in the ``updates.jsonl`` tail."""
+    last = ""
     for etype in _updates_tail_types(session_dir):
-        if etype not in _LIST_TURN_UPDATES:
-            continue
-        last = etype
-        if etype in _LIST_COMPLETE_UPDATES:
-            terminal = "completed"
-    return last, terminal
+        if etype in _LIST_TURN_UPDATES:
+            last = etype
+    return last
 
 
-def _last_session_update_type(session_dir: Path) -> str:
-    """Last ``sessionUpdate`` in a tail of ``updates.jsonl``, or empty."""
-    return _updates_tail_status(session_dir)[0]
+def _turn_outcome_from_updates(last: str) -> str:
+    """List outcome for the last turn-class updates.jsonl signal, or empty."""
+    if last in _LIST_COMPLETE_UPDATES:
+        return "completed"
+    if last in _LIST_RUNNING_UPDATES:
+        return "running"
+    return ""
+
+
+def _apply_list_turn_outcome(meta: SessionMeta, session_dir: Path) -> None:
+    """Set list ``turn_outcome`` from the last store turn signal."""
+    from_updates = _turn_outcome_from_updates(_last_turn_update(session_dir))
+    if from_updates:
+        meta.turn_outcome = from_updates
+        return
+    outcome, loop_count, open_after = _list_runtime_status(session_dir)
+    if loop_count:
+        meta.loop_count = loop_count
+    if open_after:
+        meta.turn_outcome = "running"
+        return
+    if outcome:
+        meta.turn_outcome = outcome
+        return
+    if (session_dir / INTERRUPTED_MARKER_FILENAME).is_file():
+        meta.turn_outcome = "interrupted"
 
 
 def _updates_tail_types(session_dir: Path) -> list[str]:
@@ -2443,31 +2418,7 @@ def load_session_meta_list(session_dir: Path) -> SessionMeta:
     _apply_list_flags_from_signals(meta)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
-    last, terminal = _updates_tail_status(session_dir)
-    fresh = _traces_are_fresh(session_dir)
-    closed = last in _LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh)
-    if closed and not fresh:
-        meta.turn_outcome = "completed"
-    else:
-        outcome, loop_count, open_after = _list_runtime_status(session_dir)
-        if loop_count:
-            meta.loop_count = loop_count
-        if outcome:
-            meta.turn_outcome = outcome
-            if open_after and fresh:
-                meta.turn_outcome = "running"
-        elif closed:
-            meta.turn_outcome = "completed"
-        else:
-            live = list_turn_outcome_for_dir(session_dir)
-            if live:
-                meta.turn_outcome = live
-            else:
-                inferred = _infer_incomplete_turn_outcome(session_dir)
-                if inferred:
-                    meta.turn_outcome = inferred
-                elif fresh:
-                    meta.turn_outcome = "running"
+    _apply_list_turn_outcome(meta, session_dir)
     if _session_has_turn_gate(session_dir):
         try:
             override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
@@ -2511,30 +2462,26 @@ def load_session_meta(
 
     # Incomplete / in-progress: no turn_ended yet (live jobs vs killed runs)
     if not meta.turn_outcome:
-        if _last_session_update_type(session_dir) == "turn_completed":
-            meta.turn_outcome = "completed"
+        last = _last_turn_update(session_dir)
+        from_updates = _turn_outcome_from_updates(last)
+        if from_updates:
+            meta.turn_outcome = from_updates
         else:
             inferred = _infer_incomplete_turn_outcome(session_dir)
             if inferred:
                 meta.turn_outcome = inferred
 
-    # Interactive gate overrides while a leftover work tree is still open.
-    # Awaiting only when the gate is awaiting_follow_up. Host ``command=done`` /
-    # stuck ``final_turn`` mean *finishing* only while traces are still fresh;
-    # if the agent never rewrote ``state=done``, settle to the harness outcome
-    # rather than ``running``.
+    # Interactive gate overrides from store files (not wall-clock freshness).
     try:
         override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
         if override is not None:
             meta.turn_outcome = override
         elif _events_open_turn_after_completed(session_dir):
-            if _traces_are_fresh(session_dir):
-                meta.turn_outcome = "running"
+            meta.turn_outcome = "running"
     except Exception:
         logger.debug("turn gate status for %s", session_dir, exc_info=True)
         if _events_have_open_turn(session_dir):
-            if _traces_are_fresh(session_dir):
-                meta.turn_outcome = "running"
+            meta.turn_outcome = "running"
 
     if meta.turn_failed and not meta.error_count:
         # Surface harness failure even when signals.json tool errors are zero
@@ -2560,15 +2507,12 @@ def load_session_meta(
 
 
 def list_turn_outcome_for_dir(session_dir: Path) -> str:
-    """Live-only turn status for the sessions list poll (gate + freshness).
+    """Live-only turn status for the sessions list poll.
 
     Returns ``running`` / ``ending`` / ``awaiting_follow_up`` / ``""``. Does
     **not** return ``interrupted`` — that inference is for full
     :func:`load_session_meta` only (overwriting finished sessions with
     interrupted made the list show "cancelled" for old successful runs).
-
-    Fresh file mtimes alone must not override a finished harness turn: a
-    completed session stays "complete" even within the incomplete-stale window.
     """
     sd = Path(session_dir)
     try:
@@ -2580,7 +2524,12 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
     except Exception:
         logger.debug("list turn outcome gate for %s", sd, exc_info=True)
 
-    # Terminal turn_ended (and no open turn) → settled, even if traces are young.
+    mapped = _turn_outcome_from_updates(_last_turn_update(sd))
+    if mapped == "completed":
+        return ""
+    if mapped == "running":
+        return "running"
+
     open_turn = _events_have_open_turn(sd)
     if not open_turn:
         try:
@@ -2589,13 +2538,8 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
             marker_outcome = ""
         if _normalize_terminal_turn_outcome(marker_outcome):
             return ""
-        if _last_session_update_type(sd) == "turn_completed":
-            return ""
 
-    # Live only while an open turn is still being written, or no terminal
-    # marker yet but traces are still fresh (session just starting).
-    inferred = _infer_incomplete_turn_outcome(sd)
-    if inferred == "running":
+    if _infer_incomplete_turn_outcome(sd) == "running":
         return "running"
     return ""
 

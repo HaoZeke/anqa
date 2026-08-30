@@ -173,7 +173,7 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
         if status.casefold() in _CANCELLED:
             return "cancelled"
         return "complete"
-    if status in {"user", "assistant"} or kind:
+    if status in {"user", "assistant"}:
         return "running"
     return ""
 

@@ -1632,7 +1632,7 @@ def test_infer_stale_body_returns_interrupted(tmp_path: Path):
     # Set mtime to long ago
     old_time = time.time() - 100_000
     os.utime(ev, (old_time, old_time))
-    assert _infer_incomplete_turn_outcome(sd) == "interrupted"
+    assert _infer_incomplete_turn_outcome(sd) == ""
 
 
 # ── _load_summary / _load_signals / _load_run_meta edge cases ────────────
@@ -2165,8 +2165,8 @@ def test_infer_running_when_recent(tmp_path: Path):
     sd.mkdir()
     ev = sd / "events.jsonl"
     ev.write_text('{"x":1}\n' * 50, encoding="utf-8")
-    # Just written → mtime is recent → running
-    assert _infer_incomplete_turn_outcome(sd) == "running"
+    # Body without a turn-class store signal is unknown.
+    assert _infer_incomplete_turn_outcome(sd) == ""
 
 
 def test_infer_no_mtime_returns_interrupted(tmp_path: Path):
@@ -2176,8 +2176,7 @@ def test_infer_no_mtime_returns_interrupted(tmp_path: Path):
     ev = sd / "chat_history.jsonl"
     ev.write_text('{"x":1}\n' * 50, encoding="utf-8")
     result = _infer_incomplete_turn_outcome(sd)
-    # Has body, recent mtime → running or interrupted
-    assert result in ("running", "interrupted")
+    assert result == ""
 
 
 # ── _find_container partial match ────────────────────────────────────────
@@ -2325,7 +2324,7 @@ def test_infer_incomplete_stale_returns_interrupted(tmp_path: Path):
     old_time = time.time() - 86400  # 1 day ago
     os.utime(sd / "events.jsonl", (old_time, old_time))
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == "interrupted"
+    assert result == ""
 
 
 def test_find_sessions_events_only(tmp_path: Path):
@@ -2502,11 +2501,11 @@ def test_infer_incomplete_running_recent(tmp_path: Path):
     sd.mkdir()
     (sd / "events.jsonl").write_text("x" * 300 + "\n", encoding="utf-8")
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == "running"
+    assert result == ""
 
 
 def test_infer_incomplete_interrupted_stale(tmp_path: Path):
-    """_infer_incomplete returns interrupted for stale trace data."""
+    """Body without a turn signal is unknown even after traces age."""
     import os
     import time
 
@@ -2518,7 +2517,7 @@ def test_infer_incomplete_interrupted_stale(tmp_path: Path):
     old_time = time.time() - 7200
     os.utime(sd / "events.jsonl", (old_time, old_time))
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == "interrupted"
+    assert result == ""
 
 
 def test_session_trace_mtime_oserror(tmp_path: Path):
@@ -2698,7 +2697,7 @@ def test_infer_incomplete_stale_body(tmp_path: Path):
     ef.write_text("x" * 300, encoding="utf-8")
     old = time.time() - 86400
     os.utime(ef, (old, old))
-    assert _infer_incomplete_turn_outcome(sd) == "interrupted"
+    assert _infer_incomplete_turn_outcome(sd) == ""
 
 
 def test_session_trace_mtime_no_files(tmp_path: Path):
@@ -2939,7 +2938,7 @@ def test_infer_incomplete_mtime_zero(tmp_path: Path):
     # Patch session_trace_mtime to return 0
     with patch("anqa.harness.grok_parse.session_trace_mtime", return_value=0.0):
         result = _infer_incomplete_turn_outcome(sd)
-    assert result == "interrupted"
+    assert result == ""
 
 
 def test_resolve_tool_display_name_use_tool_mcp():
@@ -3757,6 +3756,55 @@ def test_load_host_list_meta_uses_turn_ended_when_tail_is_recap(tmp_path: Path) 
     assert cheap.list_status_label() == full.list_status_label()
 
 
+def test_load_host_list_meta_aged_turn_started_stays_running(tmp_path: Path) -> None:
+    """Last turn_started stays running after traces age; the clock does not settle."""
+    import time
+
+    from anqa.harness.grok_parse import load_host_list_meta, load_session_meta_list
+
+    sd = tmp_path / "host-aged-start"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Live","num_messages":1}',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_started"}}}) + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (20 * 60)
+    os.utime(sd / "summary.json", (old, old))
+    os.utime(sd / "updates.jsonl", (old, old))
+    assert load_host_list_meta(sd).list_status_label() == "running"
+    assert load_session_meta_list(sd).list_status_label() == "running"
+
+
+def test_load_host_list_meta_later_turn_started_clears_completed(tmp_path: Path) -> None:
+    """A later turn_started is running even when an earlier complete is still in the tail."""
+    import time
+
+    from anqa.harness.grok_parse import load_host_list_meta, load_session_meta_list
+
+    sd = tmp_path / "host-restart"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Again","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_completed"}}})
+        + "\n"
+        + json.dumps({"params": {"update": {"sessionUpdate": "turn_started"}}})
+        + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (20 * 60)
+    os.utime(sd / "summary.json", (old, old))
+    os.utime(sd / "updates.jsonl", (old, old))
+    assert load_host_list_meta(sd).list_status_label() == "running"
+    assert load_session_meta_list(sd).list_status_label() == "running"
+
+
 def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -> None:
     """A later agent chunk must not hide turn_completed once the traces are stale."""
     import time
@@ -3801,7 +3849,7 @@ def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> 
         os.utime(sd / name, (old, old))
     cheap = load_host_list_meta(sd)
     full = load_session_meta(sd, include_timeline_count=False)
-    assert cheap.list_status_label() == "cancelled"
+    assert cheap.list_status_label() == "—"
     assert cheap.list_status_label() == full.list_status_label()
 
 
@@ -3938,7 +3986,7 @@ def test_load_session_meta_list_stale_open_turn_is_not_running(tmp_path: Path) -
     os.utime(sd / "summary.json", (old, old))
     os.utime(sd / "events.jsonl", (old, old))
     listed = load_session_meta_list(sd)
-    assert listed.list_status_label() == "complete"
+    assert listed.list_status_label() == "running"
 
 
 def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> None:

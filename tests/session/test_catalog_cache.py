@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -389,7 +390,7 @@ def test_refresh_rows_host_reads_events_when_tail_has_no_close(tmp_path: Path) -
 
 
 def test_refresh_rows_host_running_stays_until_turn_signal(tmp_path: Path) -> None:
-    """A host session stays ``running`` until the store writes a later turn signal."""
+    """Aging traces does not change a last turn_started list status."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -401,11 +402,20 @@ def test_refresh_rows_host_running_stays_until_turn_signal(tmp_path: Path) -> No
         encoding="utf-8",
     )
     (bucket / "signals.json").write_text("{}", encoding="utf-8")
-    (bucket / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    (bucket / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_started"}}}) + "\n",
+        encoding="utf-8",
+    )
     cache = SessionCatalogCache(traces_path=traces, include_host=True, host_root=host, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
     assert by_id["was-live"]["status"] == "running"
+    old = time.time() - (20 * 60)
+    for name in ("summary.json", "signals.json", "updates.jsonl"):
+        path = bucket / name
+        if path.is_file():
+            os.utime(path, (old, old))
+    os.utime(bucket, (old, old))
     rows, _changed = cache.refresh_rows([bucket])
     by_id = {str(r["sessionId"]): r for r in rows}
     assert by_id["was-live"]["status"] == "running"
