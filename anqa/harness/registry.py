@@ -56,6 +56,12 @@ def _copilot_adapter() -> HarnessAdapter:
     return CopilotAdapter()
 
 
+def _codex_adapter() -> HarnessAdapter:
+    from .codex import CodexAdapter
+
+    return CodexAdapter()
+
+
 def adapters() -> tuple[HarnessAdapter, ...]:
     """Installed adapters."""
     global _ADAPTERS
@@ -68,6 +74,7 @@ def adapters() -> tuple[HarnessAdapter, ...]:
             _gemini_adapter(),
             _antigravity_adapter(),
             _copilot_adapter(),
+            _codex_adapter(),
         )
     return _ADAPTERS
 

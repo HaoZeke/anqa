@@ -147,7 +147,8 @@
         "claude",
         "gemini",
         "antigravity",
-        "copilot"
+        "copilot",
+        "codex"
       ],
       "compare": false
     },
