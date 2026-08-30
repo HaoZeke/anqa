@@ -24,6 +24,7 @@ _ROLL_ID = re.compile(
 _RUNNING_TAIL = frozenset({"task_started", "user_message"})
 _COMPLETE_TAIL = frozenset({"task_complete"})
 _CANCELLED_TAIL = frozenset({"turn_aborted"})
+_TURN_SIGNALS = _RUNNING_TAIL | _COMPLETE_TAIL | _CANCELLED_TAIL
 
 
 def default_sessions_root() -> Path:
@@ -136,7 +137,9 @@ def _last_event_msg_type(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("type") or "") != "event_msg":
             continue
-        last = str(_as_object(row.get("payload")).get("type") or "").strip()
+        typ = str(_as_object(row.get("payload")).get("type") or "").strip()
+        if typ in _TURN_SIGNALS:
+            last = typ
     return last
 
 

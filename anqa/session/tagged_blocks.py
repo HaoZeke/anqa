@@ -48,6 +48,7 @@ CHROME_TAGS: frozenset[str] = frozenset(
     {
         "system-reminder",
         "system_reminder",  # occasional underscore form in dumps
+        "timestamp",
         "monitor-event",
         "user-prompt-submit-hook",
         "session_context",

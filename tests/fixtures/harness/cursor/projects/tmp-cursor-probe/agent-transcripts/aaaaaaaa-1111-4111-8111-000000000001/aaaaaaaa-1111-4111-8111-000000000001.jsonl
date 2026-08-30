@@ -1,4 +1,5 @@
-{"role":"user","message":{"content":[{"type":"text","text":"Reply with CURSOR_PROBE_OK"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Sunday, Aug 30, 2026, 6:51 AM (UTC-7)</timestamp> <user_query>Reply with CURSOR_PROBE_OK</user_query>"}]}}
 {"role":"assistant","message":{"content":[{"type":"text","text":"Reading a probe file."},{"type":"tool_use","name":"Read","input":{"path":"/tmp/cursor-probe.txt"}}]}}
 {"role":"assistant","message":{"content":[{"type":"text","text":"CURSOR_PROBE_OK"}]}}
 {"type":"turn_ended","status":"completed"}
+{"type":"heartbeat"}

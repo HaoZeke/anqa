@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .. import event_types as et
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..session.tagged_blocks import operator_prompt_text
 from .ref import SessionRef
 
 CURSOR_HARNESS_ID = "cursor"
@@ -117,11 +118,19 @@ def _blocks_text(raw: object) -> str:
     return "\n".join(bits)
 
 
+def _session_title(header: JsonObject, rows: Sequence[JsonObject]) -> str:
+    prompt = _first_user_title(rows)
+    if prompt:
+        return prompt
+    raw = operator_prompt_text(str(header.get("title") or "").strip())
+    return raw.splitlines()[0][:120] if raw else ""
+
+
 def _first_user_title(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("role") or "") != "user":
             continue
-        text = _blocks_text(_as_object(row.get("message")).get("content"))
+        text = operator_prompt_text(_blocks_text(_as_object(row.get("message")).get("content")))
         if text:
             return text.splitlines()[0][:120]
     return ""
@@ -145,13 +154,13 @@ def _last_signal(rows: Sequence[JsonObject]) -> tuple[str, str]:
     last_role = ""
     for row in rows:
         typ = str(row.get("type") or "").strip()
-        if typ:
+        if typ == "turn_ended":
             last_type = typ
             last_status = str(row.get("status") or "").strip()
             last_role = ""
             continue
         role = str(row.get("role") or "").strip()
-        if role:
+        if role in {"user", "assistant"}:
             last_role = role
             last_type = ""
             last_status = ""
@@ -174,7 +183,7 @@ def _from_message(index: int, row: JsonObject) -> list[TraceEvent]:
     content = _as_object(row.get("message")).get("content")
     events: list[TraceEvent] = []
     if role == "user":
-        text = _blocks_text(content)
+        text = operator_prompt_text(_blocks_text(content))
         events.append(
             TraceEvent(
                 index=index,
@@ -264,7 +273,7 @@ def _meta_from(rows: Sequence[JsonObject], path: Path, sid: str, header: JsonObj
         session_id=sid,
         session_dir=path,
         model_id="unknown",
-        title=str(header.get("title") or "").strip() or _first_user_title(rows),
+        title=_session_title(header, rows),
         created_at=created,
         updated_at=updated,
         duration_seconds=duration,

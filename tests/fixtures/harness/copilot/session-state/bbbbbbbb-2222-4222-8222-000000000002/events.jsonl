@@ -1,3 +1,4 @@
 {"type":"session.start","id":"r1","timestamp":"2026-08-30T12:02:00.000Z","parentId":null,"data":{"sessionId":"bbbbbbbb-2222-4222-8222-000000000002","version":1,"producer":"copilot-agent","copilotVersion":"1.0.82","startTime":"2026-08-30T12:02:00.000Z","context":{"cwd":"/tmp/copilot-live-ws"},"alreadyInUse":false,"remoteSteerable":false}}
 {"type":"user.message","id":"r2","timestamp":"2026-08-30T12:02:01.000Z","parentId":"r1","data":{"content":"keep going","transformedContent":"keep going","delivery":"user","interactionId":"i2","turnId":"t2","parentAgentTaskId":"","supportedNativeDocumentMimeTypes":[]}}
 {"type":"assistant.turn_start","id":"r3","timestamp":"2026-08-30T12:02:02.000Z","parentId":"r2","data":{"turnId":"t2","interactionId":"i2"}}
+{"type":"session.usage_checkpoint","id":"r4","timestamp":"2026-08-30T12:02:03.000Z","parentId":"r3","data":{"inputTokens":2,"outputTokens":0}}

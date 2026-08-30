@@ -43,6 +43,7 @@ from ..models import (
 from ..paths import RUN_PREFIX, is_run_dir_name, strip_run_prefix
 from ..scan import find_sessions as walk_sessions
 from ..scan import keep_updates_line, skip_dir_name
+from ..session.tagged_blocks import operator_prompt_text
 from ..session.workflows import WorkflowRun
 from ..tool_display import job_list_preview, web_search_from_raw_output
 
@@ -2153,7 +2154,12 @@ def _load_summary(meta: SessionMeta, session_dir: Path, *, infer_title: bool = T
             with open(summary_file) as f:
                 data = json.load(f)
             meta.model_id = data.get("current_model_id", "unknown")
-            meta.title = data.get("generated_title", "") or data.get("session_summary", "")
+            raw_title = str(
+                data.get("generated_title", "") or data.get("session_summary", "") or ""
+            )
+            meta.title = operator_prompt_text(raw_title) or (
+                "" if raw_title.lstrip().startswith("<") else raw_title
+            )
             meta.summary_text = data.get("session_summary", "")
             meta.created_at = data.get("created_at", "")
             meta.updated_at = data.get("updated_at", "")
@@ -2355,12 +2361,23 @@ _UPDATES_TAIL_BYTES = 64 * 1024
 
 
 _LIST_COMPLETE_UPDATES = frozenset({"turn_completed", "session_recap"})
+_LIST_TURN_UPDATES = frozenset(
+    {
+        "turn_started",
+        "turn_completed",
+        "turn_ended",
+        "user_message_chunk",
+        "session_recap",
+    }
+)
 
 
 def _updates_tail_status(session_dir: Path) -> tuple[str, str]:
-    """Last ``sessionUpdate`` and last terminal outcome in the updates tail."""
+    """Last turn-class ``sessionUpdate`` and last terminal outcome in the tail."""
     last, terminal = "", ""
     for etype in _updates_tail_types(session_dir):
+        if etype not in _LIST_TURN_UPDATES:
+            continue
         last = etype
         if etype in _LIST_COMPLETE_UPDATES:
             terminal = "completed"

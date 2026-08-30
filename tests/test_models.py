@@ -210,6 +210,10 @@ class TestSessionMeta:
         assert meta.turn_failed is False
         assert meta.list_status_label() == "ending"
 
+    def test_unknown_turn_outcome_is_not_complete(self):
+        meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="token_count")
+        assert meta.list_status_label() == "—"
+
 
 # --- merged ---
 

@@ -1,3 +1,4 @@
 {"type": "session", "version": 3, "id": "019fe000-0000-7000-8000-000000000002", "timestamp": "2026-08-09T12:00:10.000Z", "cwd": "/tmp/probe-ws"}
 {"type": "model_change", "id": "m2", "parentId": "019fe000-0000-7000-8000-000000000002", "timestamp": "2026-08-09T12:00:10.100Z", "provider": "xai", "modelId": "grok-4.5"}
 {"type": "message", "id": "u2", "parentId": "m2", "timestamp": "2026-08-09T12:00:11.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "Still waiting for a reply"}]}}
+{"type": "usage", "id": "usage2", "timestamp": "2026-08-09T12:00:12.000Z", "inputTokens": 3, "outputTokens": 0}

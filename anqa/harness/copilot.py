@@ -27,6 +27,7 @@ _RUNNING_TAIL = frozenset(
     }
 )
 _COMPLETE_TAIL = frozenset({"session.shutdown", "assistant.turn_end"})
+_TURN_SIGNALS = _RUNNING_TAIL | _COMPLETE_TAIL
 
 
 def default_store_root() -> Path:
@@ -155,14 +156,17 @@ def _read_events(path: Path) -> list[JsonObject]:
     return out
 
 
-def _last_event_type(events: list[JsonObject]) -> str:
-    if not events:
-        return ""
-    return str(events[-1].get("type") or "").strip()
+def _last_turn_type(events: list[JsonObject]) -> str:
+    last = ""
+    for ev in events:
+        typ = str(ev.get("type") or "").strip()
+        if typ in _TURN_SIGNALS:
+            last = typ
+    return last
 
 
 def _turn_outcome(events: list[JsonObject]) -> str:
-    last = _last_event_type(events)
+    last = _last_turn_type(events)
     if last in _RUNNING_TAIL:
         return "running"
     if last in _COMPLETE_TAIL:

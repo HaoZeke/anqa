@@ -1,2 +1,2 @@
 {"sessionId": "bbbbbbbb-2222-4222-8222-000000000002", "projectHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "startTime": "2026-08-09T12:01:00.000Z", "lastUpdated": "2026-08-09T12:01:00.000Z", "kind": "main"}
-{"$set": {"lastUpdated": "2026-08-09T12:01:00.100Z", "messages": [{"id": "u2", "timestamp": "2026-08-09T12:01:00.100Z", "type": "user", "content": [{"text": "Still waiting for a reply"}]}]}}
+{"$set": {"lastUpdated": "2026-08-09T12:01:00.100Z", "messages": [{"id": "u2", "timestamp": "2026-08-09T12:01:00.100Z", "type": "user", "content": [{"text": "Still waiting for a reply"}]}, {"id": "info2", "timestamp": "2026-08-09T12:01:00.200Z", "type": "info", "content": [{"text": "tokens 2"}]}]}}

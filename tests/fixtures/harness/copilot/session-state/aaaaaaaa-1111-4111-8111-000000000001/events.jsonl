@@ -9,3 +9,4 @@
 {"type":"subagent.completed","id":"e9","timestamp":"2026-08-30T12:00:08.000Z","parentId":"e8","agentId":"child-1","data":{"toolCallId":"call-2","agentName":"probe-child","agentDisplayName":"probe child","model":"gpt-5-mini","firstDispatchedModel":"gpt-5-mini","totalToolCalls":0,"totalTokens":10,"durationMs":100}}
 {"type":"assistant.turn_end","id":"e10","timestamp":"2026-08-30T12:00:09.000Z","parentId":"e9","data":{"turnId":"t1"}}
 {"type":"session.shutdown","id":"e11","timestamp":"2026-08-30T12:01:00.000Z","parentId":"e10","data":{"shutdownType":"user","currentModel":"gpt-5-mini","totalPremiumRequests":0,"totalNanoAiu":0,"sessionStartTime":1756555200000,"eventsFileSizeBytes":100,"codeChanges":{"filesModified":[],"linesAdded":0,"linesRemoved":0},"modelMetrics":{},"tokenDetails":{}}}
+{"type":"session.usage_checkpoint","id":"e12","timestamp":"2026-08-30T12:01:01.000Z","parentId":"e11","data":{"inputTokens":10,"outputTokens":4}}

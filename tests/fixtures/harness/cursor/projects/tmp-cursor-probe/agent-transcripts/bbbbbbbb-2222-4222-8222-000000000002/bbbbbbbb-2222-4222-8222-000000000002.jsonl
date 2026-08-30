@@ -1,2 +1,3 @@
-{"role":"user","message":{"content":[{"type":"text","text":"Still running"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Sunday, Aug 30, 2026, 6:52 AM (UTC-7)</timestamp> <user_query>Still running</user_query>"}]}}
 {"role":"assistant","message":{"content":[{"type":"text","text":"Working."}]}}
+{"type":"heartbeat"}

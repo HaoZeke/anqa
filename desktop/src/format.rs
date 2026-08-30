@@ -34,8 +34,7 @@ pub fn capped_json(value: &Value, max_chars: usize) -> String {
 }
 
 pub fn is_blank_status(status: &str) -> bool {
-    let t = status.trim();
-    t.is_empty() || t == "—" || t == "-" || t == "–"
+    status.trim().is_empty()
 }
 
 /// Home-list terminal labels. A later live label without a live outcome is hydrate flicker.
@@ -80,8 +79,7 @@ pub fn list_status_label(status: &str, outcome: &str) -> String {
             "cancelled" | "canceled" | "interrupted" | "aborted" => "cancelled".into(),
             "success" | "ok" | "completed" | "complete" | "done" => "complete".into(),
             "error" | "failed" | "failure" | "timeout" => "cancelled".into(),
-            "" => "—".into(),
-            _ => "complete".into(),
+            _ => "—".into(),
         };
     };
     match raw
@@ -2720,7 +2718,7 @@ mod tests {
     fn list_status_prefers_status_then_outcome() {
         assert_eq!(list_status_label("complete", ""), "complete");
         assert_eq!(list_status_label("completed", ""), "complete");
-        assert_eq!(list_status_label("—", "completed"), "complete");
+        assert_eq!(list_status_label("—", "completed"), "—");
         assert_eq!(
             remap_turn_outcome_paren("turn 56 (completed)"),
             "turn 56 (complete)"
@@ -2734,9 +2732,11 @@ mod tests {
         assert_eq!(list_status_label("", "done"), "complete");
         assert_eq!(list_status_label("", "running"), "running");
         assert_eq!(list_status_label("", ""), "—");
+        assert_eq!(list_status_label("", "token_count"), "—");
         assert_eq!(status_tone("cancelled"), "cancelled");
         assert_eq!(status_tone("complete"), "complete");
-        assert!(is_blank_status("—"));
+        assert!(is_blank_status(""));
+        assert!(!is_blank_status("—"));
         assert!(!is_blank_status("complete"));
         assert!(is_terminal_status("complete"));
         assert!(is_terminal_status("cancelled"));

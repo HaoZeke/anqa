@@ -603,9 +603,7 @@ class SessionMeta:
             return "cancelled"
         if oc in ("success", "ok", "completed", "complete"):
             return "complete"
-        if self.turn_failed or oc in ("error", "failed", "failure", "timeout"):
+        if oc in ("error", "failed", "failure", "timeout"):
             # Single-turn failures surface as cancelled on the home list.
             return "cancelled"
-        if not oc:
-            return "—"
-        return "complete"
+        return "—"

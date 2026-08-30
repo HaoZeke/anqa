@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from pathlib import Path
@@ -389,25 +388,8 @@ def test_refresh_rows_host_reads_events_when_tail_has_no_close(tmp_path: Path) -
     assert changed.get("live-host") is True
 
 
-def _age_host_traces(session_dir: Path, *, seconds: float = 9 * 60) -> None:
-    """Push stamp files behind ``INCOMPLETE_STALE_SECONDS``."""
-    stamp = time.time() - seconds
-    names = (
-        "events.jsonl",
-        "updates.jsonl",
-        "summary.json",
-        "signals.json",
-        "chat_history.jsonl",
-    )
-    for name in names:
-        path = session_dir / name
-        if path.is_file():
-            os.utime(path, (stamp, stamp))
-    os.utime(session_dir, (stamp, stamp))
-
-
-def test_refresh_rows_host_running_clears_when_stale(tmp_path: Path) -> None:
-    """A finished host session must not stay ``running`` after traces go stale."""
+def test_refresh_rows_host_running_stays_until_turn_signal(tmp_path: Path) -> None:
+    """A host session stays ``running`` until the store writes a later turn signal."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -424,15 +406,13 @@ def test_refresh_rows_host_running_clears_when_stale(tmp_path: Path) -> None:
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
     assert by_id["was-live"]["status"] == "running"
-    _age_host_traces(bucket)
-    rows, changed = cache.refresh_rows([bucket])
+    rows, _changed = cache.refresh_rows([bucket])
     by_id = {str(r["sessionId"]): r for r in rows}
-    assert by_id["was-live"]["status"] == "—"
-    assert changed.get("was-live") is True
+    assert by_id["was-live"]["status"] == "running"
 
 
-def test_refresh_rows_host_keeps_complete_when_tail_loses_outcome(tmp_path: Path) -> None:
-    """``complete`` survives a stale tail that is no longer ``turn_completed``."""
+def test_refresh_rows_host_uses_latest_turn_signal(tmp_path: Path) -> None:
+    """List status follows the last turn-class update, not a prior catalog row."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -463,6 +443,14 @@ def test_refresh_rows_host_keeps_complete_when_tail_loses_outcome(tmp_path: Path
         json.dumps(
             {
                 "params": {
+                    "update": {"sessionUpdate": "turn_completed"},
+                }
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "params": {
                     "update": {"sessionUpdate": "tool_call_update", "content": "x"},
                 }
             }
@@ -470,11 +458,9 @@ def test_refresh_rows_host_keeps_complete_when_tail_loses_outcome(tmp_path: Path
         + "\n",
         encoding="utf-8",
     )
-    _age_host_traces(bucket)
     rows, changed = cache.refresh_rows([bucket])
     by_id = {str(r["sessionId"]): r for r in rows}
     assert by_id["done-host"]["status"] == "complete"
-    assert changed.get("done-host") is False
 
 
 def test_apply_fs_catalog_events_noise_does_not_open_events_or_bump(

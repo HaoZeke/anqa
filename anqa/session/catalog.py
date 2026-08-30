@@ -342,23 +342,6 @@ def list_row_fingerprint(row: JsonObject) -> tuple[JsonValue, ...]:
     return tuple(row.get(key) for key in _LIST_ROW_SIG_KEYS)
 
 
-def _keep_list_status(old: JsonObject, new: JsonObject) -> JsonObject:
-    """Keep ``complete`` when cheap host meta only has ``—``.
-
-    ``running`` must be allowed to become ``—`` after the stale window so
-    the HUD drops the live list poll.
-    """
-    old_st = str(old.get("status") or "")
-    new_st = str(new.get("status") or "")
-    if new_st != "—" or old_st != "complete":
-        return new
-    kept = dict(new)
-    kept["status"] = "complete"
-    if old.get("outcome") not in (None, ""):
-        kept["outcome"] = old.get("outcome")
-    return kept
-
-
 def list_refresh_delta(
     current: list[JsonObject],
     replacements: dict[str, JsonObject],
@@ -371,9 +354,6 @@ def list_refresh_delta(
     list_changed: dict[str, bool] = {}
     for path, new in replacements.items():
         old = old_by_path.get(path)
-        if old is not None:
-            new = _keep_list_status(old, new)
-            replacements[path] = new
         sid = str(new.get("sessionId") or "").strip()
         moved = old is None or list_row_fingerprint(old) != list_row_fingerprint(new)
         if sid:

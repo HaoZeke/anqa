@@ -41,6 +41,7 @@ def test_discover_and_meta() -> None:
     meta = require_adapter(probe).load_meta(probe)
     assert meta.harness == CURSOR_HARNESS_ID
     assert meta.title == "Reply with CURSOR_PROBE_OK"
+    assert not (meta.title or "").lstrip().startswith("<timestamp>")
     assert meta.run_dir == "/tmp/cursor-probe-ws"
     assert meta.tool_call_count >= 1
     assert meta.list_status_label() == "complete"
@@ -89,6 +90,9 @@ def test_overview_and_timeline() -> None:
     assert tool.raw_input.as_str("path") == "/tmp/cursor-probe.txt"
     texts = " ".join(e.content for e in events)
     assert "CURSOR_PROBE_OK" in texts
+    assert "<timestamp>" not in texts
+    user = next(e for e in events if e.event_type == "user_message_chunk")
+    assert user.content == "Reply with CURSOR_PROBE_OK"
     page = session_timeline(ref)
     assert int(page["total"] or 0) >= 3
 
