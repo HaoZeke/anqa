@@ -105,6 +105,7 @@ def test_timeline_user_tool_result() -> None:
     assert tool.raw_input.as_str("command") == "echo CODEX_PROBE_OK"
     texts = " ".join(e.content for e in events)
     assert "CODEX_PROBE_OK" in texts
+    assert "<environment_context>" not in texts
     page = session_timeline(ref)
     assert int(page["total"] or 0) >= 5
 

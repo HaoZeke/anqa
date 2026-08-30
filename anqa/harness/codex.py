@@ -166,6 +166,10 @@ def _model_from_rows(rows: Sequence[JsonObject]) -> str:
     return ""
 
 
+def _is_environment_context(text: str) -> bool:
+    return text.lstrip().startswith("<environment_context>")
+
+
 def _first_user_title(rows: Sequence[JsonObject]) -> str:
     for row in rows:
         if str(row.get("type") or "") != "response_item":
@@ -174,7 +178,7 @@ def _first_user_title(rows: Sequence[JsonObject]) -> str:
         if str(pl.get("type") or "") != "message" or str(pl.get("role") or "") != "user":
             continue
         text = _blocks_text(pl.get("content"), kinds=frozenset({"input_text"}))
-        if text:
+        if text and not _is_environment_context(text):
             return text.splitlines()[0][:120]
     return ""
 
@@ -314,6 +318,8 @@ def _from_response_item(index: int, ts: int | None, pl: JsonObject) -> list[Trac
         role = str(pl.get("role") or "")
         if role == "user":
             text = _blocks_text(pl.get("content"), kinds=frozenset({"input_text"}))
+            if _is_environment_context(text):
+                return []
             return [
                 TraceEvent(
                     index=index,
