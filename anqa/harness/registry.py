@@ -50,6 +50,12 @@ def _antigravity_adapter() -> HarnessAdapter:
     return AntigravityAdapter()
 
 
+def _copilot_adapter() -> HarnessAdapter:
+    from .copilot import CopilotAdapter
+
+    return CopilotAdapter()
+
+
 def adapters() -> tuple[HarnessAdapter, ...]:
     """Installed adapters."""
     global _ADAPTERS
@@ -61,6 +67,7 @@ def adapters() -> tuple[HarnessAdapter, ...]:
             _claude_adapter(),
             _gemini_adapter(),
             _antigravity_adapter(),
+            _copilot_adapter(),
         )
     return _ADAPTERS
 

@@ -163,7 +163,8 @@
               "pi",
               "claude",
               "gemini",
-              "antigravity"
+              "antigravity",
+              "copilot"
             ],
             "compare": false
           },

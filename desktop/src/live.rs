@@ -324,7 +324,7 @@ fn is_harness_ref(path: &str) -> bool {
     }
     matches!(
         head,
-        "grok" | "opencode" | "pi" | "claude" | "gemini" | "antigravity"
+        "grok" | "opencode" | "pi" | "claude" | "gemini" | "antigravity" | "copilot"
     )
 }
 

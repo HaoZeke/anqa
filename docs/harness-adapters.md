@@ -63,6 +63,7 @@ pi = "~/.pi/agent/sessions"
 claude = "~/.claude/projects"
 gemini = "~/.gemini/tmp"
 antigravity = "~/.gemini/antigravity-cli"
+copilot = "~/.copilot"
 ```
 
 ## Shipped
@@ -75,6 +76,7 @@ antigravity = "~/.gemini/antigravity-cli"
 | `claude` | Claude Code | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
 | `gemini` | Gemini CLI | 0.54.4 | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
 | `antigravity` | Antigravity | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
+| `copilot` | GitHub Copilot | 1.0.82 | `~/.copilot/session-store.db` | `copilot:<id>` |
 
 Supported version is the product we last parsed and tested. A session
 may carry a different `harnessVersion` from its own files.
@@ -82,4 +84,4 @@ may carry a different `harnessVersion` from its own files.
 ## Filter
 
 `harness:grok`, `harness:opencode`, `harness:pi`, `harness:claude`,
-`harness:gemini`, `harness:antigravity`.
+`harness:gemini`, `harness:antigravity`, `harness:copilot`.
