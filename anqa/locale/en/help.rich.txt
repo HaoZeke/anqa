@@ -26,6 +26,7 @@
   j / k           Previous / next Timeline event, or previous / next note
   v               Filter (Subagents, Background, Workflows)
   Enter           Open a Timeline event or child; edit the focused note
+  View            Pretty or Raw JSON for the selected event
   N               New note
   y               Copy the selection or the focused / primary pane body
   Ctrl+Shift+C    Same as y

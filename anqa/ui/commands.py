@@ -72,6 +72,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_operator_note", U.cmd_operator_note()),
                 ("action_edit_operator_note", U.cmd_edit_operator_note()),
                 ("action_toggle_event_reader", U.cmd_event_reader()),
+                ("action_toggle_event_raw", U.cmd_event_raw()),
                 ("action_go_back", U.cmd_back_sessions()),
             ):
                 yield _scr(screen, method, th)

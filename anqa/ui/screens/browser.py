@@ -3039,6 +3039,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if self._active_browser_tab() != "tab-timeline":
                 return False
             return self._current_event is not None
+        if action == "toggle_event_raw":
+            return self._active_browser_tab() == "tab-timeline" and self._current_event is not None
         if action in ("timeline_down", "timeline_up"):
             focused = self.focused
             if isinstance(focused, (Input, Select)):
@@ -3085,6 +3087,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._open_subagent_run(run)
             return
         self._set_event_reader(not self._event_reader)
+
+    def action_toggle_event_raw(self) -> None:
+        """Flip the event pane between pretty and raw JSON."""
+        if self._active_browser_tab() != "tab-timeline":
+            return
+        if self._current_event is None:
+            return
+        try:
+            sel = self.query_one("#event-view-select", Select)
+        except NoMatches:
+            return
+        sel.value = "pretty" if sel.value == "raw" else "raw"
 
     def _set_event_reader(self, on: bool) -> None:
         self._event_reader = on

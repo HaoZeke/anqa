@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from io import BytesIO
 from pathlib import Path
 
 from rich.text import Text
+from textual import on
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Select, Static
 from textual_image.widget import Image
 
 from ...models import TraceEvent
+from ...session.control_views import event_raw_json
 from ...session.jobs import ScheduleTask
 from ...session.subagents import SubagentRun
 from ...session.workflows import WorkflowChild, WorkflowRun
@@ -21,6 +24,7 @@ from ..data_table import ListDataTable, style_data_table
 from ..i18n import t
 from ..render_detail import (
     DetailSection,
+    _syntax,
     event_detail_sections,
     render_event_detail,
     render_workflow_detail,
@@ -28,6 +32,7 @@ from ..render_detail import (
     workflow_detail_sections,
 )
 from ..selectable_static import SelectableStatic, plain_from_renderable
+from .controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 
 _SECTION_SIDS = (
     "chrome",
@@ -44,6 +49,7 @@ _SECTION_SIDS = (
     "subagent",
     "session",
     "body",
+    "raw",
 )
 
 
@@ -74,8 +80,17 @@ class DetailView(VerticalScroll):
         self._schedule: ScheduleTask | None = None
         self._workflow: WorkflowRun | None = None
         self.session_dir: Path | None = None
+        self._show_raw: bool = False
 
     def compose(self) -> ComposeResult:
+        with Horizontal(id="event-view-bar", classes=FILTER_BAR_CLASS):
+            yield Static(t("event-view-label"), classes=FILTER_LABEL_CLASS)
+            yield Select(
+                ((t("event-view-pretty"), "pretty"), (t("event-view-raw"), "raw")),
+                value="pretty",
+                allow_blank=False,
+                id="event-view-select",
+            )
         with Vertical(id="detail-sections"):
             for sid in _SECTION_SIDS:
                 body_id = self._section_body_id(sid)
@@ -216,6 +231,7 @@ class DetailView(VerticalScroll):
 
     def _refresh_content(self, *, scroll_home: bool = True) -> None:
         ev = self._current_event
+        self._sync_view_bar()
         if ev is None:
             if self._workflow is not None:
                 self._sync_detail_sections(workflow_detail_sections(self._workflow))
@@ -223,6 +239,25 @@ class DetailView(VerticalScroll):
                 return
             self._sync_detail_sections([])
             self._sync_workflow_children()
+            return
+        if self._show_raw:
+            raw = event_raw_json(
+                ev,
+                session_dir=self.session_dir,
+                turn_index=self._current_turn_index,
+            )
+            self._sync_detail_sections(
+                [
+                    DetailSection(
+                        sid="raw",
+                        title=t("event-view-raw"),
+                        body=_syntax(raw, "json"),
+                    )
+                ]
+            )
+            self._sync_workflow_children()
+            if scroll_home:
+                self.scroll_home(animate=False)
             return
         self._sync_detail_sections(
             event_detail_sections(
@@ -242,7 +277,26 @@ class DetailView(VerticalScroll):
         if scroll_home:
             self.scroll_home(animate=False)
 
+    def _sync_view_bar(self) -> None:
+        try:
+            bar = self.query_one("#event-view-bar", Horizontal)
+        except NoMatches:
+            return
+        bar.display = self._current_event is not None
+
+    @on(Select.Changed, "#event-view-select")
+    def _on_event_view_changed(self, event: Select.Changed) -> None:
+        val = event.value
+        if val is Select.BLANK or val is None:
+            return
+        nxt = str(val) == "raw"
+        if nxt == self._show_raw:
+            return
+        self._show_raw = nxt
+        self._refresh_content(scroll_home=True)
+
     def on_mount(self) -> None:
+        self._sync_view_bar()
         for sid in _SECTION_SIDS:
             try:
                 self.query_one(f"#detail-sec-{sid}", Vertical).display = False
@@ -260,7 +314,7 @@ class DetailView(VerticalScroll):
         except Exception:
             return
         run = self._workflow
-        kids = list(run.children) if run is not None else []
+        kids = list(run.children) if run is not None and not self._show_raw else []
         table.clear()
         if not kids:
             table.display = False
@@ -308,6 +362,9 @@ class DetailView(VerticalScroll):
         self._job_mate = None
         self._schedule = None
         self._workflow = None
+        self._show_raw = False
+        with suppress(NoMatches):
+            self.query_one("#event-view-select", Select).value = "pretty"
         self._sync_detail_sections([])
         self._sync_workflow_children()
 
@@ -319,6 +376,12 @@ class DetailView(VerticalScroll):
         full plain cache when no event is loaded.
         """
         ev = self._current_event
+        if ev is not None and self._show_raw:
+            return event_raw_json(
+                ev,
+                session_dir=self.session_dir,
+                turn_index=self._current_turn_index,
+            )
         if ev is None and self._workflow is not None:
             return plain_from_renderable(render_workflow_detail(self._workflow), full=True)
         if ev is not None:

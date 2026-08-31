@@ -9,6 +9,7 @@ import pytest
 from anqa.ui.widgets.detail_view import DetailView
 from conftest import make_trace_event
 from textual.app import App, ComposeResult
+from textual.widgets import Select
 
 # 1×1 PNG so the widget has a real file without Pillow in the test.
 _PNG = (
@@ -38,6 +39,29 @@ async def test_detail_view_show_event() -> None:
         assert "read file" in dv.visible_plain()
         assert dv.query_one("#detail-sec-input").display
         assert dv._current_event is ev
+
+
+@pytest.mark.asyncio
+async def test_detail_view_raw_shows_json() -> None:
+    app = _DetailApp()
+    async with app.run_test():
+        dv = app.query_one("#detail", DetailView)
+        ev = make_trace_event(
+            index=3,
+            event_type="agent_message_chunk",
+            content="hello",
+            raw_input={"model": "grok"},
+        )
+        dv.show_event(ev)
+        sel = dv.query_one("#event-view-select", Select)
+        sel.value = "raw"
+        dv._on_event_view_changed(Select.Changed(sel, "raw"))
+        assert dv.query_one("#detail-sec-raw").display
+        assert not dv.query_one("#detail-sec-input").display
+        plain = dv.visible_plain()
+        assert "agent_message_chunk" in plain
+        assert "hello" in plain
+        assert "grok" in plain
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ Pure domain loaders → JSON-RPC payloads. No Textual. Used by
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from collections import Counter
@@ -314,6 +315,30 @@ def timeline_event_mapping(
                 merged.setdefault(key, val)
             row["rawInput"] = merged
     return row
+
+
+def event_raw_json(
+    event: TraceEvent,
+    *,
+    content_chars: int = MAX_CONTENT_CHARS,
+    session_dir: Path | None = None,
+    turn_index: int | None = None,
+) -> str:
+    """Pretty JSON of one timeline event for the Pretty/Raw toggle.
+
+    :param event: Timeline event.
+    :param content_chars: Body cap (clamped to ``MAX_CONTENT_CHARS``).
+    :param session_dir: Session directory for still paths.
+    :param turn_index: Enclosing turn number when known.
+    :returns: Indented JSON (same fields as ``session/timeline``).
+    """
+    row = timeline_event_mapping(
+        event,
+        content_chars=content_chars,
+        turn_index=turn_index,
+        session_dir=session_dir,
+    )
+    return json.dumps(row, indent=2, ensure_ascii=False, default=str)
 
 
 def turn_segment_mapping(
@@ -831,5 +856,6 @@ __all__ = [
     "timeline_query_hit",
     "session_meta_mapping",
     "timeline_event_mapping",
+    "event_raw_json",
     "turn_segment_mapping",
 ]

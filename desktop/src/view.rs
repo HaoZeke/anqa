@@ -13,7 +13,7 @@ use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
     body_paint_for, bookend_body_is_chrome, capped_display, context_meter_copy,
-    display_message_text, display_tool_output, event_brand_role, event_is_monitor,
+    display_message_text, display_tool_output, event_brand_role, event_is_monitor, event_raw_json,
     fenced_code_block, fmt_duration, format_note_time, format_tool_display, human_event_type_label,
     image_result_path, is_chat_message, is_tool_identity, job_command, job_description,
     job_event_id, job_event_label, job_exit_code, job_inspect_blocks, job_inspect_log,
@@ -2092,6 +2092,30 @@ pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let (_, ev_marks) = hud.card_marks();
     let mark = ev_marks.get(&ix).cloned();
     let children = hud.open_workflow_children();
+    if hud.event_raw() {
+        let json = event_raw_json(ev);
+        let raw_id = format!("event.{ix}.raw");
+        let scroll = icedtea::widget::scroll(
+            container(code_inset(hud, &raw_id, &json, "json", true, tea))
+                .width(Length::Fill)
+                .padding(Padding {
+                    top: 0.0,
+                    right: icedtea::chrome::SCROLL_RAIL_WIDTH,
+                    bottom: 8.0,
+                    left: 0.0,
+                })
+                .into(),
+            tea,
+            A11y::new(format!("Event {ix} raw"), Role::Group),
+            false,
+            None,
+            None::<fn(f32) -> Message>,
+        );
+        return column![event_detail_chrome(hud, ix, Some(ev), tea), scroll]
+            .spacing(10)
+            .height(Length::Fill)
+            .into();
+    }
     if ev.tool_name == "workflow" && !children.is_empty() {
         let inspect = icedtea::widget::scroll(
             container(event_body(hud, ev, mark))
@@ -2154,9 +2178,25 @@ fn event_detail_chrome(
         .map(|e| event_list_heading(e, tea))
         .unwrap_or_else(|| muted_meta(format!("#{ix}"), tea));
     let note = ev.filter(|e| e.tool_name != "workflow").map(event_note);
+    let raw_on = hud.event_raw();
     row![
         event_step(hud, -1, Icon::Back, "Previous event", tea),
         container(head).width(Length::Fill),
+        icedtea::widget::tooltip_wrap(
+            icedtea::widget::icon_button_toggle(
+                Icon::FileText,
+                raw_on,
+                Message::ToggleEventRaw,
+                tea,
+                Variant::Ghost,
+                icedtea::widget::ControlSize::Default,
+                A11y::button(if raw_on { "Pretty" } else { "Raw JSON" }).with_checked(raw_on),
+            ),
+            if raw_on { "Pretty" } else { "Raw JSON" },
+            icedtea::widget::TooltipAnchor::Follow,
+            tea,
+            A11y::button(if raw_on { "Pretty" } else { "Raw JSON" }),
+        ),
         card_cmds_row(hud, note, None),
         event_step(hud, 1, Icon::Chevron, "Next event", tea),
     ]
@@ -3992,6 +4032,8 @@ mod tests {
         assert!(chrome.contains("Icon::Back"));
         assert!(chrome.contains("Icon::Chevron"));
         assert!(chrome.contains("card_cmds_row"));
+        assert!(chrome.contains("ToggleEventRaw"));
+        assert!(chrome.contains("FileText"));
         assert!(!chrome.contains("\"Previous\""));
         assert!(!chrome.contains("\"Next\""));
         assert!(!chrome.contains("{at} of {n}"));

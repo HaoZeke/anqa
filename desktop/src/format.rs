@@ -1612,6 +1612,11 @@ pub fn turn_chrome_face(event_type: &str, text: &str) -> String {
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Pretty JSON of one timeline event (Pretty/Raw toggle).
+pub fn event_raw_json(ev: &crate::wire::TimelineEvent) -> String {
+    serde_json::to_string_pretty(ev).unwrap_or_default()
+}
+
 /// List title for a turn bookend. Key=value chrome (``model=``, ``promptid=``)
 /// is empty — the type badge already names the row.
 pub fn list_turn_bookend_title(event_type: &str, text: &str) -> String {
@@ -3686,6 +3691,24 @@ mod tests {
         );
         assert_eq!(timeline_body_text(preview, content, true, 80), content);
         assert_eq!(timeline_body_text("", "abcdef", false, 3), "abc");
+    }
+
+    #[test]
+    fn event_raw_json_is_pretty_timeline_row() {
+        let ev = crate::wire::TimelineEvent {
+            index: 3,
+            event_type: "agent_message_chunk".into(),
+            content: "hello".into(),
+            raw_input: serde_json::json!({"model": "grok-4.6"}),
+            ..crate::wire::TimelineEvent::default()
+        };
+        let text = event_raw_json(&ev);
+        let data: serde_json::Value = serde_json::from_str(&text).expect("json");
+        assert_eq!(data["index"], 3);
+        assert_eq!(data["type"], "agent_message_chunk");
+        assert_eq!(data["content"], "hello");
+        assert_eq!(data["rawInput"]["model"], "grok-4.6");
+        assert!(text.contains('\n'));
     }
 
     #[test]

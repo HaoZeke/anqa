@@ -549,6 +549,26 @@ def test_timeline_event_mapping_caps_huge_raw_input() -> None:
     assert len(str(raw.get("preview") or "")) <= 200
 
 
+def test_event_raw_json_is_pretty_timeline_row() -> None:
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import event_raw_json
+
+    ev = TraceEvent(
+        index=3,
+        event_type="agent_message_chunk",
+        content="hello",
+        tool_name="",
+        raw_input={"model": "grok-4.6"},
+    )
+    text = event_raw_json(ev)
+    data = json.loads(text)
+    assert data["index"] == 3
+    assert data["type"] == "agent_message_chunk"
+    assert data["content"] == "hello"
+    assert data["rawInput"] == {"model": "grok-4.6"}
+    assert "\n" in text
+
+
 def test_build_session_timeline_reuses_turn_view_on_warm_pages(tmp_path: Path) -> None:
     """Second paged timeline call does not re-run full segment/map work."""
     from unittest.mock import patch
