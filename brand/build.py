@@ -61,7 +61,44 @@ def load_rgba() -> np.ndarray:
     rgba = np.zeros((*rgb.shape[:2], 4), dtype=np.uint8)
     rgba[..., :3] = unmixed.astype(np.uint8)
     rgba[..., 3] = np.round(alpha * 255).astype(np.uint8)
-    return rgba
+    return _defringe(rgba, paper)
+
+
+def _defringe(rgba: np.ndarray, paper: np.ndarray) -> np.ndarray:
+    """Drop cream halo; pull remaining edge RGB from solid paint."""
+    out = rgba.copy()
+    rgb = out[..., :3].astype(np.float32)
+    alpha = out[..., 3].astype(np.float32)
+    paper_dist = np.linalg.norm(rgb - paper.astype(np.float32), axis=2)
+    pale = (rgb[..., 0] > 180) & (rgb[..., 1] > 170) & (rgb[..., 2] > 150)
+    fringe = (alpha > 0) & (alpha < 230) & ((paper_dist < 70) | pale)
+    alpha = np.where(fringe, 0.0, alpha)
+    solid = alpha >= 240
+    color = rgb.copy()
+    h, w = alpha.shape
+    offsets = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
+    for _ in range(10):
+        acc = np.zeros_like(color)
+        count = np.zeros((h, w), dtype=np.float32)
+        for dy, dx in offsets:
+            y0, y1 = max(0, dy), min(h, h + dy)
+            x0, x1 = max(0, dx), min(w, w + dx)
+            sy0, sy1 = max(0, -dy), min(h, h - dy)
+            sx0, sx1 = max(0, -dx), min(w, w - dx)
+            mask = solid[sy0:sy1, sx0:sx1]
+            dest = acc[y0:y1, x0:x1]
+            dest_c = count[y0:y1, x0:x1]
+            src = color[sy0:sy1, sx0:sx1]
+            dest[mask] += src[mask]
+            dest_c[mask] += 1
+        take = (~solid) & (alpha > 0) & (count > 0)
+        if not np.any(take):
+            break
+        color[take] = acc[take] / count[take][..., None]
+        solid |= take
+    out[..., :3] = np.clip(color, 0, 255).astype(np.uint8)
+    out[..., 3] = np.round(alpha).astype(np.uint8)
+    return out
 
 
 def _large_islands(binary: np.ndarray, min_px: int) -> np.ndarray:
@@ -337,10 +374,12 @@ def main() -> None:
 
     save_png(mark_img, "anqa-mark.png")
     save_png(scale_to_width(mark_img, mark_img.width * 2), "anqa-mark@2x.png")
+    save_png(scale_to_height(mark_img, 64), "anqa-mark-64.png")
     save_png(to_image(remap_duo(bird)), "anqa-mark-duo.png")
     save_png(to_image(remap_mono(bird, bird_origin)), "anqa-mark-mono.png")
     rev = to_image(remap_reverse(bird))
     save_png(rev, "anqa-mark-on-dark.png")
+    save_png(scale_to_height(rev, 64), "anqa-mark-on-dark-64.png")
     rev_on_ink = Image.new("RGBA", rev.size, (*INK_RGB, 255))
     rev_on_ink.alpha_composite(rev)
     save_png(rev_on_ink, "anqa-mark-reverse.png")
