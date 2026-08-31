@@ -421,3 +421,54 @@ def test_quiet_poll_drains_when_owner_returns_full_page(tmp_path: Path, monkeypa
     ids = {meta.session_id for meta, _label in app._meta_only}
     assert ids == {"keep", "gamma"}
     assert app._catalog_revision == 99
+
+
+def test_control_search_drains_the_catalog_query(tmp_path: Path, monkeypatch) -> None:
+    """Home Filter must query the full catalog, not the first newest page."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = AnqaApp(
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    app._session_search_applied = "before:10 days ago"
+    fetches: list[dict[str, object]] = []
+
+    def fake_fetch(
+        *,
+        query: str = "",
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        fetches.append({"query": query, "drain": drain, "limit": limit, "offset": offset})
+        return {
+            "sessions": [
+                {
+                    "sessionId": "old-1",
+                    "path": str(traces / "old-1"),
+                    "title": "Old session",
+                    "label": "Old session",
+                    "updatedAt": "2026-08-01T00:00:00Z",
+                }
+            ],
+            "total": 413,
+            "matched": 1,
+            "revision": 8,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+        }
+
+    monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=True)
+    assert fetches
+    assert fetches[0]["query"] == "before:10 days ago"
+    assert fetches[0]["drain"] is True
+    assert {meta.session_id for meta, _label in app._meta_only} == {"old-1"}

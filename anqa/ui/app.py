@@ -1136,14 +1136,19 @@ class AnqaApp(App):
         """Populate home list from control ``session/list`` (attach client path).
 
         Quiet/live polls send ``sinceRevision`` so an unchanged owner returns no
-        rows and the table is not rebuilt.
+        rows and the table is not rebuilt. An applied Filter queries the full
+        catalog (not the first newest page).
 
         :param quiet: Skip loaded/error notifications (live refresh / attach).
         """
         try:
+            query = (self._session_search_applied or "").strip()
             since = int(self._catalog_revision or 0)
-            use_delta = bool(quiet and since > 0)
-            if use_delta:
+            use_delta = bool(quiet and since > 0 and not query)
+            first: dict[str, int | bool] | None = None
+            if query:
+                result = self._fetch_control_catalog_sync(query=query, drain=True)
+            elif use_delta:
                 result = self._fetch_control_catalog_sync(
                     since_revision=since,
                     drain=False,
@@ -1209,7 +1214,7 @@ class AnqaApp(App):
                 n = len(rows)
                 call_ui(self, self._rebuild_session_filters)
                 call_ui(self, self._populate_session_table, force=True)
-            if not use_delta:
+            if first is not None:
                 self._fill_remaining_catalog_pages(gen, result, int(first["offset"]))
                 n = len(self._meta_only)
             if not quiet:
@@ -1707,6 +1712,9 @@ class AnqaApp(App):
         """Commit the search box and rebuild the sessions table."""
         self._session_search_debounce = None
         self._session_search_applied = self._session_search
+        if self._control_socket is not None and self._control_attached:
+            self._load_sessions(include_host=True, quiet=True)
+            return
         self._populate_session_table(force=True)
 
     def _refresh_query_hints(self) -> None:

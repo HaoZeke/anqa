@@ -89,6 +89,36 @@ def test_filter_session_catalog_offset_pages() -> None:
     assert past["matched"] == 3
 
 
+def test_filter_session_catalog_before_reaches_past_the_first_page() -> None:
+    """``before:`` matches old rows that sit after the newest 200."""
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(tz=UTC)
+    rows = []
+    for i in range(200):
+        rows.append(
+            {
+                "sessionId": f"new-{i}",
+                "title": f"New {i}",
+                "updatedAt": (now - timedelta(days=1)).isoformat(),
+            }
+        )
+    rows.append(
+        {
+            "sessionId": "old-1",
+            "title": "Old session",
+            "updatedAt": (now - timedelta(days=20)).isoformat(),
+        }
+    )
+    first_page = filter_session_catalog(rows, limit=200)
+    assert first_page["matched"] == 201
+    assert len(first_page["sessions"]) == 200
+    assert all(str(r["sessionId"]).startswith("new-") for r in first_page["sessions"])
+    hit = filter_session_catalog(rows, query="before:10 days ago")
+    assert hit["matched"] == 1
+    assert hit["sessions"][0]["sessionId"] == "old-1"
+
+
 def test_catalog_list_next_offset() -> None:
     assert catalog_list_next_offset(0, 200, 200, 450) == 200
     assert catalog_list_next_offset(200, 200, 200, 450) == 400
