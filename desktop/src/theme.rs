@@ -138,6 +138,21 @@ fn wcag_luma(c: Color) -> f32 {
     0.2126 * srgb_lin(c.r) + 0.7152 * srgb_lin(c.g) + 0.0722 * srgb_lin(c.b)
 }
 
+/// Textual `Color.brightness` (Rec.601). `$text` is auto-ink on this.
+fn rec601_brightness(c: Color) -> f32 {
+    (299.0 * c.r + 587.0 * c.g + 114.0 * c.b) / 1000.0
+}
+
+/// Textual `$text` (`auto 87%`) / `$text-muted` (`auto 60%`) on *canvas*.
+fn tui_auto_ink(canvas: Color, alpha: f32) -> Color {
+    let ink = if rec601_brightness(canvas) < 0.5 {
+        Color::WHITE
+    } else {
+        Color::BLACK
+    };
+    mix(ink, canvas, alpha)
+}
+
 /// WCAG relative-luminance contrast between two sRGB colors.
 pub fn contrast_ratio(a: Color, b: Color) -> f32 {
     let (l1, l2) = (wcag_luma(a), wcag_luma(b));
@@ -207,14 +222,14 @@ fn user_theme_tokens(name: &str) -> Option<Tokens> {
             .unwrap_or(fallback)
     };
     let canvas = hex(&["background", "canvas"], Color::from_rgb8(18, 18, 20));
-    let text = hex(&["foreground", "text"], Color::from_rgb8(224, 224, 224));
+    let text = tui_auto_ink(canvas, 0.87);
     let primary = hex(&["primary"], Color::from_rgb8(1, 120, 212));
     Some(Tokens::from_aliases(
         canvas,
         hex(&["surface"], mix(text, canvas, 0.08)),
         hex(&["panel"], mix(text, canvas, 0.10)),
         text,
-        hex(&["muted", "secondary"], mix(text, canvas, 0.45)),
+        tui_auto_ink(canvas, 0.60),
         primary,
         hex(&["accent"], Color::from_rgb8(254, 166, 43)),
         hex(&["success"], Color::from_rgb8(78, 191, 113)),
@@ -405,16 +420,14 @@ pub fn tokens_with(name: &str, look: Look) -> Tokens {
 }
 
 fn textual_tokens(name: &str) -> Tokens {
-    // Same fields as ``theme_from_mapping`` in the terminal app.
+    // Same roles the terminal paints: `$text` / `$text-muted` are
+    // ColorSystem ``auto 87%`` / ``auto 60%`` on the paper, not the
+    // raw ``foreground`` / ``foreground-darken-2`` hex dump.
     let colors = catalog_colors(name).unwrap_or(Value::Null);
     let fallback_bg = Color::from_rgb8(18, 18, 20);
     let canvas = color_of(&colors, "background", fallback_bg);
-    let text = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
-    let muted = color_of(
-        &colors,
-        "foreground-darken-2",
-        color_of(&colors, "foreground-muted", mix(text, canvas, 0.45)),
-    );
+    let text = tui_auto_ink(canvas, 0.87);
+    let muted = tui_auto_ink(canvas, 0.60);
     let primary = color_of(&colors, "primary", Color::from_rgb8(1, 120, 212));
     let accent = color_of(&colors, "accent", Color::from_rgb8(254, 166, 43));
     let success = color_of(&colors, "success", Color::from_rgb8(78, 191, 113));
@@ -523,10 +536,8 @@ mod tests {
     #[test]
     fn catalog_hex_drops_textual_alpha_suffix() {
         let t = tokens("gruvbox");
-        assert_eq!(t.text, Color::from_rgb8(0xFB, 0xF1, 0xC7));
         assert_eq!(t.text.a, 1.0);
         assert_eq!(t.muted.a, 1.0);
-        assert_eq!(t.muted, Color::from_rgb8(0xD0, 0xC6, 0x9E));
         assert_eq!(t.accent, Color::from_rgb8(0xF9, 0xBD, 0x2F));
         assert_eq!(t.warning, Color::from_rgb8(0xFD, 0x80, 0x19));
         assert_eq!(t.danger, Color::from_rgb8(0xFA, 0x49, 0x34));
@@ -664,7 +675,10 @@ mod tests {
             "gruvbox-light"
         );
         assert!(!canvas_is_dark(tokens("gruvbox-light")));
-        assert_eq!(tokens("gruvbox").text, Color::from_rgb8(0xFB, 0xF1, 0xC7));
+        assert_eq!(
+            tokens("gruvbox").text,
+            tui_auto_ink(tokens("gruvbox").canvas, 0.87)
+        );
     }
 
     #[test]
@@ -728,12 +742,27 @@ mod tests {
     }
 
     #[test]
-    fn solarized_dark_uses_tui_foreground_and_a_faded_mute() {
-        let t = tokens("solarized-dark");
-        assert_eq!(t.text, Color::from_rgb8(0x83, 0x94, 0x96));
-        assert_eq!(t.canvas, Color::from_rgb8(0x00, 0x2B, 0x36));
-        assert_ne!(t.muted, t.text);
-        assert!(contrast_ratio(t.muted, t.canvas) < contrast_ratio(t.text, t.canvas));
+    fn catalog_body_and_mute_follow_textual_auto_ink() {
+        for name in [
+            "solarized-dark",
+            "solarized-light",
+            "nord",
+            "gruvbox",
+            "tokyo-night",
+            "catppuccin-mocha",
+            "textual-dark",
+        ] {
+            let t = tokens(name);
+            let body = tui_auto_ink(t.canvas, 0.87);
+            let mute = tui_auto_ink(t.canvas, 0.60);
+            assert_eq!(t.text, body, "{name} $text");
+            assert_eq!(t.muted, mute, "{name} $text-muted");
+            assert_ne!(t.text, t.muted, "{name}");
+        }
+        let raw_fg = Color::from_rgb8(0x83, 0x94, 0x96);
+        let solar = tokens("solarized-dark");
+        assert_ne!(solar.text, raw_fg);
+        assert!(contrast_ratio(solar.text, solar.canvas) > contrast_ratio(raw_fg, solar.canvas));
     }
 
     #[test]
