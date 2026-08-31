@@ -9,7 +9,7 @@ import pytest
 from anqa.ui.widgets.detail_view import DetailView
 from conftest import make_trace_event
 from textual.app import App, ComposeResult
-from textual.widgets import Select
+from textual.widgets import Switch
 
 # 1×1 PNG so the widget has a real file without Pillow in the test.
 _PNG = (
@@ -53,15 +53,36 @@ async def test_detail_view_raw_shows_json() -> None:
             raw_input={"model": "grok"},
         )
         dv.show_event(ev)
-        sel = dv.query_one("#event-view-select", Select)
-        sel.value = "raw"
-        dv._on_event_view_changed(Select.Changed(sel, "raw"))
+        box = dv.query_one("#event-raw", Switch)
+        box.value = True
+        dv._on_event_raw_changed(Switch.Changed(box, True))
         assert dv.query_one("#detail-sec-raw").display
         assert not dv.query_one("#detail-sec-input").display
         plain = dv.visible_plain()
         assert "agent_message_chunk" in plain
         assert "hello" in plain
         assert "grok" in plain
+
+
+@pytest.mark.asyncio
+async def test_detail_view_raw_is_per_event() -> None:
+    app = _DetailApp()
+    async with app.run_test():
+        dv = app.query_one("#detail", DetailView)
+        a = make_trace_event(index=3, event_type="user_message_chunk", content="ask")
+        b = make_trace_event(index=4, event_type="agent_message_chunk", content="reply")
+        dv.show_event(a)
+        box = dv.query_one("#event-raw", Switch)
+        box.value = True
+        dv._on_event_raw_changed(Switch.Changed(box, True))
+        assert dv.query_one("#detail-sec-raw").display
+        dv.show_event(b)
+        assert not dv.query_one("#event-raw", Switch).value
+        assert not dv.query_one("#detail-sec-raw").display
+        assert "reply" in dv.visible_plain()
+        dv.show_event(a)
+        assert dv.query_one("#event-raw", Switch).value
+        assert dv.query_one("#detail-sec-raw").display
 
 
 @pytest.mark.asyncio

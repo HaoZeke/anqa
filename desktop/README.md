@@ -56,7 +56,7 @@ Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
 open session for the session list (`Esc` still hides, or steps out of
 Timeline detail / a child first). `g` on Turns opens Timeline for that
 turn. Enter opens (or edits the focused note). An open event has a
-raw-JSON icon (same View control as the terminal app). A `keys.toml` remap applies on both
+**Raw** switch (same control as the terminal app). A `keys.toml` remap applies on both
 surfaces. A configured leader (Colemak example: `;`) then one letter
 runs `leader+X`; Esc or timeout cancels. Copy
 `examples/keys/colemak.toml` to `~/.anqa/keys.toml`. Subagent runs

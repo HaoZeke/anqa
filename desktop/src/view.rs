@@ -2178,25 +2178,10 @@ fn event_detail_chrome(
         .map(|e| event_list_heading(e, tea))
         .unwrap_or_else(|| muted_meta(format!("#{ix}"), tea));
     let note = ev.filter(|e| e.tool_name != "workflow").map(event_note);
-    let raw_on = hud.event_raw();
     row![
         event_step(hud, -1, Icon::Back, "Previous event", tea),
         container(head).width(Length::Fill),
-        icedtea::widget::tooltip_wrap(
-            icedtea::widget::icon_button_toggle(
-                Icon::FileText,
-                raw_on,
-                Message::ToggleEventRaw,
-                tea,
-                Variant::Ghost,
-                icedtea::widget::ControlSize::Default,
-                A11y::button(if raw_on { "Pretty" } else { "Raw JSON" }).with_checked(raw_on),
-            ),
-            if raw_on { "Pretty" } else { "Raw JSON" },
-            icedtea::widget::TooltipAnchor::Follow,
-            tea,
-            A11y::button(if raw_on { "Pretty" } else { "Raw JSON" }),
-        ),
+        event_raw_toggle(hud.event_raw(), tea),
         card_cmds_row(hud, note, None),
         event_step(hud, 1, Icon::Chevron, "Next event", tea),
     ]
@@ -2204,6 +2189,22 @@ fn event_detail_chrome(
     .align_y(Alignment::Center)
     .width(Length::Fill)
     .into()
+}
+
+fn event_raw_toggle(on: bool, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let knob = iced::widget::toggler(on)
+        .style(icedtea::style::switch_style(tea))
+        .on_toggle(Message::ToggleEventRaw);
+    icedtea::a11y::attach(
+        row![
+            icedtea::widget::meta("Raw", tea, A11y::new("Raw", Role::Header)),
+            knob,
+        ]
+        .spacing(tea.density.gap())
+        .align_y(Alignment::Center)
+        .into(),
+        &A11y::new("Raw", Role::Switch).with_checked(on),
+    )
 }
 
 fn event_step(
@@ -4032,8 +4033,8 @@ mod tests {
         assert!(chrome.contains("Icon::Back"));
         assert!(chrome.contains("Icon::Chevron"));
         assert!(chrome.contains("card_cmds_row"));
+        assert!(chrome.contains("event_raw_toggle"));
         assert!(chrome.contains("ToggleEventRaw"));
-        assert!(chrome.contains("FileText"));
         assert!(!chrome.contains("\"Previous\""));
         assert!(!chrome.contains("\"Next\""));
         assert!(!chrome.contains("{at} of {n}"));

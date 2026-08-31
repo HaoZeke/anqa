@@ -102,8 +102,8 @@ pub enum Message {
     TimelineTail(bool),
     /// Leave full-pane event detail and return to the timeline list.
     CloseTimelineDetail,
-    /// Flip event detail between pretty body and raw JSON.
-    ToggleEventRaw,
+    /// Show raw JSON for the open event.
+    ToggleEventRaw(bool),
     /// Step full-pane detail by *delta* rows in the current filter (−1 / +1).
     TimelineDetailStep(i32),
     /// Turns tab search (label / prompt substring).
@@ -393,8 +393,8 @@ pub struct Hud {
     tl_scroll_id: Id,
     /// List scroll when event detail opened, restored on Esc.
     tl_return_scroll: Option<f32>,
-    /// Event detail shows pretty JSON instead of the formatted body.
-    event_raw: bool,
+    /// Event indexes whose detail is showing raw JSON.
+    event_raw: HashSet<i64>,
     turn_window: icedtea::collection::VisibleWindow,
     turn_heights: Vec<f32>,
     turn_scroll_id: Id,
@@ -581,7 +581,7 @@ impl Default for Hud {
             tl_heights: vec![],
             tl_scroll_id: Id::new("hud-timeline"),
             tl_return_scroll: None,
-            event_raw: false,
+            event_raw: HashSet::new(),
             turn_window: icedtea::collection::VisibleWindow::new(400.0),
             turn_heights: vec![],
             turn_scroll_id: Id::new("hud-turns"),
@@ -1291,9 +1291,13 @@ impl Hud {
                 self.scroll_timeline_to_end()
             }
             Message::CloseTimelineDetail => self.close_timeline_detail(),
-            Message::ToggleEventRaw => {
-                self.event_raw = !self.event_raw;
+            Message::ToggleEventRaw(on) => {
                 if let Some(ix) = self.timeline_open {
+                    if on {
+                        self.event_raw.insert(ix);
+                    } else {
+                        self.event_raw.remove(&ix);
+                    }
                     self.bind_event_extract(ix);
                 }
                 Task::none()
@@ -2279,7 +2283,8 @@ impl Hud {
         self.timeline_open
     }
     pub fn event_raw(&self) -> bool {
-        self.event_raw
+        self.timeline_open
+            .is_some_and(|ix| self.event_raw.contains(&ix))
     }
 
     /// Overview workflow run id when inspecting without a Timeline bookend.
@@ -4541,7 +4546,6 @@ impl Hud {
         self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
         self.tl_return_scroll = None;
-        self.event_raw = false;
     }
 
     fn edge_event_index(&self, edge: DetailTurnEdge) -> Option<i64> {
@@ -4567,7 +4571,6 @@ impl Hud {
             self.timeline_focus = Some(ix);
         }
         self.workflow_inspect_id = None;
-        self.event_raw = false;
         let Some(pos) = self.timeline_focus_pos() else {
             self.tl_return_scroll = None;
             return Task::none();
@@ -7241,12 +7244,16 @@ mod tests {
     }
 
     #[test]
-    fn toggle_event_raw_flips_and_resets_on_close() {
+    fn toggle_event_raw_is_per_event() {
         let mut hud = Hud::default();
         let _ = hud.update(Message::SelectTimeline(7));
         assert!(!hud.event_raw());
-        let _ = hud.update(Message::ToggleEventRaw);
+        let _ = hud.update(Message::ToggleEventRaw(true));
         assert!(hud.event_raw());
+        let _ = hud.update(Message::SelectTimeline(9));
+        assert!(!hud.event_raw(), "raw on 7 must not follow 9");
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert!(hud.event_raw(), "7 stays raw after leaving and returning");
         let _ = hud.update(Message::CloseTimelineDetail);
         assert!(!hud.event_raw());
     }

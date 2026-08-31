@@ -3095,10 +3095,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if self._current_event is None:
             return
         try:
-            sel = self.query_one("#event-view-select", Select)
+            box = self.query_one("#event-raw", Switch)
         except NoMatches:
             return
-        sel.value = "pretty" if sel.value == "raw" else "raw"
+        box.toggle()
 
     def _set_event_reader(self, on: bool) -> None:
         self._event_reader = on

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from io import BytesIO
 from pathlib import Path
 
@@ -11,8 +10,9 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
+from textual.events import Click
 from textual.message import Message
-from textual.widgets import DataTable, Select, Static
+from textual.widgets import DataTable, Static, Switch
 from textual_image.widget import Image
 
 from ...models import TraceEvent
@@ -80,17 +80,17 @@ class DetailView(VerticalScroll):
         self._schedule: ScheduleTask | None = None
         self._workflow: WorkflowRun | None = None
         self.session_dir: Path | None = None
-        self._show_raw: bool = False
+        self._raw_indexes: set[int] = set()
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="event-view-bar", classes=FILTER_BAR_CLASS):
-            yield Static(t("event-view-label"), classes=FILTER_LABEL_CLASS)
-            yield Select(
-                ((t("event-view-pretty"), "pretty"), (t("event-view-raw"), "raw")),
-                value="pretty",
-                allow_blank=False,
-                id="event-view-select",
-            )
+            with Horizontal(id="event-raw-cluster"):
+                yield Static(
+                    t("event-raw-label"),
+                    id="event-raw-label",
+                    classes=FILTER_LABEL_CLASS,
+                )
+                yield Switch(id="event-raw", value=False, animate=False)
         with Vertical(id="detail-sections"):
             for sid in _SECTION_SIDS:
                 body_id = self._section_body_id(sid)
@@ -240,7 +240,7 @@ class DetailView(VerticalScroll):
             self._sync_detail_sections([])
             self._sync_workflow_children()
             return
-        if self._show_raw:
+        if self._event_is_raw():
             raw = event_raw_json(
                 ev,
                 session_dir=self.session_dir,
@@ -277,22 +277,46 @@ class DetailView(VerticalScroll):
         if scroll_home:
             self.scroll_home(animate=False)
 
+    def _event_is_raw(self) -> bool:
+        ev = self._current_event
+        return ev is not None and int(ev.index) in self._raw_indexes
+
     def _sync_view_bar(self) -> None:
         try:
             bar = self.query_one("#event-view-bar", Horizontal)
         except NoMatches:
             return
         bar.display = self._current_event is not None
+        self._sync_raw_switch()
 
-    @on(Select.Changed, "#event-view-select")
-    def _on_event_view_changed(self, event: Select.Changed) -> None:
-        val = event.value
-        if val is Select.BLANK or val is None:
+    def _sync_raw_switch(self) -> None:
+        try:
+            box = self.query_one("#event-raw", Switch)
+        except NoMatches:
             return
-        nxt = str(val) == "raw"
-        if nxt == self._show_raw:
+        want = self._event_is_raw()
+        if box.value == want:
             return
-        self._show_raw = nxt
+        with box.prevent(Switch.Changed):
+            box.value = want
+
+    @on(Click, "#event-raw-label")
+    def _on_event_raw_label(self, _event: Click) -> None:
+        try:
+            self.query_one("#event-raw", Switch).toggle()
+        except NoMatches:
+            return
+
+    @on(Switch.Changed, "#event-raw")
+    def _on_event_raw_changed(self, event: Switch.Changed) -> None:
+        ev = self._current_event
+        if ev is None:
+            return
+        ix = int(ev.index)
+        if event.value:
+            self._raw_indexes.add(ix)
+        else:
+            self._raw_indexes.discard(ix)
         self._refresh_content(scroll_home=True)
 
     def on_mount(self) -> None:
@@ -314,7 +338,7 @@ class DetailView(VerticalScroll):
         except Exception:
             return
         run = self._workflow
-        kids = list(run.children) if run is not None and not self._show_raw else []
+        kids = list(run.children) if run is not None and not self._event_is_raw() else []
         table.clear()
         if not kids:
             table.display = False
@@ -362,9 +386,8 @@ class DetailView(VerticalScroll):
         self._job_mate = None
         self._schedule = None
         self._workflow = None
-        self._show_raw = False
-        with suppress(NoMatches):
-            self.query_one("#event-view-select", Select).value = "pretty"
+        self._raw_indexes.clear()
+        self._sync_raw_switch()
         self._sync_detail_sections([])
         self._sync_workflow_children()
 
@@ -376,7 +399,7 @@ class DetailView(VerticalScroll):
         full plain cache when no event is loaded.
         """
         ev = self._current_event
-        if ev is not None and self._show_raw:
+        if ev is not None and self._event_is_raw():
             return event_raw_json(
                 ev,
                 session_dir=self.session_dir,

@@ -158,15 +158,13 @@ cmd-event-reader = Full-width event
 
 cmd-event-reader-help = Hide the Timeline list and read the event; j / k step; Esc returns
 
-event-view-label = View
-
-event-view-pretty = Pretty
+event-raw-label = Raw
 
 event-view-raw = Raw
 
-cmd-event-raw = Raw JSON
+cmd-event-raw = Raw
 
-cmd-event-raw-help = Show the selected event as JSON
+cmd-event-raw-help = Toggle raw JSON for this event
 
 cmd-copy-detail = Copy selection or pane
 cmd-copy-detail-help = Browser: yank selection (drag release also copies); focused body; else tab primary — y / Ctrl+Shift+C; Ctrl+C selection or focused body
