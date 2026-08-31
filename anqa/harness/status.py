@@ -1,4 +1,9 @@
-"""Last store signal → list turn outcome. Every adapter uses this table."""
+"""Last store signal → list ``turn_outcome`` fragment.
+
+Adapters pick one store-written token and pass it here. The session
+list column is :meth:`~anqa.models.SessionMeta.list_status_label`
+(``running`` is a turn in progress, ``—`` is no list status).
+"""
 
 from __future__ import annotations
 

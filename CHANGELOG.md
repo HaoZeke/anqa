@@ -48,7 +48,8 @@ Cursor (`cursor`) are registered.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
-- List Turn is `running` only when that store wrote a live flag.
+- List Turn is `running` when a turn is in progress, `—` when the store
+  wrote no list status (last user row or bookend).
 
 - Every note has a `source`. Extra field keys are stored as sent.
   Notes (terminal and HUD) show the writer badge and the stored fields.

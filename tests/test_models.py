@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from anqa.models import (
+    LIST_STATUS_IDLE,
     SessionMeta,
     ToolCall,
     TraceEvent,
@@ -214,7 +215,11 @@ class TestSessionMeta:
 
     def test_unknown_turn_outcome_is_not_complete(self):
         meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="token_count")
-        assert meta.list_status_label() == "—"
+        assert meta.list_status_label() == LIST_STATUS_IDLE
+
+    def test_empty_turn_outcome_is_idle(self):
+        meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="")
+        assert meta.list_status_label() == LIST_STATUS_IDLE
 
 
 # --- merged ---

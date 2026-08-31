@@ -502,6 +502,22 @@ class TraceEvent:
             return ""
 
 
+# List Turn column and ``is:`` status. These are turn states from the
+# store, not "the product window is open."
+LIST_STATUS_RUNNING = "running"
+# A turn is in progress: live flag or mid-turn work after the latest user open.
+LIST_STATUS_ENDING = "ending"
+# The host asked the session to stop; the last turn is still finishing.
+LIST_STATUS_AWAITING = "awaiting"
+# The store wrote that it is waiting for the next user prompt.
+LIST_STATUS_CANCELLED = "cancelled"
+# The store wrote a cancel, interrupt, abort, or failed turn.
+LIST_STATUS_COMPLETE = "complete"
+# The store wrote a turn or session close.
+LIST_STATUS_IDLE = "—"
+# No list status: last user row, turn bookend, or nothing mappable.
+
+
 @dataclass
 class SessionMeta:
     """Metadata about a session from summary.json and signals.json."""
@@ -544,8 +560,7 @@ class SessionMeta:
     origin: str = ""
     # Product version recorded on the session, when the store has one.
     harness_version: str = ""
-    # From events.jsonl runtime telemetry
-    # success | error | cancelled | interrupted | running | ""
+    # Store last-signal fragment; :meth:`list_status_label` is the list face.
     turn_outcome: str = ""
     loop_count: int = 0
     # From signals.json ``turnCount`` (host/live aggregates; timeline may be a tail).
@@ -646,23 +661,25 @@ class SessionMeta:
         return True
 
     def list_status_label(self) -> str:
-        """Main session list Turn column (short labels — narrow column).
+        """Turn column and ``is:`` status from the last store signal.
 
-        Values: ``running`` | ``ending`` | ``awaiting`` | ``cancelled`` |
-        ``complete`` | ``—``.
+        :returns: One of :data:`LIST_STATUS_RUNNING` (turn in progress),
+            :data:`LIST_STATUS_ENDING`, :data:`LIST_STATUS_AWAITING`,
+            :data:`LIST_STATUS_CANCELLED`, :data:`LIST_STATUS_COMPLETE`
+            (store close), or :data:`LIST_STATUS_IDLE` (``—``: last user
+            row, bookend, or nothing mappable). Not "session window open."
         """
         oc = (self.turn_outcome or "").strip().lower().replace(" ", "_")
         if oc in ("ending", "finishing"):
-            return "ending"
+            return LIST_STATUS_ENDING
         if oc == "awaiting_follow_up":
-            return "awaiting"
+            return LIST_STATUS_AWAITING
         if oc in ("running", "in_progress", "pending") or (not oc and self.turn_in_progress):
-            return "running"
+            return LIST_STATUS_RUNNING
         if oc in ("cancelled", "canceled", "interrupted", "aborted"):
-            return "cancelled"
+            return LIST_STATUS_CANCELLED
         if oc in ("success", "ok", "completed", "complete"):
-            return "complete"
+            return LIST_STATUS_COMPLETE
         if oc in ("error", "failed", "failure", "timeout"):
-            # Single-turn failures surface as cancelled on the home list.
-            return "cancelled"
-        return "—"
+            return LIST_STATUS_CANCELLED
+        return LIST_STATUS_IDLE

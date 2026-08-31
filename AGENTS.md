@@ -232,10 +232,11 @@ catalog discovery for control outside ``session/catalog`` +
 - **Single-flight refresh** per session via ``session_inflight.KIND_REFRESH`` +
   the live-refresh pool; coalesced reruns when events stack.
 - **Turn status** on the home list: ``running`` | ``awaiting`` | ``ending`` |
-  ``complete`` | ``cancelled`` | ``—`` (:meth:`~anqa.models.SessionMeta.list_status_label`).
-  ``running`` is a store-written live flag only (``from_last``). A last
-  user row or turn bookend is ``—``. **ending** = the last turn is still
-  finishing after the host asked the session to stop.
+  ``complete`` | ``cancelled`` | ``—`` (:meth:`~anqa.models.SessionMeta.list_status_label`,
+  ``LIST_STATUS_*``). ``running`` is a turn in progress. ``—`` is no
+  list status (last user row or bookend). **ending** = the last turn is
+  still finishing after the host asked the session to stop. Not "window
+  open."
 - **Context** columns / Summary use session snapshot fields from signals;
   optional in-memory per-turn samples while a browser is open
   (``session.context_samples``). Grok does not export a full per-turn series.
