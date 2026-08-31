@@ -12,16 +12,13 @@ sizes, and use cases.
 | README / GitHub light | `png/anqa-mark.png` (colour, transparent) |
 | README / GitHub dark | `png/anqa-mark-on-dark.png` (cream bird, transparent) |
 | HUD search chrome | `png/anqa-mark-64.png` / `png/anqa-mark-on-dark-64.png` |
-| Mark on an ink plate | `png/anqa-mark-reverse.png` (solid ink field) |
-| Poster / merch | `png/anqa-lockup-stacked.png` |
-| Dock / HUD icon | `png/anqa-app-icon-1024.png` (cream plate, square) |
-| Favicon | `png/anqa-favicon-32.png` |
-| One-colour print | `png/anqa-mark-mono.png` |
+| Mark on cream / ink plate | `png/anqa-mark-plate.png` / `png/anqa-mark-reverse.png` |
+| Poster / merch | `png/anqa-lockup-stacked.png` (and `-on-dark`) |
+| Dock / HUD icon | `png/anqa-app-icon-1024.png` / `png/anqa-app-icon-dark-1024.png` |
+| Favicon | `png/anqa-favicon-32.png` / `png/anqa-favicon-dark-32.png` |
+| One-colour print | `png/anqa-mark-mono.png` / `png/anqa-mark-mono-on-dark.png` |
 
-`anqa-mark-on-dark.png` is the reverse bird with the ink field knocked
-out, so it sits on a dark page. The solid reverse and the dock tiles are
-the only filled fields: reverse for print on ink, dock tiles so the OS
-icon slot is a cream square.
+Every cutout has a regular (black body / ink type) and `-on-dark` (cream body / cream type) pair. Plated tiles use `-dark` on ink. `anqa-mark-on-dark.png` knocks the ink field out so the bird sits on a dark page.
 
 Wordmark type (when setting the name in product chrome) is **Fira Sans ExtraBold 800**, tracking −0.04 em, lowercase only. Code is **Fira Code**. Files and SIL licenses in `fonts/` (`OFL.txt` for Sans, `FiraCode-OFL.txt` for Code). The decorated letters under the bird live in `source/word-ornament.png`.
 

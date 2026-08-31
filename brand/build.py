@@ -248,6 +248,32 @@ def remap_reverse(rgba: np.ndarray) -> np.ndarray:
     return out
 
 
+def remap_duo_on_dark(rgba: np.ndarray) -> np.ndarray:
+    return remap_reverse(remap_duo(rgba))
+
+
+def remap_mono_on_dark(rgba: np.ndarray, origin: tuple[int, int]) -> np.ndarray:
+    return remap_reverse(remap_mono(rgba, origin))
+
+
+def invert_ink_image(img: Image.Image) -> Image.Image:
+    arr = np.asarray(img.convert("RGBA")).copy()
+    a = arr[..., 3] > 12
+    ink = is_ink(arr[..., :3]) & a
+    arr[ink, :3] = WHITE_RGB
+    return to_image(arr)
+
+
+def save_cutout_pair(regular: Image.Image, inverted: Image.Image, stem: str) -> None:
+    save_png(regular, f"{stem}.png")
+    save_png(inverted, f"{stem}-on-dark.png")
+
+
+def save_square_set(img: Image.Image, stem: str, sizes: tuple[int, ...]) -> None:
+    for edge in sizes:
+        save_png(img.resize((edge, edge), Image.Resampling.LANCZOS), f"{stem}-{edge}.png")
+
+
 def rounded_canvas(size: int, fill: tuple[int, int, int], radius: int) -> Image.Image:
     im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     ImageDraw.Draw(im).rounded_rectangle(
@@ -306,7 +332,7 @@ def write_svg(name: str, body: str, vb: tuple[int, int]) -> Path:
     return path
 
 
-def render_word(text: str, size: int) -> Image.Image:
+def render_word(text: str, size: int, fill: str = INK) -> Image.Image:
     """Rasterize the wordmark from the packed ExtraBold file."""
     font = ImageFont.truetype(str(FONT), size)
     tracking = -0.04 * size
@@ -326,7 +352,7 @@ def render_word(text: str, size: int) -> Image.Image:
     x = float(pad)
     y = float(pad)
     for ch, adv in zip(text, widths):
-        draw.text((x, y), ch, font=font, fill=INK)
+        draw.text((x, y), ch, font=font, fill=fill)
         x += adv
     return trim_image(img, pad=8)
 
@@ -372,18 +398,28 @@ def main() -> None:
     painted_word_img = trim_image(painted_word_img, pad=8)
     head_img = to_image(head)
 
-    save_png(mark_img, "anqa-mark.png")
-    save_png(scale_to_width(mark_img, mark_img.width * 2), "anqa-mark@2x.png")
-    save_png(scale_to_height(mark_img, 64), "anqa-mark-64.png")
-    save_png(to_image(remap_duo(bird)), "anqa-mark-duo.png")
-    save_png(to_image(remap_mono(bird, bird_origin)), "anqa-mark-mono.png")
     rev = to_image(remap_reverse(bird))
-    save_png(rev, "anqa-mark-on-dark.png")
+    duo = to_image(remap_duo(bird))
+    duo_dark = to_image(remap_duo_on_dark(bird))
+    mono = to_image(remap_mono(bird, bird_origin))
+    mono_dark = to_image(remap_mono_on_dark(bird, bird_origin))
+
+    save_cutout_pair(mark_img, rev, "anqa-mark")
+    save_png(scale_to_width(mark_img, mark_img.width * 2), "anqa-mark@2x.png")
+    save_png(scale_to_width(rev, rev.width * 2), "anqa-mark-on-dark@2x.png")
+    save_png(scale_to_height(mark_img, 64), "anqa-mark-64.png")
     save_png(scale_to_height(rev, 64), "anqa-mark-on-dark-64.png")
+    save_cutout_pair(duo, duo_dark, "anqa-mark-duo")
+    save_cutout_pair(mono, mono_dark, "anqa-mark-mono")
+
+    plate_cream = Image.new("RGBA", mark_img.size, (*CREAM_RGB, 255))
+    plate_cream.alpha_composite(mark_img)
+    save_png(plate_cream, "anqa-mark-plate.png")
     rev_on_ink = Image.new("RGBA", rev.size, (*INK_RGB, 255))
     rev_on_ink.alpha_composite(rev)
     save_png(rev_on_ink, "anqa-mark-reverse.png")
-    save_png(painted_word_img, "anqa-wordmark-ornament.png")
+
+    save_cutout_pair(painted_word_img, invert_ink_image(painted_word_img), "anqa-wordmark-ornament")
 
     wp, ww = word_paths("anqa", 72, (16, 78))
     write_svg(
@@ -391,58 +427,94 @@ def main() -> None:
         f'  <g fill="{INK}">{wp}</g>',
         (int(ww) + 32, 100),
     )
+    write_svg(
+        "anqa-wordmark-on-dark.svg",
+        f'  <g fill="#FFFFFF">{wp}</g>',
+        (int(ww) + 32, 100),
+    )
     word_type = render_word("anqa", 720)
-    save_png(word_type, "anqa-wordmark.png")
+    word_type_dark = render_word("anqa", 720, fill="#FFFFFF")
+    save_cutout_pair(word_type, word_type_dark, "anqa-wordmark")
 
     mark_h = scale_to_height(mark_img, 520)
+    rev_h = scale_to_height(rev, 520)
     word_h = scale_to_width(word_type, int(mark_h.width * 0.92))
+    word_h_dark = scale_to_width(word_type_dark, int(rev_h.width * 0.92))
     clean = compose_stacked_clean(mark_h, word_h, gap=36)
-    save_png(clean, "anqa-lockup-stacked-clean.png")
+    clean_dark = compose_stacked_clean(rev_h, word_h_dark, gap=36)
+    save_cutout_pair(clean, clean_dark, "anqa-lockup-stacked-clean")
 
     word_orn = scale_to_width(painted_word_img, int(mark_h.width * 0.98))
+    word_orn_dark = scale_to_width(invert_ink_image(painted_word_img), int(rev_h.width * 0.98))
     stacked_img = compose_stacked_clean(mark_h, word_orn, gap=28)
-    save_png(stacked_img, "anqa-lockup-stacked.png")
+    stacked_dark = compose_stacked_clean(rev_h, word_orn_dark, gap=28)
+    save_cutout_pair(stacked_img, stacked_dark, "anqa-lockup-stacked")
 
     mark_row = scale_to_height(mark_img, 280)
+    rev_row = scale_to_height(rev, 280)
     word_row = scale_to_height(word_type, 72)
+    word_row_dark = scale_to_height(word_type_dark, 72)
     horizontal = compose_horizontal(mark_row, word_row, gap=28)
-    save_png(horizontal, "anqa-lockup-horizontal.png")
+    horizontal_dark = compose_horizontal(rev_row, word_row_dark, gap=28)
+    save_cutout_pair(horizontal, horizontal_dark, "anqa-lockup-horizontal")
 
     light = paste_centered(rounded_canvas(1024, CREAM_RGB, 220), mark_img)
-    dark_mark = to_image(remap_reverse(bird))
-    dark = paste_centered(rounded_canvas(1024, INK_RGB, 220), dark_mark)
-    save_png(light, "anqa-app-icon-1024.png")
-    save_png(
-        light.resize((512, 512), Image.Resampling.LANCZOS), "anqa-app-icon-512.png"
-    )
-    save_png(
-        light.resize((256, 256), Image.Resampling.LANCZOS), "anqa-app-icon-256.png"
-    )
-    save_png(dark, "anqa-app-icon-dark-1024.png")
+    dark = paste_centered(rounded_canvas(1024, INK_RGB, 220), rev)
+    save_square_set(light, "anqa-app-icon", (1024, 512, 256))
+    save_square_set(dark, "anqa-app-icon-dark", (1024, 512, 256))
 
     fav_base = paste_centered(
         rounded_canvas(256, CREAM_RGB, 48), head_img, max_frac=0.86
     )
-    save_png(fav_base.resize((64, 64), Image.Resampling.LANCZOS), "anqa-favicon-64.png")
-    save_png(fav_base.resize((32, 32), Image.Resampling.LANCZOS), "anqa-favicon-32.png")
-    save_png(fav_base.resize((16, 16), Image.Resampling.LANCZOS), "anqa-favicon-16.png")
+    fav_dark = paste_centered(
+        rounded_canvas(256, INK_RGB, 48),
+        to_image(remap_reverse(head)),
+        max_frac=0.86,
+    )
+    save_square_set(fav_base, "anqa-favicon", (64, 32, 16))
+    save_square_set(fav_dark, "anqa-favicon-dark", (64, 32, 16))
 
     wrappers = [
         ("anqa-mark.svg", "anqa-mark.png", mark_img.size),
-        ("anqa-mark-duo.svg", "anqa-mark-duo.png", mark_img.size),
-        ("anqa-mark-mono.svg", "anqa-mark-mono.png", mark_img.size),
+        ("anqa-mark-on-dark.svg", "anqa-mark-on-dark.png", rev.size),
+        ("anqa-mark-duo.svg", "anqa-mark-duo.png", duo.size),
+        ("anqa-mark-duo-on-dark.svg", "anqa-mark-duo-on-dark.png", duo_dark.size),
+        ("anqa-mark-mono.svg", "anqa-mark-mono.png", mono.size),
+        ("anqa-mark-mono-on-dark.svg", "anqa-mark-mono-on-dark.png", mono_dark.size),
+        ("anqa-mark-plate.svg", "anqa-mark-plate.png", plate_cream.size),
         ("anqa-mark-reverse.svg", "anqa-mark-reverse.png", rev_on_ink.size),
         ("anqa-lockup-stacked.svg", "anqa-lockup-stacked.png", stacked_img.size),
+        (
+            "anqa-lockup-stacked-on-dark.svg",
+            "anqa-lockup-stacked-on-dark.png",
+            stacked_dark.size,
+        ),
         ("anqa-lockup-stacked-clean.svg", "anqa-lockup-stacked-clean.png", clean.size),
+        (
+            "anqa-lockup-stacked-clean-on-dark.svg",
+            "anqa-lockup-stacked-clean-on-dark.png",
+            clean_dark.size,
+        ),
         ("anqa-lockup-horizontal.svg", "anqa-lockup-horizontal.png", horizontal.size),
+        (
+            "anqa-lockup-horizontal-on-dark.svg",
+            "anqa-lockup-horizontal-on-dark.png",
+            horizontal_dark.size,
+        ),
         (
             "anqa-wordmark-ornament.svg",
             "anqa-wordmark-ornament.png",
             painted_word_img.size,
         ),
+        (
+            "anqa-wordmark-ornament-on-dark.svg",
+            "anqa-wordmark-ornament-on-dark.png",
+            painted_word_img.size,
+        ),
         ("anqa-app-icon.svg", "anqa-app-icon-1024.png", (1024, 1024)),
         ("anqa-app-icon-dark.svg", "anqa-app-icon-dark-1024.png", (1024, 1024)),
         ("anqa-favicon.svg", "anqa-favicon-64.png", (64, 64)),
+        ("anqa-favicon-dark.svg", "anqa-favicon-dark-64.png", (64, 64)),
     ]
     for svg_name, png_name, size in wrappers:
         write_svg_wrapper(svg_name, png_name, size)
