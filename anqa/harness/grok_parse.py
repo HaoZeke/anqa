@@ -2132,16 +2132,27 @@ def _apply_list_flags_from_signals(meta: SessionMeta) -> None:
 def load_session_meta_list(session_dir: Path) -> SessionMeta:
     """List-grade metadata: summary, signals, and cheap turn outcome.
 
-    Does not parse a timeline or read a multi-megabyte ``updates.jsonl``
-    body. Does not infer a title from the trace. Presence flags come
-    from signals already loaded.
+    Untitled rows take ``goal/state.json`` only — not a walk of
+    ``updates.jsonl``. Events use ``num_messages`` when summary has it;
+    otherwise the stamp-cached timeline length (catalog rebuilds only
+    when that stamp moves).
     """
     meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
     _load_summary(meta, session_dir, infer_title=False)
+    if not (meta.title or "").strip():
+        goal = _goal_objective(session_dir)
+        if goal:
+            meta.title = _one_line_title(goal)
     _load_signals(meta, session_dir)
     _apply_list_flags_from_signals(meta)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
+    if not meta.num_events:
+        try:
+            meta.num_events = len(parse_timeline(session_dir))
+        except Exception:
+            logger.debug("list timeline count for %s", session_dir, exc_info=True)
+            meta.num_events = 0
     _apply_list_turn_outcome(meta, session_dir)
     if meta.turn_failed and not meta.error_count:
         meta.error_count = max(meta.error_count, 1)

@@ -3553,9 +3553,9 @@ def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) ->
         encoding="utf-8",
     )
     meta = load_session_meta_list(sd)
-    # List meta does not parse the timeline for a count.
-    assert meta.num_events == 0
-    assert len(parse_timeline(sd)) >= 2
+    n = len(parse_timeline(sd))
+    assert n >= 2
+    assert meta.num_events == n
 
 
 def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:

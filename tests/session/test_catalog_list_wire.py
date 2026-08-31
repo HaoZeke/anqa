@@ -194,6 +194,100 @@ def test_session_catalog_row_has_presence_flags(tmp_path: Path) -> None:
     assert row_matches_query(CatalogQueryRow.from_wire(row), "has:goal")
 
 
+def test_session_catalog_row_titles_from_goal_state(tmp_path: Path) -> None:
+    """Untitled list rows take the title from ``goal/state.json``."""
+    traces = tmp_path / "runs" / "traces"
+    sd = traces / "goal-sess"
+    sd.mkdir(parents=True)
+    (sd / "summary.json").write_text(
+        json.dumps({"info": {"id": "goal-sess"}, "generated_title": "", "num_messages": 0}),
+        encoding="utf-8",
+    )
+    (sd / "signals.json").write_text("{}", encoding="utf-8")
+    (sd / "goal").mkdir()
+    (sd / "goal" / "state.json").write_text(
+        json.dumps({"objective": "group the handbook topics"}),
+        encoding="utf-8",
+    )
+    row = session_catalog_row(sd)
+    assert row is not None
+    assert row["title"] == "group the handbook topics"
+    meta = session_meta_from_catalog_row(row)
+    assert meta is not None
+    assert meta.title == "group the handbook topics"
+
+
+def test_session_catalog_row_does_not_scan_updates_for_title(tmp_path: Path) -> None:
+    """List title does not walk ``updates.jsonl`` for a first ask."""
+    traces = tmp_path / "runs" / "traces"
+    sd = traces / "updates-only"
+    sd.mkdir(parents=True)
+    (sd / "summary.json").write_text(
+        json.dumps({"info": {"id": "updates-only"}, "generated_title": ""}),
+        encoding="utf-8",
+    )
+    (sd / "signals.json").write_text("{}", encoding="utf-8")
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "original first ask"},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    row = session_catalog_row(sd)
+    assert row is not None
+    assert row["title"] == ""
+
+
+def test_session_catalog_row_counts_events_when_summary_has_none(tmp_path: Path) -> None:
+    """Live sessions without a summary count still get an Events column."""
+    from anqa.harness.grok_parse import parse_timeline
+
+    traces = tmp_path / "runs" / "traces"
+    sd = traces / "live-host"
+    sd.mkdir(parents=True)
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "<user_query>hi</user_query>"},
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "timestamp": 2,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "hello"},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    row = session_catalog_row(sd)
+    assert row is not None
+    n = len(parse_timeline(sd))
+    assert n >= 2
+    assert row["numEvents"] == n
+
+
 def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:
     host = tmp_path / "%2Fmnt%2Fdev%2F_git%2Ffubar"
     sd = _write_list_fixture(

@@ -23,7 +23,7 @@ from .subagents import drop_subagent_sessions
 
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
 # Bump when a cached row is missing fields the list must show.
-SNAPSHOT_ROW_FORMAT = 3
+SNAPSHOT_ROW_FORMAT = 4
 _LIVE_LIST_STATUS = frozenset({"running", "in_progress", "pending", "awaiting", "ending"})
 
 
