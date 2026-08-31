@@ -192,6 +192,85 @@ fn parse_iso_local(iso: &str) -> Option<DateTime<Local>> {
 }
 
 /// Overview created stamp in the host zone (TUI Summary style).
+/// Progress caption: what the Overview bar is measuring.
+pub fn context_meter_copy(
+    frac: f32,
+    used: Option<i64>,
+    window: Option<i64>,
+    compact: &str,
+) -> String {
+    let pct = (frac.clamp(0.0, 1.0) * 100.0).round() as i32;
+    let tokens = match (used, window) {
+        (Some(u), Some(w)) if w > 0 => format!("{} / {}", compact_count(u), compact_count(w)),
+        _ => {
+            let extra = compact.trim();
+            if extra.is_empty() || extra.ends_with('%') {
+                String::new()
+            } else {
+                extra.to_string()
+            }
+        }
+    };
+    if tokens.is_empty() {
+        format!("Context {pct}%")
+    } else {
+        format!("Context {pct}% · {tokens}")
+    }
+}
+
+fn compact_count(n: i64) -> String {
+    if n.abs() >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n.abs() >= 1000 {
+        format!("{}k", n / 1000)
+    } else {
+        n.to_string()
+    }
+}
+
+/// HTTPS browse URL for a git remote, when the remote is a known host.
+pub fn git_browse_url(repo: &str) -> Option<String> {
+    let s = repo.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Some(rest) = s.strip_prefix("git@") {
+        let (host, path) = rest.split_once(':')?;
+        if host.is_empty() || path.is_empty() {
+            return None;
+        }
+        let path = path.trim_end_matches(".git");
+        return Some(format!("https://{host}/{path}"));
+    }
+    if s.starts_with("https://") || s.starts_with("http://") {
+        return Some(s.trim_end_matches(".git").to_string());
+    }
+    if let Some(rest) = s.strip_prefix("ssh://") {
+        let rest = rest.strip_prefix("git@").unwrap_or(rest);
+        let (host, path) = rest.split_once('/')?;
+        if host.is_empty() || path.is_empty() {
+            return None;
+        }
+        return Some(format!("https://{host}/{}", path.trim_end_matches(".git")));
+    }
+    None
+}
+
+/// Directory the host should open for a session locator.
+pub fn folder_to_open(path: &str) -> Option<String> {
+    let p = std::path::Path::new(path.trim());
+    if path.trim().is_empty() {
+        return None;
+    }
+    if p.is_dir() {
+        return Some(p.to_string_lossy().into_owned());
+    }
+    p.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| parent.to_string_lossy().into_owned())
+}
+
+/// Overview created stamp in the host zone (TUI Summary style).
 pub fn short_created(iso: &str) -> String {
     let s = iso.trim();
     if s.is_empty() {
@@ -210,6 +289,29 @@ pub struct OverviewField {
     pub label: &'static str,
     pub value: String,
     pub copyable: bool,
+    pub mono: bool,
+    pub danger: bool,
+    pub open: Option<String>,
+}
+
+impl OverviewField {
+    fn row(key: &'static str, label: &'static str, value: String) -> Self {
+        Self {
+            key,
+            label,
+            value,
+            copyable: true,
+            mono: false,
+            danger: false,
+            open: None,
+        }
+    }
+}
+
+impl Default for OverviewField {
+    fn default() -> Self {
+        Self::row("", "", String::new())
+    }
 }
 
 /// Operator-facing Overview rows (TUI Summary-shaped glance, not chrome counts).
@@ -222,12 +324,9 @@ pub fn overview_fields(
 ) -> Vec<OverviewField> {
     let mut out = Vec::new();
     if !meta.session_id.is_empty() {
-        out.push(OverviewField {
-            key: "session",
-            label: "session",
-            value: meta.session_id.clone(),
-            copyable: true,
-        });
+        let mut row = OverviewField::row("session", "session", meta.session_id.clone());
+        row.mono = true;
+        out.push(row);
     }
     let harness = if !meta.harness_label.is_empty() {
         meta.harness_label.clone()
@@ -240,26 +339,18 @@ pub fn overview_fields(
         } else {
             harness
         };
-        out.push(OverviewField {
-            key: "harness",
-            label: "harness",
-            value,
-            copyable: true,
-        });
+        out.push(OverviewField::row("harness", "harness", value));
     }
     if meta.tool_call_count > 0 || meta.error_count > 0 || meta.tool_failure_count > 0 {
-        let value = if meta.error_count > 0 || meta.tool_failure_count > 0 {
-            let errs = meta.error_count.max(meta.tool_failure_count);
-            format!("{} · {} errors", meta.tool_call_count, errs)
+        let errs = meta.error_count.max(meta.tool_failure_count);
+        let (value, danger) = if errs > 0 {
+            (format!("{} · {} errors", meta.tool_call_count, errs), true)
         } else {
-            meta.tool_call_count.to_string()
+            (meta.tool_call_count.to_string(), false)
         };
-        out.push(OverviewField {
-            key: "tools",
-            label: "tools",
-            value,
-            copyable: true,
-        });
+        let mut row = OverviewField::row("tools", "tools", value);
+        row.danger = danger;
+        out.push(row);
     }
     if turns.turns.len() > 1 {
         if let Some(last) = turns.turns.last() {
@@ -277,78 +368,56 @@ pub fn overview_fields(
                 }
                 (None, None) => {}
             }
-            out.push(OverviewField {
-                key: "last_turn",
-                label: "last turn",
-                value,
-                copyable: true,
-            });
+            let mut row = OverviewField::row("last_turn", "last turn", value);
+            let st = last.outcome.to_ascii_lowercase();
+            row.danger = st.contains("cancel") || st.contains("fail") || st.contains("error");
+            out.push(row);
         }
     }
     if meta.num_messages > 0 {
-        out.push(OverviewField {
-            key: "messages",
-            label: "messages",
-            value: meta.num_messages.to_string(),
-            copyable: true,
-        });
+        out.push(OverviewField::row(
+            "messages",
+            "messages",
+            meta.num_messages.to_string(),
+        ));
     }
     if meta.loop_count > 0 {
-        out.push(OverviewField {
-            key: "loops",
-            label: "loops",
-            value: meta.loop_count.to_string(),
-            copyable: true,
-        });
+        out.push(OverviewField::row(
+            "loops",
+            "loops",
+            meta.loop_count.to_string(),
+        ));
     }
     if !meta.run_id.is_empty() {
-        out.push(OverviewField {
-            key: "run",
-            label: "run",
-            value: meta.run_id.clone(),
-            copyable: true,
-        });
+        let mut row = OverviewField::row("run", "run", meta.run_id.clone());
+        row.mono = true;
+        out.push(row);
     }
     if !meta.task_id.is_empty() {
-        out.push(OverviewField {
-            key: "task",
-            label: "task",
-            value: meta.task_id.clone(),
-            copyable: true,
-        });
+        let mut row = OverviewField::row("task", "task", meta.task_id.clone());
+        row.mono = true;
+        out.push(row);
     }
     if !meta.git_repo.is_empty() {
-        out.push(OverviewField {
-            key: "repo",
-            label: "repo",
-            value: meta.git_repo.clone(),
-            copyable: true,
-        });
+        let mut row = OverviewField::row("repo", "repo", meta.git_repo.clone());
+        row.mono = true;
+        row.open = git_browse_url(&meta.git_repo);
+        out.push(row);
     }
     if !meta.git_branch.is_empty() {
-        out.push(OverviewField {
-            key: "branch",
-            label: "branch",
-            value: meta.git_branch.clone(),
-            copyable: true,
-        });
+        let mut row = OverviewField::row("branch", "branch", meta.git_branch.clone());
+        row.mono = true;
+        out.push(row);
     }
     let created = short_created(&meta.created_at);
     if !created.is_empty() {
-        out.push(OverviewField {
-            key: "created",
-            label: "created",
-            value: created,
-            copyable: true,
-        });
+        out.push(OverviewField::row("created", "created", created));
     }
     if !meta.path.is_empty() {
-        out.push(OverviewField {
-            key: "path",
-            label: "path",
-            value: meta.path.clone(),
-            copyable: true,
-        });
+        let mut row = OverviewField::row("path", "path", meta.path.clone());
+        row.mono = true;
+        row.open = folder_to_open(&meta.path);
+        out.push(row);
     }
     out
 }
@@ -466,6 +535,7 @@ pub fn overview_job_fields(
             label: "background",
             value,
             copyable: false,
+            ..OverviewField::default()
         });
     }
     if !schedules.is_empty() {
@@ -486,6 +556,7 @@ pub fn overview_job_fields(
             label: "schedules",
             value,
             copyable: false,
+            ..OverviewField::default()
         });
     }
     if !workflows.is_empty() {
@@ -510,6 +581,7 @@ pub fn overview_job_fields(
                 interrupted,
             ),
             copyable: false,
+            ..OverviewField::default()
         });
     }
     out
@@ -3638,6 +3710,36 @@ mod tests {
         let s = capped_json(&v, 8);
         assert!(s.chars().count() <= 9);
         assert!(s.ends_with('…') || s.len() <= 8);
+    }
+
+    #[test]
+    fn context_meter_copy_names_the_bar() {
+        assert_eq!(
+            context_meter_copy(0.62, Some(236_000), Some(500_000), "47%"),
+            "Context 62% · 236k / 500k"
+        );
+        assert_eq!(context_meter_copy(0.12, None, None, "12%"), "Context 12%");
+    }
+
+    #[test]
+    fn git_browse_url_maps_ssh_remote() {
+        assert_eq!(
+            git_browse_url("git@github.com:indynull/anqa"),
+            Some("https://github.com/indynull/anqa".into())
+        );
+        assert_eq!(
+            git_browse_url("https://github.com/indynull/anqa.git"),
+            Some("https://github.com/indynull/anqa".into())
+        );
+        assert_eq!(git_browse_url("anqa"), None);
+    }
+
+    #[test]
+    fn folder_to_open_uses_parent_for_files() {
+        assert_eq!(
+            folder_to_open("/tmp/does-not-exist-anqa/session.jsonl"),
+            Some("/tmp/does-not-exist-anqa".into())
+        );
     }
 
     #[test]

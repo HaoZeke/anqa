@@ -12,20 +12,20 @@ use icedtea::variant::Variant;
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
-    body_paint_for, bookend_body_is_chrome, capped_display, display_message_text,
-    display_tool_output, event_brand_role, event_is_monitor, fenced_code_block, fmt_duration,
-    format_note_time, format_tool_display, human_event_type_label, image_result_path,
-    is_chat_message, is_tool_identity, job_command, job_description, job_event_id, job_event_label,
-    job_exit_code, job_inspect_blocks, job_inspect_log, job_list_preview, job_output_path,
-    job_status, list_event_detail, list_status_label, looks_like_markdown, note_display_fields,
-    overview_fields, overview_row_status, overview_subagent_rows, overview_task_rows,
-    overview_workflow_rows, path_hint_from_raw, remap_turn_outcome_paren, sanitize_console_text,
-    schedule_inspect_blocks, schedule_last_fire, session_duration_chip, status_tone,
-    stills_from_session, subagent_inspect_blocks, subagent_list_preview, syntax_for_fence,
-    syntax_for_tool_field, syntax_for_tool_output, timeline_body_text, timeline_count_caption,
-    timeline_query_hit, tool_brand_role, tool_fields_from_raw, turn_chrome_face,
-    workflow_for_event, workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole,
-    ToolField,
+    body_paint_for, bookend_body_is_chrome, capped_display, context_meter_copy,
+    display_message_text, display_tool_output, event_brand_role, event_is_monitor,
+    fenced_code_block, fmt_duration, format_note_time, format_tool_display, human_event_type_label,
+    image_result_path, is_chat_message, is_tool_identity, job_command, job_description,
+    job_event_id, job_event_label, job_exit_code, job_inspect_blocks, job_inspect_log,
+    job_list_preview, job_output_path, job_status, list_event_detail, list_status_label,
+    looks_like_markdown, note_display_fields, overview_fields, overview_row_status,
+    overview_subagent_rows, overview_task_rows, overview_workflow_rows, path_hint_from_raw,
+    remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks, schedule_last_fire,
+    session_duration_chip, status_tone, stills_from_session, subagent_inspect_blocks,
+    subagent_list_preview, syntax_for_fence, syntax_for_tool_field, syntax_for_tool_output,
+    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_brand_role,
+    tool_fields_from_raw, turn_chrome_face, workflow_for_event, workflow_name_from_raw,
+    workflow_status_word, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -287,13 +287,24 @@ fn paint_badge(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let a11y = A11y::new(label.clone(), Role::Status);
-    icedtea::widget::badge(
-        label,
-        None,
-        tea,
-        variant,
-        icedtea::widget::BadgeSize::Small,
-        a11y,
+    let (wash, ink, mut border) = icedtea::widget::chip_face(tea, variant);
+    border.radius = tea.radius(icedtea::m3::shape::Component::Badge);
+    // Pill ends eat icedtea Small [2, 5]; keep a readable inset.
+    icedtea::a11y::attach(
+        container(text(label).size(tea.meta()).color(ink))
+            .padding(Padding {
+                top: 4.0,
+                right: 10.0,
+                bottom: 4.0,
+                left: 10.0,
+            })
+            .style(move |_| {
+                let mut st = icedtea::style::fill(wash, ink);
+                st.border = border;
+                st
+            })
+            .into(),
+        &a11y,
     )
 }
 
@@ -1132,7 +1143,13 @@ fn overview_session(hud: &Hud) -> Element<'_, Message> {
     let mut col = column![status_row].spacing(8);
     // Progress only where context matters (session detail), and only when known.
     if ctx_frac > 0.0 {
-        col = col.push(kit::context_progress(ctx_frac, tea));
+        let copy = context_meter_copy(
+            ctx_frac,
+            meta.context_tokens_used,
+            meta.context_window_tokens,
+            meta.context_compact(),
+        );
+        col = col.push(kit::context_progress(ctx_frac, &copy, tea));
     }
 
     if o.notes.count > 0 {
@@ -1161,7 +1178,7 @@ fn overview_session(hud: &Hud) -> Element<'_, Message> {
         ));
     }
     for field in overview_fields(meta, &o.turns) {
-        col = col.push(kv(hud, field.key, field.label, field.value, field.copyable));
+        col = col.push(kv(hud, &field));
     }
     col.into()
 }
@@ -1292,34 +1309,52 @@ fn overview_stats(hud: &Hud) -> Element<'_, Message> {
 }
 
 /// One Overview meta row via icedtea value_field / plain labeled readout.
-fn kv<'a>(
-    hud: &'a Hud,
-    key: &'static str,
-    label: &'static str,
-    v: String,
-    copy: bool,
-) -> Element<'a, Message> {
-    let _ = (v, copy);
-    glance_row(hud, &ExtractKey::Overview(key).id(), label)
+fn kv<'a>(hud: &'a Hud, field: &crate::format::OverviewField) -> Element<'a, Message> {
+    glance_row(hud, field)
 }
 
-fn glance_row<'a>(hud: &'a Hud, id: &str, label: &str) -> Element<'a, Message> {
+fn glance_row<'a>(hud: &'a Hud, field: &crate::format::OverviewField) -> Element<'a, Message> {
     let tea = hud.tokens();
-    if let Some(buf) = hud.field(id) {
-        let id = id.to_string();
+    let id = ExtractKey::Overview(field.key).id();
+    let face = if field.mono {
+        icedtea::typo::FontFace::Mono
+    } else {
+        icedtea::typo::FontFace::Ui
+    };
+    let _ = field.danger;
+    let open = field.open.as_ref().map(|target| {
+        let title = if target.starts_with("http") {
+            "Open"
+        } else {
+            "Folder"
+        };
+        icedtea::action::Action::new(
+            "overview.open",
+            title,
+            Message::OpenExternal(target.clone()),
+        )
+    });
+    if let Some(buf) = hud.field(&id) {
         return kit::labeled_value(
-            label,
+            field.label,
             buf,
-            move |action| Message::Select {
-                id: id.clone(),
-                action,
+            {
+                let id = id.clone();
+                move |action| Message::Select {
+                    id: id.clone(),
+                    action,
+                }
             },
-            icedtea::typo::FontFace::Ui,
+            face,
+            open,
             tea,
-            A11y::new(label, Role::Group),
+            A11y::new(field.label, Role::Group),
         );
     }
-    kit::labeled_plain(label, "", tea)
+    if field.danger {
+        return kit::labeled_plain(field.label, field.value.clone(), tea);
+    }
+    kit::labeled_plain(field.label, "", tea)
 }
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
@@ -1347,6 +1382,23 @@ fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element
         Variant::Chip,
         icedtea::widget::ChipKind::Assist,
         icedtea::icon::Icons::NONE,
+        A11y::button(label),
+    )
+}
+
+fn note_chip(
+    label: String,
+    msg: Message,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    icedtea::widget::chip(
+        label.clone(),
+        Some(msg),
+        None,
+        tea,
+        Variant::Chip,
+        icedtea::widget::ChipKind::Assist,
+        icedtea::icon::Icons::leading(Icon::DocumentCreate),
         A11y::button(label),
     )
 }
@@ -1406,7 +1458,7 @@ fn card_cmds_row(
     let tok = hud.tokens();
     let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
-        cmds = cmds.push(chip_btn("Add note".into(), msg, tea));
+        cmds = cmds.push(note_chip("Add note".into(), msg, tea));
     }
     if let Some(msg) = jump {
         cmds = cmds.push(jump_control(msg, tok.muted, tea));
@@ -2419,7 +2471,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     col = col.push(
         row![
             icedtea::widget::meta(notes_label, tea, A11y::new("Notes count", Role::Status)),
-            chip_btn(
+            note_chip(
                 "Add note".into(),
                 Message::StartNote {
                     turn: String::new(),
@@ -3713,8 +3765,8 @@ mod tests {
         assert!(prod.contains("fn browse_session_bar"));
         assert!(prod.contains("Message::SessionsHome"));
         assert!(prod.contains("fn status_chip"));
-        assert!(prod.contains("widget::badge"));
-        assert!(prod.contains("BadgeSize::Small"));
+        assert!(prod.contains("fn paint_badge"));
+        assert!(prod.contains("chip_face"));
         assert!(prod.contains("fn session_state_row"));
         assert!(prod.contains("muted_meta(meta, tea)"));
         assert!(prod.contains("fn inset_search"));

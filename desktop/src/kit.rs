@@ -18,8 +18,12 @@ use crate::model::{OverviewSection, Tab};
 pub const LABEL_GUTTER: f32 = icedtea::layout::FORM_LABEL;
 
 /// Determinate context / fill bar — icedtea [`widget::progress`].
-pub fn context_progress<'a>(frac: f32, tea: Tokens) -> Element<'a, Message> {
-    let label = widget::progress_label(frac, None, tea.clock_digits);
+pub fn context_progress<'a>(frac: f32, copy: &str, tea: Tokens) -> Element<'a, Message> {
+    let label = if copy.is_empty() {
+        widget::progress_label(frac, None, tea.clock_digits)
+    } else {
+        tea.clock_digits.map_str(copy)
+    };
     widget::progress(
         frac.clamp(0.0, 1.0),
         None,
@@ -105,6 +109,7 @@ pub fn labeled_value<'a>(
     content: &'a iced::widget::text_editor::Content,
     on_action: impl Fn(iced::widget::text_editor::Action) -> Message + 'a,
     face: FontFace,
+    open: Option<icedtea::action::Action<Message>>,
     tea: Tokens,
     a11y: A11y,
 ) -> Element<'a, Message> {
@@ -112,7 +117,7 @@ pub fn labeled_value<'a>(
         title,
         content,
         on_action,
-        None,
+        open.as_ref(),
         face,
         LABEL_GUTTER,
         tea,
@@ -186,9 +191,9 @@ mod tests {
     #[test]
     fn context_progress_builds() {
         let tea = icedtea::theme::named("dark").tokens;
-        let _ = context_progress(0.42, tea);
-        let _ = context_progress(0.0, tea);
-        let _ = context_progress(1.0, tea);
+        let _ = context_progress(0.42, "Context 42%", tea);
+        let _ = context_progress(0.0, "", tea);
+        let _ = context_progress(1.0, "Context 100% · 1k / 1k", tea);
     }
 
     #[test]

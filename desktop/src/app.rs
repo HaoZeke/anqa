@@ -183,6 +183,8 @@ pub enum Message {
     Summon(crate::summon::SummonRequest),
     ActivationApplied(bool),
     MdLink(String),
+    /// Open a folder or https URL with the host handler.
+    OpenExternal(String),
     ListScroll(icedtea::collection::VisibleWindow),
     TimelineScroll(icedtea::collection::VisibleWindow),
     TurnScroll(icedtea::collection::VisibleWindow),
@@ -2018,6 +2020,7 @@ impl Hud {
                 self.status_err = false;
                 Task::none()
             }
+            Message::OpenExternal(target) => open_host_target(target),
         }
     }
 
@@ -6394,6 +6397,22 @@ impl Hud {
             Tab::Diff => Task::none(),
         }
     }
+}
+
+fn open_host_target(target: String) -> Task<Message> {
+    Task::perform(
+        async move {
+            let cmd = if cfg!(target_os = "macos") {
+                "open"
+            } else if cfg!(target_os = "windows") {
+                "explorer"
+            } else {
+                "xdg-open"
+            };
+            let _ = std::process::Command::new(cmd).arg(target).spawn();
+        },
+        |()| Message::Noop,
+    )
 }
 
 fn fetch_list(quiet: bool, since: i64) -> Task<Message> {
