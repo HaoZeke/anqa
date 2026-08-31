@@ -6,13 +6,12 @@
   Enter           Open or activate
   Esc             Back or close
   ?               This panel
-  Ctrl+P          Command palette (apply, save, or delete a named search)
+  Ctrl+P          Command palette for this screen
   F5              Refresh (also Ctrl+R)
   q               Quit when no field is focused
 
 [bold]Sessions[/bold]
   /               Search (Tab completes the last token)
-  Ctrl+P          Apply, save, or delete a named search
   s               Select (also Space)
   S               Select all
   E               Export a session bundle
@@ -26,7 +25,6 @@
   h / l / Left / Right    Previous / next turn on the Timeline
   j / k           Previous / next Timeline event, or previous / next note
   v               Filter (Subagents, Background, Workflows)
-  Ctrl+P          Apply, save, or delete a named Timeline search
   Enter           Open a Timeline event or child; edit the focused note
   Raw             Switch: this event as JSON
   N               New note

@@ -41,7 +41,6 @@ def check_readmes() -> None:
         EXAMPLES / "keys" / "README.md",
         EXAMPLES / "config" / "README.md",
         EXAMPLES / "themes" / "README.md",
-        EXAMPLES / "filters" / "README.md",
     ]
     for path in required:
         if not path.is_file() or path.stat().st_size < 40:
@@ -109,22 +108,6 @@ def check_user_theme() -> None:
     _ok(f"{_repo_rel(folder)}  ({', '.join(sorted(names))})")
 
 
-def check_filters() -> None:
-    """Validate examples/filters/filters.toml loads with one row per scope."""
-    from anqa.filters import load_filters
-
-    path = EXAMPLES / "filters" / "filters.toml"
-    if not path.is_file():
-        _err(path, "missing filters example")
-    rows = load_filters(path)
-    if not rows:
-        _err(path, "no saved filters")
-    scopes = {row.scope for row in rows}
-    if not {"catalog", "timeline", "turns"} <= scopes:
-        _err(path, f"expected catalog, timeline, and turns examples, got {sorted(scopes)}")
-    _ok(f"{_repo_rel(path)}  filters={len(rows)}")
-
-
 def check_notes_schema() -> None:
     """Validate examples/notes schema example loads with non-empty fields."""
     from anqa.notes import load_schema
@@ -148,7 +131,6 @@ def main() -> int:
     try:
         check_readmes()
         check_notes_schema()
-        check_filters()
         check_keys_overlay()
         check_app_config()
         check_user_theme()

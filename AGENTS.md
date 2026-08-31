@@ -208,7 +208,7 @@ catalog discovery for control outside ``session/catalog`` +
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``filters.toml``, ``hud.log``, reports, notes, keys, imports |
+| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes, keys, imports |
 | **Catalog** | each enabled adapter store | listed sessions (``[catalog.roots]`` can override a path) |
 | **Import store** | ``~/.anqa/imports/<harness>/`` | Sessions opened from an archive or anqa export |
 

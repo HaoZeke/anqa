@@ -505,32 +505,6 @@ pub fn notes_delete(
     )
 }
 
-pub fn filters_list(scope: Option<&str>) -> Result<Value, ControlError> {
-    let mut params = json!({});
-    if let Some(scope) = scope.filter(|s| !s.is_empty()) {
-        params["scope"] = json!(scope);
-    }
-    request("filters/list", params)
-}
-
-pub fn filters_upsert(name: &str, scope: &str, query: &str) -> Result<Value, ControlError> {
-    request(
-        "filters/upsert",
-        json!({ "name": name, "scope": scope, "query": query }),
-    )
-}
-
-pub fn filters_remove(name: &str, scope: &str) -> Result<Value, ControlError> {
-    request("filters/remove", json!({ "name": name, "scope": scope }))
-}
-
-pub fn filters_expand(query: &str, answers: &Value) -> Result<Value, ControlError> {
-    request(
-        "filters/expand",
-        json!({ "query": query, "answers": answers }),
-    )
-}
-
 /// Spawn a background thread that holds a persistent control socket and
 /// forwards JSON-RPC notifications to *on_notify*.
 ///

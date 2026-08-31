@@ -8,7 +8,6 @@ pub mod brand;
 pub mod control;
 pub mod desktop;
 pub mod diff_tree;
-pub mod filters;
 pub mod format;
 pub mod fuzzy;
 pub mod help;

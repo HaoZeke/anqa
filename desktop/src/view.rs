@@ -9,7 +9,6 @@ use icedtea::variant::Variant;
 
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
-use crate::filters::{FilterForm, FilterHoleKind};
 use crate::format::{
     body_paint_for, bookend_body_is_chrome, capped_display, context_meter_copy,
     display_message_text, display_tool_output, event_brand_role, event_is_monitor, event_raw_json,
@@ -125,193 +124,6 @@ fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
             icedtea::widget::FieldRun::new(mark.start, mark.end, catalog_query_ink(mark.kind))
         })
         .collect()
-}
-
-fn saved_filter_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let names = hud.saved_filter_names();
-    let selected = hud.filter_pick().map(str::to_string);
-    row![
-        icedtea::widget::meta("Saved", tea, A11y::new("Saved", Role::Header)),
-        icedtea::widget::pick_list(
-            names,
-            selected,
-            Message::FilterPicked,
-            tea,
-            icedtea::widget::ControlSize::Default,
-            A11y::new("Saved", Role::ComboBox),
-        ),
-        icedtea::widget::tooltip_wrap(
-            icedtea::widget::icon_button(
-                Icon::Save,
-                Some(Message::FilterSaveOpen),
-                tea,
-                Variant::Elevated,
-                icedtea::widget::ControlSize::Default,
-                A11y::button("Save search"),
-            ),
-            "Save search",
-            icedtea::widget::TooltipAnchor::Follow,
-            tea,
-            A11y::button("Save search"),
-        ),
-        icedtea::widget::tooltip_wrap(
-            icedtea::widget::icon_button(
-                Icon::Delete,
-                Some(Message::FilterDelete),
-                tea,
-                Variant::Elevated,
-                icedtea::widget::ControlSize::Default,
-                A11y::button("Delete saved filter"),
-            ),
-            "Delete saved filter",
-            icedtea::widget::TooltipAnchor::Follow,
-            tea,
-            A11y::button("Delete saved filter"),
-        ),
-    ]
-    .spacing(tea.density.gap())
-    .align_y(Alignment::Center)
-    .into()
-}
-
-fn filter_form_panel<'a>(
-    hud: &'a Hud,
-    tea: icedtea::theme::Tokens,
-    scope: &str,
-) -> Element<'a, Message> {
-    if hud.filter_scope() != Some(scope) {
-        return Space::new().height(0).into();
-    }
-    match hud.filter_form() {
-        FilterForm::Closed => Space::new().height(0).into(),
-        FilterForm::Save => {
-            let body = column![
-                icedtea::widget::text_input(
-                    "Name",
-                    hud.filter_save_name(),
-                    Message::FilterSaveName,
-                    Some(Message::FilterSaveCommit),
-                    icedtea::widget::FieldOpts::NONE,
-                    tea,
-                    A11y::new("Filter name", Role::TextBox),
-                    None,
-                ),
-                row![
-                    icedtea::widget::button(
-                        "Save",
-                        Some(Message::FilterSaveCommit),
-                        tea,
-                        Variant::Primary,
-                        icedtea::icon::Icons::NONE,
-                        icedtea::widget::ButtonOpts::SHRINK,
-                        A11y::button("Save"),
-                    ),
-                    icedtea::widget::button(
-                        "Cancel",
-                        Some(Message::FilterFormCancel),
-                        tea,
-                        Variant::Quiet,
-                        icedtea::icon::Icons::NONE,
-                        icedtea::widget::ButtonOpts::SHRINK,
-                        A11y::button("Cancel"),
-                    ),
-                ]
-                .spacing(tea.density.gap()),
-            ]
-            .spacing(tea.density.gap());
-            icedtea::widget::group_box(
-                "Save search",
-                body.into(),
-                tea,
-                icedtea::widget::CardFace::Outlined,
-                A11y::new("Save search", Role::Group),
-                None,
-            )
-        }
-        FilterForm::Holes => {
-            let Some(row) = hud.filter_pending() else {
-                return Space::new().height(0).into();
-            };
-            let mut body = column![].spacing(tea.density.gap());
-            for hole in &row.holes {
-                let field = hole.field.clone();
-                body = body.push(icedtea::widget::meta(
-                    hole.field.clone(),
-                    tea,
-                    A11y::new(hole.field.clone(), Role::Header),
-                ));
-                if hole.kind == FilterHoleKind::Choice {
-                    let selected = {
-                        let cur = hud.filter_answer(&hole.field);
-                        if cur.is_empty() {
-                            hole.choices.first().cloned()
-                        } else {
-                            Some(cur.to_string())
-                        }
-                    };
-                    body = body.push(icedtea::widget::pick_list(
-                        hole.choices.clone(),
-                        selected,
-                        move |value| Message::FilterHoleAnswer {
-                            field: field.clone(),
-                            value,
-                        },
-                        tea,
-                        icedtea::widget::ControlSize::Default,
-                        A11y::new(hole.field.clone(), Role::ComboBox),
-                    ));
-                } else {
-                    body = body.push(icedtea::widget::text_input(
-                        hole.field.as_str(),
-                        hud.filter_answer(&hole.field),
-                        {
-                            let field = field.clone();
-                            move |value| Message::FilterHoleAnswer {
-                                field: field.clone(),
-                                value,
-                            }
-                        },
-                        Some(Message::FilterHolesCommit),
-                        icedtea::widget::FieldOpts::NONE,
-                        tea,
-                        A11y::new(hole.field.clone(), Role::TextBox),
-                        None,
-                    ));
-                }
-            }
-            body = body.push(
-                row![
-                    icedtea::widget::button(
-                        "Apply",
-                        Some(Message::FilterHolesCommit),
-                        tea,
-                        Variant::Primary,
-                        icedtea::icon::Icons::NONE,
-                        icedtea::widget::ButtonOpts::SHRINK,
-                        A11y::button("Apply"),
-                    ),
-                    icedtea::widget::button(
-                        "Cancel",
-                        Some(Message::FilterFormCancel),
-                        tea,
-                        Variant::Quiet,
-                        icedtea::icon::Icons::NONE,
-                        icedtea::widget::ButtonOpts::SHRINK,
-                        A11y::button("Cancel"),
-                    ),
-                ]
-                .spacing(tea.density.gap()),
-            );
-            icedtea::widget::group_box(
-                "Fill this filter",
-                body.into(),
-                tea,
-                icedtea::widget::CardFace::Outlined,
-                A11y::new("Fill this filter", Role::Group),
-                None,
-            )
-        }
-    }
 }
 
 fn query_hint_line(hints: Vec<String>, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -681,9 +493,6 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     ]
     .spacing(12)
     .align_y(Alignment::Center);
-    if hud.filter_scope() == Some("catalog") {
-        search = search.push(saved_filter_chrome(hud, tea));
-    }
     if !hud.window_mode() {
         search = search.push(pop_out_control(tok, tea));
     }
@@ -691,11 +500,10 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     // Keep this column always so the search field is not remounted when
     // hints appear (that drop of focus eats the next keystrokes).
     let hint: Element<'_, Message> = query_hint_line(hints, tea);
-    let search: Element<'_, Message> =
-        column![search, hint, filter_form_panel(hud, tea, "catalog")]
-            .spacing(tea.density.gap() / 2.0)
-            .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
-            .into();
+    let search: Element<'_, Message> = column![search, hint]
+        .spacing(tea.density.gap() / 2.0)
+        .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
+        .into();
 
     // Spotlight: search → pick → full-width browse. Type again to switch.
     let body: Element<'_, Message> = {
@@ -1190,19 +998,11 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     ))
     .width(Length::Fill);
     let hint = query_hint_line(hud.timeline_query_hints(), tea);
-    let search_row = row![search, saved_filter_chrome(hud, tea)]
+    column![picks, search, hint]
         .spacing(tea.density.gap())
-        .align_y(Alignment::Center);
-    column![
-        picks,
-        search_row,
-        hint,
-        filter_form_panel(hud, tea, "timeline")
-    ]
-    .spacing(tea.density.gap())
-    .width(Length::Fill)
-    .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
-    .into()
+        .width(Length::Fill)
+        .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
+        .into()
 }
 
 fn overview_virtual_body(section: OverviewSection) -> bool {
@@ -2051,10 +1851,7 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
         &catalog_query_runs(hud.turns_query_draft()),
     );
     let hint = query_hint_line(hud.turns_query_hints(), tea);
-    let search_row = row![search, saved_filter_chrome(hud, tea)]
-        .spacing(tea.density.gap())
-        .align_y(Alignment::Center);
-    column![search_row, hint, filter_form_panel(hud, tea, "turns")]
+    column![search, hint]
         .spacing(tea.density.gap() / 2.0)
         .width(Length::Fill)
         .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
@@ -3808,9 +3605,7 @@ mod tests {
             .next()
             .unwrap_or("");
         assert!(
-            filter_src.contains("search_row")
-                && filter_src.contains("saved_filter_chrome")
-                && !filter_src.contains("picks.push(inset_search"),
+            filter_src.contains("column![picks, search, hint]"),
             "search must not share the picks row"
         );
         assert!(
@@ -3938,18 +3733,6 @@ mod tests {
             messages.is_empty(),
             "a 4px wheel must stay in virtual_clip, got {messages:?}"
         );
-    }
-
-    #[test]
-    fn saved_filter_chrome_uses_pick_and_icons() {
-        let src = include_str!("view.rs");
-        let prod = src.split("#[cfg(test)]").next().expect("prod source");
-        assert!(prod.contains("fn saved_filter_chrome"));
-        assert!(prod.contains("fn filter_form_panel"));
-        assert!(prod.contains("Message::FilterPicked"));
-        assert!(prod.contains("Message::FilterSaveOpen"));
-        assert!(prod.contains("Icon::Save"));
-        assert!(prod.contains("Icon::Delete"));
     }
 
     #[test]

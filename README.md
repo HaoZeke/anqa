@@ -261,12 +261,6 @@ it like any other session.
 | `has:subagent OR has:workflow` | Spawned a child or a workflow |
 | `in:~/src/app AND after:yesterday` | This repo, updated since yesterday |
 
-Save the box as a named filter. The terminal command palette applies,
-saves, and deletes. The desktop palette uses the Saved pick next to
-search. `harness:{grok,claude}` is a choice hole; `in:?` is a free-text
-hole. The apps collect answers, then run a normal query. Store is
-`~/.anqa/filters.toml` (copy [`examples/filters/`](examples/filters/)).
-
 Timeline search (same `AND` / `OR` / `NOT`) also takes `is:tool` (or `user`, `assistant`, `error`, `session`, `subagent`, `background`, `workflow`), `has:error`, `tool:read_file`, `turn:2`, `user:hello`, and `duration:>=2` (the Dur column: tool call to result, or time to the next event). Turns search (desktop) takes `has:error`, `has:subagent`, `tools:>=5`, `errors:>=2`, `events:>=20`, and `duration:>1m` (turn wall time). Last-token hints appear under the box. The Filter and Turn dropdowns stay. The Timeline search box is a full-width row under Filter / Turn / Tail.
 
 ## Desktop HUD

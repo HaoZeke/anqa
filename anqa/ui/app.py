@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
@@ -1657,34 +1656,6 @@ class AnqaApp(App):
             self._update_summary_lazy(len(self._meta_only))
         except Exception:
             pass
-
-    def action_apply_saved_filter(self) -> None:
-        """Ctrl+P: run a named search on the current list."""
-        from .filter_modal import apply_named_filter
-
-        scope, _query, apply = self._filter_target()
-        apply_named_filter(self, scope, apply)
-
-    def action_save_filter(self) -> None:
-        """Ctrl+P: keep the current search box as a named filter."""
-        from .filter_modal import save_named_filter
-
-        scope, query, _apply = self._filter_target()
-        save_named_filter(self, scope, query)
-
-    def action_delete_filter(self) -> None:
-        """Ctrl+P: remove a named filter for the current list."""
-        from .filter_modal import delete_named_filter
-
-        scope, _query, _apply = self._filter_target()
-        delete_named_filter(self, scope)
-
-    def _filter_target(self) -> tuple[str, str, Callable[[str], None]]:
-        """Scope, current box text, and apply callback for saved filters."""
-        screen = self.screen
-        if isinstance(screen, BrowserScreen):
-            return "timeline", screen.timeline_search_text(), screen.apply_timeline_search
-        return "catalog", self._session_search, self._set_session_query
 
     def action_search_sessions(self) -> None:
         """Focus the sessions search field (filter as you type, same as Timeline)."""

@@ -70,10 +70,6 @@ The owner accepts either and replies in the same frame the client used.
 | `notes/list` | Notes snapshot (`revision`, schema, notes) |
 | `notes/upsert` | Write a note (`expectedRevision`) |
 | `notes/delete` | Delete a note (`expectedRevision`) |
-| `filters/list` | Saved search filters (`name`, `scope`, `query`, `holes`) |
-| `filters/upsert` | Insert or replace a saved filter by name and scope |
-| `filters/remove` | Delete a saved filter by name and scope |
-| `filters/expand` | Fill `field:{a,b}` and `field:?` holes |
 
 ### `session/list`
 

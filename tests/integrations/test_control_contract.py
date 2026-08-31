@@ -71,10 +71,6 @@ REQUIRED_METHODS = (
     "notes/list",
     "notes/upsert",
     "notes/delete",
-    "filters/list",
-    "filters/upsert",
-    "filters/remove",
-    "filters/expand",
 )
 REQUIRED_NOTIFICATIONS = (
     "session/selected",

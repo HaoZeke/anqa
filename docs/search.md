@@ -49,19 +49,6 @@ Bare words match the turn label and prompt. Space is AND. `AND`, `OR`, and `NOT`
 | errors: tools: events: duration: subagents: | >=  <=  >  <  = |
 | AND  OR  NOT  -  (  ) |  |
 
-## Saved filters
-
-A named filter is a name, a scope (`catalog`, `timeline`, or `turns`),
-and a query in the language above. Store is `~/.anqa/filters.toml`.
-Copy [`examples/filters/`](../examples/filters/).
-
-`field:{a,b,c}` is a choice hole. `field:?` is a free-text hole. The
-terminal command palette and the desktop Saved pick collect answers,
-then run the expanded query.
-
-The terminal app applies, saves, and deletes from Ctrl+P. The desktop
-palette uses the Saved pick next to search, plus Save and Delete.
-
 ## Examples
 
 | Query | Meaning |
