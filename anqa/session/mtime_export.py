@@ -24,6 +24,7 @@ from .subagents import drop_subagent_sessions
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
 # Bump when a cached row is missing fields the list must show (harnessLabel).
 SNAPSHOT_ROW_FORMAT = 2
+_LIVE_LIST_STATUS = frozenset({"running", "in_progress", "pending", "awaiting", "ending"})
 
 
 def _mtime_ns(path: Path) -> int:
@@ -162,6 +163,109 @@ def _resolved_str(session_dir: Path) -> str:
         return str(session_dir)
 
 
+def _row_status_is_live(row: JsonObject) -> bool:
+    return str(row.get("status") or "").strip().lower() in _LIVE_LIST_STATUS
+
+
+def _dir_for_cached_row(row: JsonObject, by_key: dict[str, Path]) -> Path | None:
+    path = str(row.get("path") or "").strip()
+    sid = str(row.get("sessionId") or "").strip()
+    if path in by_key:
+        return by_key[path]
+    if sid in by_key:
+        return by_key[sid]
+    loc = Path(path) if path else None
+    return loc if loc is not None and loc.is_dir() else None
+
+
+def _refresh_live_rows[T](
+    rows: list[JsonObject],
+    *,
+    locate: Callable[[JsonObject], T | None],
+    build_row: Callable[[T], JsonObject | None],
+    dest: Path,
+    root: Path,
+    stamps: list[tuple[str, int, int, int]],
+) -> list[JsonObject]:
+    """Remap stamp-fresh rows whose cached status is still a live label."""
+    out: list[JsonObject] = []
+    changed = False
+    for row in rows:
+        target = locate(row)
+        if target is None or not _row_status_is_live(row):
+            out.append(row)
+            continue
+        fresh = build_row(target)
+        if fresh is None:
+            out.append(row)
+            continue
+        if fresh.get("status") != row.get("status") or fresh.get("outcome") != row.get("outcome"):
+            changed = True
+            out.append(fresh)
+        else:
+            out.append(row)
+    if changed:
+        _write_snapshot(dest, root=root, stamps=stamps, rows=out)
+    return out
+
+
+def _refresh_live_dir_rows(
+    rows: list[JsonObject],
+    *,
+    dirs: Sequence[Path],
+    dest: Path,
+    root: Path,
+    stamps: list[tuple[str, int, int, int]],
+    build_row: Callable[[Path], JsonObject | None],
+) -> list[JsonObject]:
+    by_key: dict[str, Path] = {}
+    for session_dir in dirs:
+        by_key[str(session_dir)] = session_dir
+        by_key[session_dir.name] = session_dir
+        by_key[_resolved_str(session_dir)] = session_dir
+    return _refresh_live_rows(
+        rows,
+        locate=lambda row: _dir_for_cached_row(row, by_key),
+        build_row=build_row,
+        dest=dest,
+        root=root,
+        stamps=stamps,
+    )
+
+
+def _ref_for_cached_row(row: JsonObject, by_key: dict[str, SessionRef]) -> SessionRef | None:
+    path = str(row.get("path") or "").strip()
+    sid = str(row.get("sessionId") or "").strip()
+    if path in by_key:
+        return by_key[path]
+    if sid in by_key:
+        return by_key[sid]
+    return None
+
+
+def _refresh_live_ref_rows(
+    rows: list[JsonObject],
+    *,
+    refs: Sequence[SessionRef],
+    dest: Path,
+    root: Path,
+    stamps: list[tuple[str, int, int, int]],
+    build_row: Callable[[SessionRef], JsonObject | None],
+) -> list[JsonObject]:
+    by_key: dict[str, SessionRef] = {}
+    for ref in refs:
+        by_key[ref.ref_string()] = ref
+        by_key[ref.session_id] = ref
+    return _refresh_live_rows(
+        rows,
+        locate=lambda row: _ref_for_cached_row(row, by_key),
+        build_row=build_row,
+        dest=dest,
+        root=root,
+        stamps=stamps,
+    )
+
+
 def _row_for_dir(
     session_dir: Path,
     *,
@@ -176,7 +280,10 @@ def _row_for_dir(
         if reused is None:
             reused = prev_rows.get(session_dir.name)
         if reused is not None:
-            return reused
+            if not _row_status_is_live(reused):
+                return reused
+            fresh = build_row(session_dir)
+            return fresh if fresh is not None else reused
     return build_row(session_dir)
 
 
@@ -221,7 +328,15 @@ def load_or_rebuild_catalog(
     if cached is not None and not export_is_stale(stamps, dest_path):
         sessions = cached.get("sessions")
         if isinstance(sessions, list):
-            return [as_json_object(row) for row in sessions if isinstance(row, dict)]
+            cached_rows = [as_json_object(row) for row in sessions if isinstance(row, dict)]
+            return _refresh_live_dir_rows(
+                cached_rows,
+                dirs=dirs,
+                dest=dest_path,
+                root=root,
+                stamps=stamps,
+                build_row=build_row,
+            )
     now_by_path = {path: (a, b, c) for path, a, b, c in stamps}
     prev_stamps = _cached_stamp_map(cached)
     prev_rows = _cached_rows_by_path(cached)
@@ -257,7 +372,15 @@ def load_or_rebuild_refs(
     if cached is not None and not export_is_stale(stamps, dest_path):
         sessions = cached.get("sessions")
         if isinstance(sessions, list):
-            return [as_json_object(row) for row in sessions if isinstance(row, dict)]
+            cached_rows = [as_json_object(row) for row in sessions if isinstance(row, dict)]
+            return _refresh_live_ref_rows(
+                cached_rows,
+                refs=refs,
+                dest=dest_path,
+                root=root or dest_path.parent,
+                stamps=stamps,
+                build_row=build_row,
+            )
     now_by_key = {path: (a, b, c) for path, a, b, c in stamps}
     prev_stamps = _cached_stamp_map(cached)
     prev_rows = _cached_rows_by_path(cached)
@@ -273,7 +396,11 @@ def load_or_rebuild_refs(
                 sid = getattr(ref, "session_id", "") or ""
                 reused = prev_rows.get(str(sid))
             if reused is not None:
-                rows.append(reused)
+                if _row_status_is_live(reused):
+                    fresh = build_row(ref)
+                    rows.append(fresh if fresh is not None else reused)
+                else:
+                    rows.append(reused)
                 continue
         row = build_row(ref)
         if row is not None:

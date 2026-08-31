@@ -33,8 +33,10 @@ A shipped adapter does all of this:
 8. **Detail / live stamps** (`load_detail`, `timeline_stamp`,
    `trace_mtime`, `updates_size`, `list_turn_outcome`) so the catalog
    and browser do not import a store parser. List status comes from
-   that store’s own live signals (running vs complete). Never default
-   a new adapter to complete.
+   that store’s own live signals through ``from_last``. ``running``
+   is a store-written live flag (``running``, ``executing``,
+   ``not_fully_idle``, …). A last user row or turn bookend is idle.
+   Never default a new adapter to complete.
 9. **Scheduler blocks** (`scheduler_state`, `reported_completion_ids`)
    when the store has durable schedules.
 

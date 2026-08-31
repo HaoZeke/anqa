@@ -1834,7 +1834,7 @@ def test_parse_timeline_prepends_system_prompt(tmp_path: Path) -> None:
 
 
 def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
-    """Extra turn_started after turn_ended → running the next turn (not awaiting)."""
+    """A later events.jsonl turn_started after a close is a bookend, not running."""
     sd = tmp_path / "open-turn"
     sd.mkdir()
     (sd / "summary.json").write_text("{}", encoding="utf-8")
@@ -1850,7 +1850,7 @@ def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
         encoding="utf-8",
     )
     meta = load_session_meta(sd)
-    assert meta.list_status_label() == "complete"
+    assert meta.list_status_label() == "—"
     assert meta.turn_in_progress is False
 
 
@@ -2918,7 +2918,7 @@ def test_list_turn_outcome_completed_not_running_when_fresh(tmp_path: Path) -> N
     )
     meta = load_session_meta(sess, include_timeline_count=False)
     assert meta.turn_outcome == "completed"
-    assert list_turn_outcome_for_dir(sess) == ""
+    assert list_turn_outcome_for_dir(sess) == "completed"
     assert meta.list_status_label() == "complete"
 
 
@@ -3582,7 +3582,7 @@ def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
 
 
 def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> None:
-    """Catalog status is running when a later turn_started has no turn_ended."""
+    """A later events.jsonl turn_started after a close is idle on list and detail."""
     from anqa.harness.grok_parse import load_session_meta, load_session_meta_list
 
     sd = tmp_path / "host-next"
@@ -3604,7 +3604,7 @@ def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> N
     )
     listed = load_session_meta_list(sd)
     full = load_session_meta(sd, include_timeline_count=False)
-    assert listed.list_status_label() == "complete"
+    assert listed.list_status_label() == "—"
     assert listed.list_status_label() == full.list_status_label()
 
 
@@ -3714,7 +3714,7 @@ def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> No
     )
     listed = load_session_meta_list(sd)
     assert listed.list_status_label() == "complete"
-    assert list_turn_outcome_for_dir(sd) == ""
+    assert list_turn_outcome_for_dir(sd) == "completed"
 
 
 def test_load_session_meta_list_reads_events_jsonl_once(

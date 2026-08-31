@@ -15,6 +15,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_DB = (
     Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "opencode" / "opencode.db"
 )
@@ -69,10 +71,41 @@ def test_load_meta_and_timeline() -> None:
 
 def test_running_session_is_not_complete() -> None:
     _install_store()
-    live = Path("opencode:ses_running")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+    assert_adapter_turn(Path("opencode:ses_probe"), "complete")
+    assert_adapter_turn(Path("opencode:ses_running"), "running")
+
+
+def _insert_session(db: Path, sid: str, messages: list[str]) -> None:
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "INSERT INTO session (id, title, time_created, time_updated) VALUES (?, ?, 1, 2)",
+            (sid, sid),
+        )
+        for i, data in enumerate(messages):
+            con.execute(
+                "INSERT INTO message (id, session_id, time_created, time_updated, data) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"{sid}-m{i}", sid, i + 1, i + 1, data),
+            )
+        con.commit()
+    finally:
+        con.close()
+
+
+def test_list_status_last_user_and_later_open_after_close() -> None:
+    db = _install_store()
+    _insert_session(db, "ses_user", ['{"role":"user","time":{"created":1}}'])
+    _insert_session(
+        db,
+        "ses_later",
+        [
+            '{"role":"assistant","finish":"stop","time":{"created":1,"completed":2}}',
+            '{"role":"user","time":{"created":3}}',
+        ],
+    )
+    assert_adapter_turn(Path("opencode:ses_user"), "—")
+    assert_adapter_turn(Path("opencode:ses_later"), "—")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

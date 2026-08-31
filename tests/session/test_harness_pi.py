@@ -13,6 +13,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "pi" / "sessions"
 _SID = "019fe000-0000-7000-8000-000000000001"
 _RUNNING_SID = "019fe000-0000-7000-8000-000000000002"
@@ -52,15 +54,41 @@ def test_catalog_lists_pi_sessions() -> None:
     assert by_id[_SID]["harness"] == PI_HARNESS_ID
     assert by_id[_SID]["path"] == f"pi:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "running"
+    assert by_id[_RUNNING_SID]["status"] == "—"
 
 
-def test_running_session_is_not_complete() -> None:
+def test_last_open_turn_is_idle() -> None:
     _install_store()
-    live = Path(f"pi:{_RUNNING_SID}")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+    assert_adapter_turn(Path(f"pi:{_RUNNING_SID}"), "—")
+
+
+def test_list_status_close_bookend_and_later_user(tmp_path: Path) -> None:
+    def _write(name: str, body: str) -> Path:
+        path = tmp_path / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    header = '{"type":"session","version":3,"id":"pi-x","timestamp":"2026-08-09T12:00:00.000Z"}\n'
+    closed = _write(
+        "closed.jsonl",
+        header
+        + '{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],'
+        '"stopReason":"stop"}}\n',
+    )
+    bookend = _write(
+        "bookend.jsonl",
+        header
+        + '{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}\n',
+    )
+    later = _write(
+        "later.jsonl",
+        header
+        + '{"type":"message","message":{"role":"assistant","stopReason":"stop"}}\n'
+        + '{"type":"message","message":{"role":"user","content":[{"type":"text","text":"again"}]}}\n',
+    )
+    assert_adapter_turn(closed, "complete")
+    assert_adapter_turn(bookend, "—")
+    assert_adapter_turn(later, "—")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

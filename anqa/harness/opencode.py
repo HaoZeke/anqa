@@ -122,27 +122,25 @@ def _meta_from_row(row: sqlite3.Row, db: Path) -> SessionMeta:
     )
 
 
-def _part_is_running(con: sqlite3.Connection, session_id: str) -> bool:
+def _part_live_token(con: sqlite3.Connection, session_id: str) -> str:
     last_part = con.execute(
         "SELECT data FROM part WHERE session_id = ? ORDER BY time_created DESC, id DESC LIMIT 1",
         (session_id,),
     ).fetchone()
     if last_part is None:
-        return False
+        return ""
     pdata = json_mapping(last_part["data"])
-    if str(pdata.get("type") or "") == "step-start":
-        return True
-    status = str(json_mapping(pdata.get("state")).get("status") or "").strip().lower()
-    return status in {"running", "pending", "in_progress", "executing"}
+    return from_last(str(json_mapping(pdata.get("state")).get("status") or "").strip())
 
 
 def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) -> str:
-    """List status from the last message/part. Archived or finished assistant is complete."""
+    """List status from the last store-written part status or finished assistant."""
     archived = row["time_archived"] if "time_archived" in row.keys() else None
     if archived not in (None, 0, ""):
         return from_last("complete")
-    if _part_is_running(con, session_id):
-        return from_last("in_progress")
+    live = _part_live_token(con, session_id)
+    if live:
+        return live
     last_msg = con.execute(
         "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC, id DESC LIMIT 1",
         (session_id,),
@@ -151,9 +149,11 @@ def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) ->
         return ""
     data = json_mapping(last_msg["data"])
     role = str(data.get("role") or "")
-    if role == "assistant" and json_mapping(data.get("time")).get("completed") in (None, 0, ""):
-        return from_last("in_progress")
-    if role == "assistant":
+    if role == "assistant" and json_mapping(data.get("time")).get("completed") not in (
+        None,
+        0,
+        "",
+    ):
         return from_last("complete")
     return from_last(role)
 

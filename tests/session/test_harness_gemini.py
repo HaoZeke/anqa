@@ -13,6 +13,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "gemini" / "tmp"
 _SID = "aaaaaaaa-1111-4111-8111-000000000001"
 _RUNNING_SID = "bbbbbbbb-2222-4222-8222-000000000002"
@@ -75,10 +77,45 @@ def test_session_context_only_is_not_a_list_row() -> None:
 
 def test_running_session_is_not_complete() -> None:
     _install_store()
-    live = Path(f"gemini:{_RUNNING_SID}")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+    assert_adapter_turn(Path(f"gemini:{_RUNNING_SID}"), "running")
+
+
+def test_list_status_close_bookend_live_and_later_user(tmp_path: Path) -> None:
+    def _conv(sid: str, messages: str) -> Path:
+        path = tmp_path / f"session-2026-08-09T12-00-{sid}.jsonl"
+        path.write_text(
+            '{"sessionId":"'
+            + sid
+            + '","projectHash":"abc","kind":"main","startTime":"2026-08-09T12:00:00.000Z"}\n'
+            '{"$set":{"messages":[' + messages + "]}}\n",
+            encoding="utf-8",
+        )
+        return path
+
+    closed = _conv(
+        "aaaaaaaa-1111-4111-8111-0000000000c1",
+        '{"id":"u1","type":"user","content":[{"text":"hi"}]},'
+        '{"id":"g1","type":"gemini","content":[{"text":"ok"}]}',
+    )
+    bookend = _conv(
+        "aaaaaaaa-1111-4111-8111-0000000000c2",
+        '{"id":"u1","type":"user","content":[{"text":"hi"}]}',
+    )
+    live = _conv(
+        "aaaaaaaa-1111-4111-8111-0000000000c3",
+        '{"id":"u1","type":"user","content":[{"text":"hi"}]},'
+        '{"id":"g1","type":"gemini","content":[{"text":"work"}],'
+        '"toolCalls":[{"status":"executing"}]}',
+    )
+    later = _conv(
+        "aaaaaaaa-1111-4111-8111-0000000000c4",
+        '{"id":"g1","type":"gemini","content":[{"text":"ok"}]},'
+        '{"id":"u2","type":"user","content":[{"text":"again"}]}',
+    )
+    assert_adapter_turn(closed, "complete")
+    assert_adapter_turn(bookend, "—")
+    assert_adapter_turn(live, "running")
+    assert_adapter_turn(later, "—")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

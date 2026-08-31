@@ -1880,11 +1880,10 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
     """Host home-list meta from summary, signals, and the updates tail.
 
     Reads ``summary.json``, ``signals.json``, and the 64 KiB
-    ``updates.jsonl`` tail for live status. List status is the last
-    turn-class store signal. When the tail has no close, a marker pass
-    on ``events.jsonl`` fills the same turn status Summary uses. Does
-    not infer a title from the trace. Opening a session still uses
-    :func:`load_session_meta`.
+    ``updates.jsonl`` tail. List status is the last store-written
+    close or live flag. A marker pass on ``events.jsonl`` fills a
+    close when the tail has none. Does not infer a title from the
+    trace. Opening a session still uses :func:`load_session_meta`.
     """
     meta = SessionMeta(
         session_id=session_dir.name,
@@ -2007,8 +2006,19 @@ _UPDATES_TAIL_BYTES = 64 * 1024
 
 
 _LIST_TURN_UPDATES = frozenset(
-    {"turn_completed", "session_recap", "turn_ended", "turn_started", "user_message_chunk"}
+    {
+        "turn_completed",
+        "session_recap",
+        "turn_ended",
+        "turn_started",
+        "user_message_chunk",
+        "agent_message_chunk",
+        "tool_call",
+        "tool_call_update",
+        "plan",
+    }
 )
+_OPEN_TURN_UPDATES = frozenset({"agent_message_chunk", "tool_call", "tool_call_update", "plan"})
 
 
 def _last_turn_update(session_dir: Path) -> str:
@@ -2020,26 +2030,59 @@ def _last_turn_update(session_dir: Path) -> str:
     return last
 
 
-def _turn_outcome_from_updates(last: str) -> str:
-    """List outcome for the last turn-class updates.jsonl signal, or empty."""
-    mapped = from_last(last)
-    if mapped == "complete":
-        return "completed"
-    return mapped
+def _outcome_from_update_types(types: list[str]) -> tuple[str, bool]:
+    """Fold the updates tail: a close wins until a later user/turn opens work."""
+    status = ""
+    opened = False
+    reopened = False
+    for etype in types:
+        if etype not in _LIST_TURN_UPDATES:
+            continue
+        if from_last(etype) == "complete":
+            status = "completed"
+            opened = False
+        elif etype in {"user_message_chunk", "turn_started"}:
+            reopened = opened or status == "completed"
+            status = ""
+            opened = True
+        elif etype in _OPEN_TURN_UPDATES and (opened or status != "completed"):
+            status = "running"
+    return status, reopened
+
+
+def _turn_outcome_from_updates(session_dir: Path) -> tuple[str, bool]:
+    """List outcome from the ``updates.jsonl`` tail, and whether a close reopened."""
+    return _outcome_from_update_types(_updates_tail_types(session_dir))
 
 
 def _apply_list_turn_outcome(meta: SessionMeta, session_dir: Path) -> None:
     """Set list ``turn_outcome`` from the last store turn signal."""
-    from_updates = _turn_outcome_from_updates(_last_turn_update(session_dir))
-    if from_updates:
+    from_updates, reopened = _turn_outcome_from_updates(session_dir)
+    last = _last_turn_update(session_dir)
+    if from_updates == "completed":
         meta.turn_outcome = from_updates
         return
-    outcome, loop_count, _open_after = _list_runtime_status(session_dir)
+    if from_updates == "running":
+        if reopened:
+            meta.turn_outcome = from_updates
+            return
+        outcome, loop_count, has_open = _list_runtime_status(session_dir)
+        if loop_count:
+            meta.loop_count = loop_count
+        if not has_open and outcome:
+            meta.turn_outcome = outcome
+            return
+        meta.turn_outcome = from_updates
+        return
+    if last:
+        return
+    outcome, loop_count, has_open = _list_runtime_status(session_dir)
     if loop_count:
         meta.loop_count = loop_count
+    if has_open:
+        return
     if outcome:
-        mapped = from_last(outcome)
-        meta.turn_outcome = "completed" if mapped == "complete" else (mapped or outcome)
+        meta.turn_outcome = outcome
         return
     if (session_dir / INTERRUPTED_MARKER_FILENAME).is_file():
         meta.turn_outcome = "interrupted"
@@ -2127,23 +2170,10 @@ def load_session_meta(
     _load_summary(meta, session_dir)
     _load_signals(meta, session_dir)
 
-    # events.jsonl — turn/loop outcome (harness-level; not in updates.jsonl)
-    _markers, turn_outcome, loop_count = parse_runtime_markers(session_dir)
-    if turn_outcome:
-        meta.turn_outcome = turn_outcome
+    _markers, _runtime_outcome, loop_count = parse_runtime_markers(session_dir)
     if loop_count:
         meta.loop_count = loop_count
-
-    # Incomplete / in-progress: no turn_ended yet (live jobs vs killed runs)
-    if not meta.turn_outcome:
-        last = _last_turn_update(session_dir)
-        from_updates = _turn_outcome_from_updates(last)
-        if from_updates:
-            meta.turn_outcome = from_updates
-        else:
-            inferred = _infer_incomplete_turn_outcome(session_dir)
-            if inferred:
-                meta.turn_outcome = inferred
+    _apply_list_turn_outcome(meta, session_dir)
 
     if meta.turn_failed and not meta.error_count:
         # Surface harness failure even when signals.json tool errors are zero
@@ -2169,20 +2199,10 @@ def load_session_meta(
 
 
 def list_turn_outcome_for_dir(session_dir: Path) -> str:
-    """Live-only turn status for the sessions list poll.
-
-    Returns ``running`` / ``""``. Does
-    **not** return ``interrupted`` — that inference is for full
-    :func:`load_session_meta` only (overwriting finished sessions with
-    interrupted made the list show "cancelled" for old successful runs).
-    """
-    sd = Path(session_dir)
-    mapped = _turn_outcome_from_updates(_last_turn_update(sd))
-    if mapped == "completed":
-        return ""
-    if mapped == "running":
-        return "running"
-    return ""
+    """Same list ``turn_outcome`` as :func:`load_session_meta_list`."""
+    meta = SessionMeta(session_id=Path(session_dir).name, session_dir=Path(session_dir))
+    _apply_list_turn_outcome(meta, Path(session_dir))
+    return (meta.turn_outcome or "").strip()
 
 
 def _find_container_for_session(

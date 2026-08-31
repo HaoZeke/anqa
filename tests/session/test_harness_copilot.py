@@ -13,6 +13,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "copilot"
 _SID = "aaaaaaaa-1111-4111-8111-000000000001"
 _RUNNING_SID = "bbbbbbbb-2222-4222-8222-000000000002"
@@ -56,15 +58,20 @@ def test_catalog_lists_copilot_sessions() -> None:
     assert by_id[_SID]["harness"] == COPILOT_HARNESS_ID
     assert by_id[_SID]["path"] == f"copilot:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "running"
+    assert by_id[_RUNNING_SID]["status"] == "—"
 
 
-def test_running_session_is_not_complete() -> None:
-    _install_store()
-    live = Path(f"copilot:{_RUNNING_SID}")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+def test_last_open_turn_is_idle() -> None:
+    dest = _install_store()
+    assert_adapter_turn(Path(f"copilot:{_SID}"), "complete")
+    assert_adapter_turn(Path(f"copilot:{_RUNNING_SID}"), "—")
+    events = dest.parent / "session-state" / _SID / "events.jsonl"
+    events.write_text(
+        events.read_text(encoding="utf-8")
+        + '{"type":"assistant.turn_start","id":"later","timestamp":"2026-08-30T12:10:00.000Z"}\n',
+        encoding="utf-8",
+    )
+    assert_adapter_turn(Path(f"copilot:{_SID}"), "—")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

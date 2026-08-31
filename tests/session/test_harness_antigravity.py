@@ -13,6 +13,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_ROOT = (
     Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "antigravity" / "antigravity-cli"
 )
@@ -67,10 +69,32 @@ def test_discover_and_meta() -> None:
 
 def test_running_session_is_not_complete() -> None:
     _install_store()
-    live = Path(f"antigravity:{_RUNNING_SID}")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+    assert_adapter_turn(Path(f"antigravity:{_SID}"), "complete")
+    assert_adapter_turn(Path(f"antigravity:{_RUNNING_SID}"), "running")
+
+
+def _add_transcript(root: Path, sid: str, lines: str) -> None:
+    shutil.copy2(root / "conversations" / f"{_SID}.db", root / "conversations" / f"{sid}.db")
+    dest = root / "brain" / sid / ".system_generated" / "logs"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "transcript.jsonl").write_text(lines, encoding="utf-8")
+
+
+def test_list_status_last_user_and_later_open_after_close() -> None:
+    root = _install_store().parent.parent
+    _add_transcript(
+        root,
+        "dddddddd-4444-4444-8444-000000000004",
+        '{"type":"USER_INPUT","content":"hi"}\n',
+    )
+    _add_transcript(
+        root,
+        "eeeeeeee-5555-4555-8555-000000000005",
+        '{"type":"USER_INPUT","status":"DONE","content":"hi"}\n'
+        '{"type":"USER_INPUT","content":"again"}\n',
+    )
+    assert_adapter_turn(Path("antigravity:dddddddd-4444-4444-8444-000000000004"), "—")
+    assert_adapter_turn(Path("antigravity:eeeeeeee-5555-4555-8555-000000000005"), "—")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

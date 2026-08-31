@@ -42,12 +42,9 @@ _RUNNING = frozenset(
         "in_progress",
         "pending",
         "active",
-        "task_started",
-        "assistant.turn_start",
-        "tool.execution_start",
-        "subagent.started",
-        "tool_use",
-        "tooluse",
+        "executing",
+        "awaiting_approval",
+        "scheduled",
         "not_fully_idle",
     }
 )
@@ -56,8 +53,9 @@ _RUNNING = frozenset(
 def from_last(token: str) -> str:
     """Map one last store signal to ``running``, ``complete``, ``cancelled``, or ``""``.
 
-    Content rows (a user message, a bare assistant blob) are not a status.
-    Lifecycle closes and explicit in-progress flags are.
+    Content rows and turn bookends (a user message, a bare assistant
+    blob, ``task_started``, ``tool_use``) are not a status. Lifecycle
+    closes and store-written live flags are.
 
     :param token: Store-specific last signal, already chosen by the adapter.
     :returns: List ``turn_outcome`` fragment.

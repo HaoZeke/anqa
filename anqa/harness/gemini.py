@@ -257,9 +257,9 @@ def _turn_outcome(messages: Sequence[JsonObject]) -> str:
         for item in tools:
             if not isinstance(item, dict):
                 continue
-            status = str(item.get("status") or "").strip().lower()
-            if status in _PENDING_TOOL or not status:
-                return from_last("in_progress")
+            mapped = from_last(str(item.get("status") or "").strip())
+            if mapped == "running":
+                return mapped
     return from_last("complete")
 
 

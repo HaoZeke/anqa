@@ -138,8 +138,6 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     if kind == "turn_ended":
         mapped = from_last(status)
         return mapped or "complete"
-    if status == "assistant":
-        return from_last("in_progress")
     return from_last(status)
 
 

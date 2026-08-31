@@ -241,10 +241,7 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     msg = json_mapping(last.get("message"))
     if typ == "user":
         return from_last("user")
-    stop = str(msg.get("stop_reason") or "").strip()
-    if stop:
-        return from_last(stop)
-    return from_last("in_progress")
+    return from_last(str(msg.get("stop_reason") or "").strip())
 
 
 def _child_dir(path: Path, session_id: str) -> Path:

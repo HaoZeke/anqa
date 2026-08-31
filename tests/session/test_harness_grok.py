@@ -19,6 +19,8 @@ from anqa.harness.registry import require_adapter
 from anqa.models import SessionMeta, TraceEvent
 from anqa.session.export_bundle import export_session_bundle
 
+from .turn_status import assert_adapter_turn
+
 _MINIMAL = Path(__file__).resolve().parents[1] / "fixtures" / "snapshots" / "minimal_session"
 
 
@@ -123,8 +125,53 @@ def test_list_status_complete_and_running(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (live / "events.jsonl").write_text('{"type":"turn_started"}\n', encoding="utf-8")
-    assert require_adapter(done).load_meta(done).list_status_label() == "complete"
-    assert require_adapter(live).load_meta(live).list_status_label() == "—"
+    assert_adapter_turn(done, "complete")
+    assert_adapter_turn(live, "—")
+
+
+def _session_update(kind: str) -> str:
+    return json.dumps({"params": {"update": {"sessionUpdate": kind}}}) + "\n"
+
+
+def test_list_status_tool_after_complete_is_running(tmp_path: Path) -> None:
+    sd = _write_summary_session(tmp_path, "live-next")
+    (sd / "events.jsonl").write_text(
+        '{"type":"turn_ended","outcome":"completed"}\n',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        _session_update("turn_completed")
+        + _session_update("user_message_chunk")
+        + _session_update("agent_message_chunk")
+        + _session_update("tool_call"),
+        encoding="utf-8",
+    )
+    assert_adapter_turn(sd, "running")
+    detail = require_adapter(sd).load_detail(sd)
+    listed = require_adapter(sd).load_meta(sd)
+    assert detail.list_status_label() == listed.list_status_label() == "running"
+
+
+def test_list_status_events_turn_started_after_close_is_idle(tmp_path: Path) -> None:
+    sd = _write_summary_session(tmp_path, "events-open")
+    (sd / "events.jsonl").write_text(
+        '{"type":"turn_ended","outcome":"completed"}\n{"type":"turn_started"}\n',
+        encoding="utf-8",
+    )
+    assert_adapter_turn(sd, "—")
+
+
+def test_list_status_new_user_after_complete_is_not_complete(tmp_path: Path) -> None:
+    sd = _write_summary_session(tmp_path, "next-user")
+    (sd / "events.jsonl").write_text(
+        '{"type":"turn_ended","outcome":"completed"}\n',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        _session_update("turn_completed") + _session_update("user_message_chunk"),
+        encoding="utf-8",
+    )
+    assert_adapter_turn(sd, "—")
 
 
 def test_watch_hints_include_updates_jsonl() -> None:

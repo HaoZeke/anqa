@@ -13,6 +13,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "codex" / "sessions"
 _SID = "aaaaaaaa-1111-4111-8111-000000000001"
 _RUNNING_SID = "bbbbbbbb-2222-4222-8222-000000000002"
@@ -57,15 +59,34 @@ def test_catalog_lists_codex_sessions() -> None:
     assert by_id[_SID]["harness"] == CODEX_HARNESS_ID
     assert by_id[_SID]["path"] == f"codex:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "running"
+    assert by_id[_RUNNING_SID]["status"] == "—"
 
 
-def test_running_session_is_not_complete() -> None:
+def test_last_open_turn_is_idle() -> None:
     _install_store()
-    live = Path(f"codex:{_RUNNING_SID}")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+    assert_adapter_turn(Path(f"codex:{_RUNNING_SID}"), "—")
+
+
+def test_list_status_close_bookend_and_later_start(tmp_path: Path) -> None:
+    def _ev(typ: str) -> str:
+        return '{"type":"event_msg","payload":{"type":"' + typ + '"}}\n'
+
+    meta = '{"type":"session_meta","payload":{"id":"cx","session_id":"cx"}}\n'
+    closed = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-0000000000c1.jsonl"
+    closed.write_text(meta + _ev("task_started") + _ev("task_complete"), encoding="utf-8")
+    bookend = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-0000000000c2.jsonl"
+    bookend.write_text(meta + _ev("task_started"), encoding="utf-8")
+    later = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-0000000000c3.jsonl"
+    later.write_text(
+        meta + _ev("task_complete") + _ev("task_started"),
+        encoding="utf-8",
+    )
+    aborted = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-0000000000c4.jsonl"
+    aborted.write_text(meta + _ev("turn_aborted"), encoding="utf-8")
+    assert_adapter_turn(closed, "complete")
+    assert_adapter_turn(bookend, "—")
+    assert_adapter_turn(later, "—")
+    assert_adapter_turn(aborted, "cancelled")
 
 
 def test_overview_lists_subagent_runs() -> None:

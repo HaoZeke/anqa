@@ -175,10 +175,7 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
         return from_last(role)
     if role != "assistant":
         return from_last(role)
-    stop = str(msg.get("stopReason") or "").strip()
-    if stop:
-        return from_last(stop)
-    return from_last("in_progress")
+    return from_last(str(msg.get("stopReason") or "").strip())
 
 
 def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> SessionMeta:

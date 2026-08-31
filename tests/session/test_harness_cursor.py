@@ -13,6 +13,8 @@ from anqa.session.catalog import list_session_catalog
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
+from .turn_status import assert_adapter_turn
+
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "harness" / "cursor"
 _SID = "aaaaaaaa-1111-4111-8111-000000000001"
 _RUNNING_SID = "bbbbbbbb-2222-4222-8222-000000000002"
@@ -56,15 +58,40 @@ def test_catalog_lists_cursor_sessions() -> None:
     assert by_id[_SID]["harness"] == CURSOR_HARNESS_ID
     assert by_id[_SID]["path"] == f"cursor:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "running"
+    assert by_id[_RUNNING_SID]["status"] == "—"
 
 
-def test_running_session_is_not_complete() -> None:
+def test_last_open_turn_is_idle() -> None:
     _install_store()
-    live = Path(f"cursor:{_RUNNING_SID}")
-    meta = require_adapter(live).load_meta(live)
-    assert meta.list_status_label() == "running"
-    assert require_adapter(live).list_turn_outcome(live) == "running"
+    assert_adapter_turn(Path(f"cursor:{_RUNNING_SID}"), "—")
+
+
+def test_list_status_close_bookend_and_later_user(tmp_path: Path) -> None:
+    root = tmp_path / "proj" / "agent-transcripts" / "ws"
+    root.mkdir(parents=True)
+
+    def _write(name: str, body: str) -> Path:
+        path = root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    closed = _write(
+        "closed.jsonl",
+        '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n'
+        '{"type":"turn_ended","status":"completed"}\n',
+    )
+    bookend = _write(
+        "bookend.jsonl",
+        '{"role":"user","message":{"content":[{"type":"text","text":"hi"}]}}\n',
+    )
+    later = _write(
+        "later.jsonl",
+        '{"type":"turn_ended","status":"completed"}\n'
+        '{"role":"user","message":{"content":[{"type":"text","text":"again"}]}}\n',
+    )
+    assert_adapter_turn(closed, "complete")
+    assert_adapter_turn(bookend, "—")
+    assert_adapter_turn(later, "—")
 
 
 def test_overview_and_timeline() -> None:
