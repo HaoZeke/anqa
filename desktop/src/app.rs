@@ -977,6 +977,9 @@ impl Hud {
                 if i >= self.sessions().len() {
                     return Task::none();
                 }
+                if self.active == i && !self.browse_mode() {
+                    return self.update(Message::SelectSession(i));
+                }
                 self.set_active(i);
                 self.ensure_active_visible()
             }
@@ -1223,6 +1226,9 @@ impl Hud {
             Message::JumpTimeline(ix) => self.jump_timeline(ix),
             Message::EventsTurnPicked(pick) => self.select_events_turn(pick.turn_index),
             Message::FocusTurn(ti) => {
+                if self.tab == Tab::Turns && self.turns_focus == Some(ti) {
+                    return self.update(Message::SelectTurn(ti));
+                }
                 self.tab = Tab::Turns;
                 self.turns_focus = Some(ti);
                 self.focus_turn(ti);
@@ -1235,6 +1241,12 @@ impl Hud {
                 self.select_events_turn(Some(ti))
             }
             Message::FocusTimeline(ix) => {
+                if self.tab == Tab::Timeline
+                    && self.timeline_focus == Some(ix)
+                    && self.timeline_open.is_none()
+                {
+                    return self.update(Message::SelectTimeline(ix));
+                }
                 self.tab = Tab::Timeline;
                 self.timeline_focus = Some(ix);
                 self.scroll_focus_into_view()
@@ -3082,6 +3094,9 @@ impl Hud {
     fn focus_note_card(&mut self, id: &str) -> Task<Message> {
         if self.composing_note() {
             return Task::none();
+        }
+        if self.notes_focus.as_deref() == Some(id) {
+            return self.update(Message::OpenNote(id.to_string()));
         }
         let ids: Vec<String> = self.notes_sorted().iter().map(|n| n.id.clone()).collect();
         let Some(pos) = ids.iter().position(|x| x == id) else {
@@ -10117,6 +10132,67 @@ mod tests {
         assert_eq!(hud.tab(), Tab::Timeline);
         assert_eq!(hud.events_turn_index, Some(0));
         assert!(hud.timeline_open().is_none());
+    }
+
+    #[test]
+    fn second_click_on_focused_turn_opens_timeline() {
+        let mut hud = two_turn_timeline();
+        hud.tab = Tab::Turns;
+        let _ = hud.update(Message::FocusTurn(2));
+        assert_eq!(hud.tab(), Tab::Turns);
+        assert_eq!(hud.turns_focus(), Some(2));
+        let _ = hud.update(Message::FocusTurn(2));
+        assert_eq!(hud.tab(), Tab::Timeline);
+        assert_eq!(hud.events_turn_index, Some(2));
+        assert!(hud.timeline_open().is_none());
+    }
+
+    #[test]
+    fn second_click_on_focused_timeline_event_opens_detail() {
+        let mut hud = two_turn_timeline();
+        hud.tab = Tab::Timeline;
+        let _ = hud.update(Message::FocusTimeline(5));
+        assert_eq!(hud.timeline_focus(), Some(5));
+        assert!(hud.timeline_open().is_none());
+        let _ = hud.update(Message::FocusTimeline(5));
+        assert_eq!(hud.timeline_open(), Some(5));
+    }
+
+    #[test]
+    fn second_click_on_focused_note_edits() {
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![crate::wire::NoteRow {
+                        id: "n-a".into(),
+                        created_at: "2026-08-22T10:00:00Z".into(),
+                        updated_at: "2026-08-22T10:00:00Z".into(),
+                        fields: serde_json::json!({"summary": "one"}),
+                        ..crate::wire::NoteRow::default()
+                    }],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::FocusNote("n-a".into()));
+        assert_eq!(hud.notes_focus(), Some("n-a"));
+        assert!(!hud.composing_note());
+        let _ = hud.update(Message::FocusNote("n-a".into()));
+        assert!(hud.composing_note());
+        assert_eq!(hud.note_draft().id, "n-a");
+    }
+
+    #[test]
+    fn second_click_on_focused_session_opens() {
+        let mut hud = three_session_picker();
+        let _ = hud.update(Message::FocusSession(1));
+        assert_eq!(hud.selected_sid().as_deref(), Some("s1"));
+        assert!(!hud.browse_mode());
+        let _ = hud.update(Message::FocusSession(1));
+        assert!(hud.browse_mode() || !hud.overview_pending.is_empty() || hud.overview.is_some());
     }
 
     #[test]
