@@ -292,6 +292,8 @@ pub struct Hud {
     catalog_search_gen: u64,
     last_list: Option<LastListReq>,
     all_sessions: Vec<SessionRow>,
+    /// Owner ``matched`` from the last unfiltered ``session/list`` page.
+    catalog_matched: i64,
     sessions: Vec<SessionRow>,
     /// How many idle Recent rows to show (grows on scroll / Down at the tail).
     spotlight_limit: usize,
@@ -478,6 +480,7 @@ impl Default for Hud {
             catalog_search_gen: 0,
             last_list: None,
             all_sessions: vec![],
+            catalog_matched: 0,
             sessions: vec![],
             spotlight_limit: SPOTLIGHT_RECENT,
             active: 0,
@@ -955,6 +958,7 @@ impl Hud {
                 let keep = self.session_keep_id();
                 if self.catalog_query.trim().is_empty() {
                     self.rerank_visible_keeping(keep);
+                    self.set_catalog_idle_status();
                     return Task::none();
                 }
                 self.start_list_search()
@@ -3987,14 +3991,17 @@ impl Hud {
                 return;
             }
             if page.delta {
+                self.remember_catalog_matched(page.matched, false);
                 let incoming = page.sessions.clone();
                 self.all_sessions =
                     patch_catalog_delta(&self.all_sessions, incoming, &page.removed);
                 self.rerank_visible();
                 self.emit_session_notices();
                 self.mark_up();
-                if !quiet {
-                    self.status = format!("{} sessions · ready", self.all_sessions.len());
+                if self.catalog_query.trim().is_empty()
+                    && (!quiet || self.status_is_catalog_count())
+                {
+                    self.set_catalog_idle_status();
                 }
                 return;
             }
@@ -4007,15 +4014,16 @@ impl Hud {
         let incomplete = page.as_ref().is_some_and(|p| p.incomplete || p.building);
         self.catalog_busy = incomplete;
         let delta = page.as_ref().is_some_and(|p| p.delta);
-        if !self.all_sessions.is_empty()
+        let partial = !self.all_sessions.is_empty()
             && is_partial_list_page(
                 incoming.len(),
                 matched,
                 delta,
                 page.as_ref().is_some_and(|p| p.incomplete),
                 page.as_ref().is_some_and(|p| p.building),
-            )
-        {
+            );
+        self.remember_catalog_matched(matched, partial);
+        if partial {
             if incoming.is_empty() {
                 return;
             }
@@ -4023,6 +4031,9 @@ impl Hud {
             self.rerank_visible();
             self.emit_session_notices();
             self.mark_up();
+            if self.catalog_query.trim().is_empty() && (!quiet || self.status_is_catalog_count()) {
+                self.set_catalog_idle_status();
+            }
             return;
         }
         let rows = merge_catalog_rows(&self.all_sessions, incoming);
@@ -4033,19 +4044,45 @@ impl Hud {
         self.rerank_visible();
         self.emit_session_notices();
         self.mark_up();
-        if !quiet {
-            if self.sessions().is_empty() {
-                self.status = if self.catalog_query.trim().is_empty() {
-                    self.status_err = true;
-                    crate::log::error("no sessions from control");
-                    "No sessions from control · is anqa serve running?".into()
-                } else {
-                    format!("No matches for “{}”", self.catalog_query.trim())
-                };
-            } else {
-                self.status = format!("{} sessions · ready", self.all_sessions.len());
-            }
+        if self.catalog_query.trim().is_empty() && (!quiet || self.status_is_catalog_count()) {
+            self.set_catalog_idle_status();
         }
+    }
+
+    fn remember_catalog_matched(&mut self, matched: i64, partial: bool) {
+        if matched > 0 || !partial {
+            self.catalog_matched = matched;
+        }
+    }
+
+    fn catalog_size(&self) -> usize {
+        let loaded = self.all_sessions.len();
+        let matched = usize::try_from(self.catalog_matched.max(0)).unwrap_or(0);
+        loaded.max(matched)
+    }
+
+    fn status_is_catalog_count(&self) -> bool {
+        let s = self.status.as_str();
+        s.ends_with(" sessions · ready")
+            || s.starts_with("No matches")
+            || s.ends_with(" matches")
+            || s.starts_with("ready ·")
+            || s.is_empty()
+    }
+
+    fn set_catalog_idle_status(&mut self) {
+        if !self.catalog_query.trim().is_empty() {
+            return;
+        }
+        let n = self.catalog_size();
+        if n == 0 {
+            self.status_err = true;
+            crate::log::error("no sessions from control");
+            self.status = "No sessions from control · is anqa serve running?".into();
+            return;
+        }
+        self.status_err = false;
+        self.status = format!("{n} sessions · ready");
     }
 
     fn emit_session_notices(&mut self) {
@@ -6480,8 +6517,8 @@ impl Hud {
         self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
         self.catalog_search_pending = false;
         self.catalog_query.clear();
-        if self.status.starts_with("No matches") || self.status.ends_with(" matches") {
-            self.status = format!("{} sessions · ready", self.all_sessions.len());
+        if self.status_is_catalog_count() {
+            self.set_catalog_idle_status();
         }
     }
 
@@ -8870,6 +8907,52 @@ mod tests {
         );
         assert!(hud.selected_sid().is_none());
         assert!(!hud.browse_mode());
+    }
+
+    #[test]
+    fn first_catalog_page_uses_matched_count_in_the_footer() {
+        let mut hud = Hud::default();
+        hud.apply_list(
+            json!({
+                "sessions": [
+                    {"sessionId": "a", "title": "Alpha", "sortEpoch": 2.0},
+                    {"sessionId": "b", "title": "Beta", "sortEpoch": 1.0},
+                ],
+                "matched": 450,
+                "total": 450,
+            }),
+            false,
+        );
+        assert_eq!(hud.status(), "450 sessions · ready");
+    }
+
+    #[test]
+    fn clearing_empty_search_restores_catalog_count() {
+        let mut hud = Hud::default();
+        hud.apply_list(
+            json!({
+                "sessions": [
+                    {"sessionId": "a", "title": "Alpha", "sortEpoch": 2.0},
+                    {"sessionId": "b", "title": "Beta", "sortEpoch": 1.0},
+                ],
+                "matched": 2,
+                "total": 2,
+            }),
+            false,
+        );
+        let _ = hud.update(Message::SearchChanged("zzz-nope".into()));
+        let gen = hud.catalog_search_gen;
+        let _ = hud.update(Message::CatalogSearchApply(gen));
+        let _ = hud.update(Message::ListSearchLoaded {
+            gen,
+            result: Ok(json!({"sessions": [], "matched": 0, "total": 2})),
+        });
+        assert_eq!(hud.status(), "No matches for “zzz-nope”");
+
+        let _ = hud.update(Message::SearchChanged(String::new()));
+        let gen = hud.catalog_search_gen;
+        let _ = hud.update(Message::CatalogSearchApply(gen));
+        assert_eq!(hud.status(), "2 sessions · ready");
     }
 
     #[test]
