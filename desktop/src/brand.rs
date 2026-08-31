@@ -1,6 +1,6 @@
 //! anqa identity for the HUD (window icon, tray, search chrome).
 //!
-//! - **Search chrome** → truck-art mark at 32px (colour / reverse).
+//! - **Search chrome** → 64px-tall mark (colour / on-dark), shown at 36px.
 //! - **Window / tray** → square app icon and favicon tiles from ``brand/png``.
 //! - **Desktop notify** → favicon on Linux (small freedesktop slot);
 //!   square app icon on macOS / Windows (Notification Center / toast face).
@@ -33,9 +33,13 @@ pub const MARK_PNG: &[u8] = include_bytes!("../../brand/png/anqa-mark.png");
 /// Reverse mark (cream bird on ink). Dark chrome knocks the field out.
 pub const MARK_REVERSE_PNG: &[u8] = include_bytes!("../../brand/png/anqa-mark-reverse.png");
 
-/// Mark is 536×445. Search chrome preferred height from brand guidelines.
-pub const MARK_H: f32 = 32.0;
-pub const MARK_W: f32 = MARK_H * 536.0 / 445.0;
+/// 64px-tall chrome rasters (same painting, fewer sparkle pixels).
+pub const MARK_64_PNG: &[u8] = include_bytes!("../../brand/png/anqa-mark-64.png");
+pub const MARK_ON_DARK_64_PNG: &[u8] = include_bytes!("../../brand/png/anqa-mark-on-dark-64.png");
+
+/// Search chrome height. 64px source is 77×64 (same 536∶445 ratio).
+pub const MARK_H: f32 = 36.0;
+pub const MARK_W: f32 = MARK_H * 77.0 / 64.0;
 
 /// Window / Alt-Tab icon (256 square app tile).
 pub fn window_icon() -> Option<iced::window::Icon> {
@@ -95,26 +99,15 @@ pub fn chrome_height() -> Length {
 fn colour_chrome_handle() -> image::Handle {
     static HANDLE: OnceLock<image::Handle> = OnceLock::new();
     HANDLE
-        .get_or_init(|| image::Handle::from_bytes(MARK_PNG))
+        .get_or_init(|| image::Handle::from_bytes(MARK_64_PNG))
         .clone()
 }
 
 fn reverse_chrome_handle() -> image::Handle {
     static HANDLE: OnceLock<image::Handle> = OnceLock::new();
-    HANDLE.get_or_init(knocked_out_reverse).clone()
-}
-
-/// Reverse PNG is cream bird on an ink field. Drop ink so the bird sits
-/// on ``$surface``. Ink is ``#0B0D0C``.
-fn knocked_out_reverse() -> image::Handle {
-    let decoded = icon::from_file_data(MARK_REVERSE_PNG, None).expect("anqa-mark-reverse.png");
-    let (mut rgba, size) = decoded.into_raw();
-    for px in rgba.as_chunks_mut::<4>().0 {
-        if px[0] < 48 && px[1] < 48 && px[2] < 48 {
-            px[3] = 0;
-        }
-    }
-    image::Handle::from_rgba(size.width, size.height, rgba)
+    HANDLE
+        .get_or_init(|| image::Handle::from_bytes(MARK_ON_DARK_64_PNG))
+        .clone()
 }
 
 #[cfg(test)]
@@ -150,33 +143,15 @@ mod tests {
     }
 
     #[test]
-    fn chrome_mark_is_truck_art_bird_at_32px() {
+    fn chrome_mark_uses_64px_raster() {
         assert_eq!(MARK_PNG[1..4], *b"PNG");
         assert_eq!(MARK_REVERSE_PNG[1..4], *b"PNG");
-        assert!((MARK_W - MARK_H * 536.0 / 445.0).abs() < 0.01);
-        assert_eq!(MARK_H, 32.0);
+        assert_eq!(MARK_64_PNG[1..4], *b"PNG");
+        assert_eq!(MARK_ON_DARK_64_PNG[1..4], *b"PNG");
+        assert!((MARK_W - MARK_H * 77.0 / 64.0).abs() < 0.01);
+        assert_eq!(MARK_H, 36.0);
         let _ = (chrome_width(), chrome_height());
-        let h = chrome_handle(true);
-        match h {
-            image::Handle::Rgba {
-                width,
-                height,
-                pixels,
-                ..
-            } => {
-                assert_eq!((width, height), (536, 445));
-                let clear = pixels
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .filter(|p| p[3] == 0)
-                    .count();
-                assert!(
-                    clear * 2 > pixels.len() / 4,
-                    "reverse chrome knocks out ink field"
-                );
-            }
-            _ => panic!("reverse chrome should be decoded RGBA"),
-        }
+        let _ = chrome_handle(true);
+        let _ = chrome_handle(false);
     }
 }

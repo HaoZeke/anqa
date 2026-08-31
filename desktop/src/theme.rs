@@ -27,8 +27,8 @@ impl Default for Look {
         Self {
             density: DensityName::Default,
             font_scale: 1.0,
-            shape: ShapePolicy::Desktop,
-            elevation: ElevationPolicy::Desktop,
+            shape: ShapePolicy::Pill,
+            elevation: ElevationPolicy::Flat,
         }
     }
 }
@@ -776,8 +776,8 @@ mod tests {
         let d = Look::default();
         assert_eq!(d.density_label(), "Default");
         assert_eq!(d.scale_label(), "100%");
-        assert_eq!(d.shape_label(), "Desktop");
-        assert_eq!(d.elevation_label(), "Desktop");
+        assert_eq!(d.shape_label(), "Pill");
+        assert_eq!(d.elevation_label(), "Flat");
         assert_eq!(
             tokens_with("textual-dark", d.with_density_label("Comfortable"))
                 .density

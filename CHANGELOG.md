@@ -84,7 +84,9 @@ Cursor (`cursor`) are registered.
 ### Desktop HUD
 
 - UI type is brand Fira Sans and Fira Code from `brand/fonts/`.
-  Ligatures are on (`liga` / `calt`).
+  Ligatures are on (`liga` / `calt`). Search chrome uses a 64px-tall
+  mark. List rows are hairline tiles; status is a pill; other facts
+  are muted text. The search glass sits inside the field.
 - `anqa hud` is the summonable session palette (Overview, Turns,
   Timeline, Diff, Notes).
 - It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`

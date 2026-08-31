@@ -11,6 +11,7 @@ sizes, and use cases.
 |-----|------|
 | README / GitHub light | `png/anqa-mark.png` (colour, transparent) |
 | README / GitHub dark | `png/anqa-mark-on-dark.png` (cream bird, transparent) |
+| HUD search chrome | `png/anqa-mark-64.png` / `png/anqa-mark-on-dark-64.png` |
 | Mark on an ink plate | `png/anqa-mark-reverse.png` (solid ink field) |
 | Poster / merch | `png/anqa-lockup-stacked.png` |
 | Dock / HUD icon | `png/anqa-app-icon-1024.png` (cream plate, square) |

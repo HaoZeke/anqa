@@ -1,7 +1,9 @@
 //! Palette layout.
 
-use iced::widget::{column, container, image, mouse_area, responsive, row, stack, text, Space};
-use iced::{Alignment, Color, Element, Length, Padding};
+use iced::widget::{
+    column, container, image, mouse_area, responsive, row, stack, text, text_input, Space,
+};
+use iced::{Alignment, Background, Border, Color, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::icon::Icon;
 use icedtea::toast::ToastKind;
@@ -38,6 +40,146 @@ use crate::wire::{NoteRow, TimelineEvent, TurnRow, WorkflowChildRow};
 
 fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
+}
+
+fn list_tile(tea: icedtea::theme::Tokens, selected: bool) -> iced::widget::container::Style {
+    let s = tea.scheme();
+    iced::widget::container::Style {
+        background: Some(Background::Color(if selected {
+            s.surface_container
+        } else {
+            Color::TRANSPARENT
+        })),
+        text_color: Some(s.on_surface),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: tea.radius(icedtea::m3::shape::Component::Card),
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn list_hairline(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    container(Space::new().height(1).width(Length::Fill))
+        .width(Length::Fill)
+        .style(move |_| {
+            let s = tea.scheme();
+            iced::widget::container::Style {
+                background: Some(Background::Color(s.outline_variant.scale_alpha(0.5))),
+                text_color: None,
+                border: Border::default(),
+                shadow: iced::Shadow::default(),
+                snap: false,
+            }
+        })
+        .into()
+}
+
+fn muted_meta(line: String, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    text(line)
+        .size(tea.meta())
+        .color(tea.muted)
+        .font(typo::UI)
+        .into()
+}
+
+fn search_shell(tea: icedtea::theme::Tokens) -> iced::widget::container::Style {
+    let s = tea.scheme();
+    iced::widget::container::Style {
+        background: Some(Background::Color(s.surface_container_highest)),
+        text_color: Some(s.on_surface),
+        border: Border {
+            color: s.outline_variant,
+            width: 1.0,
+            radius: tea.radius(icedtea::m3::shape::Component::Search),
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn search_inner_style(
+    tea: icedtea::theme::Tokens,
+) -> impl Fn(&iced::Theme, text_input::Status) -> text_input::Style {
+    move |_theme, status| {
+        let s = tea.scheme();
+        let value = match status {
+            text_input::Status::Disabled => s.on_surface.scale_alpha(0.38),
+            _ => s.on_surface,
+        };
+        text_input::Style {
+            background: Background::Color(Color::TRANSPARENT),
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 0.0.into(),
+            },
+            icon: s.on_surface_variant,
+            placeholder: s.on_surface_variant,
+            value,
+            selection: s.secondary_container,
+        }
+    }
+}
+
+fn inset_search<'a>(
+    value: &str,
+    on_input: impl Fn(String) -> Message + 'a,
+    on_clear: Option<Message>,
+    on_submit: Option<Message>,
+    tea: icedtea::theme::Tokens,
+    a11y: A11y,
+    input_id: Option<iced::widget::Id>,
+    highlight: &[icedtea::widget::FieldRun],
+) -> Element<'a, Message> {
+    let _ = highlight;
+    let placeholder = if a11y.name.is_empty() {
+        "Search".to_string()
+    } else {
+        a11y.name.clone()
+    };
+    let mut i = text_input(&placeholder, value)
+        .style(search_inner_style(tea))
+        .padding(0)
+        .size(tea.body())
+        .width(Length::Fill)
+        .align_x(icedtea::i18n::align_x_start(tea.direction));
+    if let Some(id) = input_id {
+        i = i.id(id);
+    }
+    if !a11y.disabled {
+        i = i.on_input(on_input);
+        if let Some(m) = on_submit {
+            i = i.on_submit(m);
+        }
+    }
+    let glass = icedtea::widget::icon_svg(Icon::Search, tea, A11y::new("search", Role::Image));
+    let mut inner = row![glass, i]
+        .spacing(tea.density.gap())
+        .align_y(Alignment::Center)
+        .width(Length::Fill);
+    if let Some(clear) = on_clear {
+        if !value.is_empty() {
+            inner = inner.push(icedtea::widget::icon_button(
+                Icon::Close,
+                if a11y.disabled { None } else { Some(clear) },
+                tea,
+                Variant::Ghost,
+                icedtea::widget::ControlSize::Default,
+                A11y::button("Clear search").with_disabled(a11y.disabled),
+            ));
+        }
+    }
+    icedtea::a11y::attach(
+        container(inner)
+            .padding(Padding::from([6, 10]))
+            .width(Length::Fill)
+            .style(move |_| search_shell(tea))
+            .into(),
+        &a11y,
+    )
 }
 
 fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
@@ -166,36 +308,40 @@ fn session_state_row(
     context: &str,
 ) -> Element<'static, Message> {
     let status_label = list_status_label(status, "");
-    let mut chips = row![status_chip(
-        status_label.clone(),
-        status_tone(&status_label),
-        tea,
-    )]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    let mut bits: Vec<String> = Vec::new();
     if subagent {
-        chips = chips.push(status_chip(String::from("subagent"), "", tea));
-    }
-    if !harness.trim().is_empty() {
-        chips = chips.push(status_chip(harness.trim().to_string(), "", tea));
+        bits.push(String::from("subagent"));
     }
     if imported {
-        chips = chips.push(status_chip(
-            crate::format::origin_label("import").to_string(),
-            "",
+        bits.push(crate::format::origin_label("import").to_string());
+    }
+    if !harness.trim().is_empty() {
+        bits.push(harness.trim().to_string());
+    }
+    if !model.trim().is_empty() {
+        bits.push(model.trim().to_string());
+    }
+    if !duration.trim().is_empty() && duration != "—" {
+        bits.push(duration.trim().to_string());
+    }
+    if !context.trim().is_empty() {
+        bits.push(context.trim().to_string());
+    }
+    let meta = bits.join("  ·  ");
+    let mut row = row![].spacing(8).align_y(Alignment::Center);
+    if status_label != "—" && !status_label.is_empty() {
+        row = row.push(status_chip(
+            status_label.clone(),
+            status_tone(&status_label),
             tea,
         ));
     }
-    if !model.trim().is_empty() {
-        chips = chips.push(status_chip(model.trim().to_string(), "", tea));
+    if !meta.is_empty() {
+        row = row.push(muted_meta(meta, tea));
+    } else if status_label == "—" {
+        row = row.push(muted_meta("—".into(), tea));
     }
-    if !duration.trim().is_empty() && duration != "—" {
-        chips = chips.push(status_chip(duration.trim().to_string(), "", tea));
-    }
-    if !context.trim().is_empty() {
-        chips = chips.push(status_chip(context.trim().to_string(), "", tea));
-    }
-    chips.into()
+    row.into()
 }
 
 fn session_state_from_row(
@@ -383,7 +529,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::button("Session list"),
         ),
-        icedtea::widget::search_input(
+        inset_search(
             hud.query(),
             Message::SearchChanged,
             Some(Message::SearchChanged(String::new())),
@@ -659,11 +805,12 @@ fn session_list_card(
             container(body)
                 .padding(tea.density.inset())
                 .width(Length::Fill)
-                .style(move |_| icedtea::style::card(tea, selected)),
+                .style(move |_| list_tile(tea, selected)),
         )
         .on_press(Message::FocusSession(index))
         .on_double_click(Message::SelectSession(index)),
-        Space::new().height(crate::live::LIST_CARD_GAP),
+        list_hairline(tea),
+        Space::new().height(crate::live::LIST_CARD_GAP - 1.0),
     ]
     .into()
 }
@@ -921,7 +1068,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             A11y::new(cap.to_string(), Role::Status),
         ));
     }
-    let search = container(icedtea::widget::search_input(
+    let search = container(inset_search(
         hud.timeline_query_draft(),
         Message::TimelineQuery,
         Some(Message::TimelineQuery(String::new())),
@@ -1075,12 +1222,13 @@ fn overview_run_list<'a>(
             let status = overview_row_status(row);
             let kind = format_tool_display(&row.kind);
             let ink = if row.openable { tea.text } else { tea.muted };
-            let chips = row![
-                status_chip(status.clone(), status_tone(&status), tea),
-                status_chip(kind, "", tea),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center);
+            let mut chips = row![].spacing(8).align_y(Alignment::Center);
+            if status != "—" && !status.is_empty() {
+                chips = chips.push(status_chip(status.clone(), status_tone(&status), tea));
+            }
+            if !kind.is_empty() {
+                chips = chips.push(muted_meta(kind, tea));
+            }
             let name = text(row.label.clone())
                 .size(tea.body())
                 .font(typo::UI)
@@ -1097,11 +1245,14 @@ fn overview_run_list<'a>(
             let card = container(face)
                 .padding(tea.density.inset())
                 .width(Length::Fill)
-                .style(move |_| icedtea::style::card(tea, selected));
-            mouse_area(card)
-                .on_press(Message::FocusOverviewRow(i))
-                .on_double_click(Message::OpenOverviewRow(i))
-                .into()
+                .style(move |_| list_tile(tea, selected));
+            column![
+                mouse_area(card)
+                    .on_press(Message::FocusOverviewRow(i))
+                    .on_double_click(Message::OpenOverviewRow(i)),
+                list_hairline(tea),
+            ]
+            .into()
         },
         A11y::new(empty_title, Role::List),
     )
@@ -1281,14 +1432,17 @@ fn closed_list_card(
             .width(Length::Fill);
         column![title, badges].spacing(4).width(Length::Fill)
     };
-    mouse_area(
-        container(body)
-            .padding(tea.density.inset())
-            .width(Length::Fill)
-            .style(move |_| icedtea::style::card(tea, selected)),
-    )
-    .on_press(on_press)
-    .on_double_click(on_open)
+    column![
+        mouse_area(
+            container(body)
+                .padding(tea.density.inset())
+                .width(Length::Fill)
+                .style(move |_| list_tile(tea, selected)),
+        )
+        .on_press(on_press)
+        .on_double_click(on_open),
+        list_hairline(tea),
+    ]
     .into()
 }
 
@@ -1352,7 +1506,7 @@ fn event_list_heading(
     ev: &TimelineEvent,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let mut head = row![status_chip(format!("#{}", ev.index), "", tea),]
+    let mut head = row![muted_meta(format!("#{}", ev.index), tea),]
         .spacing(8)
         .align_y(Alignment::Center);
     if let Some((human, role)) = event_type_paint(ev) {
@@ -1367,17 +1521,21 @@ fn event_list_heading(
     if ev.is_error {
         head = head.push(event_error_icon(tea));
     }
+    let mut rest: Vec<String> = Vec::new();
     if ev.event_type == "session_recap"
         && ev.raw_input.get("auto").and_then(|v| v.as_bool()) == Some(true)
     {
-        head = head.push(status_chip("auto", "", tea));
+        rest.push(String::from("auto"));
     }
     if let Some(turn) = ev.turn_index {
-        head = head.push(status_chip(format!("turn {turn}"), "", tea));
+        rest.push(format!("turn {turn}"));
     }
     let time = ev.time.trim();
     if !time.is_empty() {
-        head = head.push(status_chip(time.to_string(), "", tea));
+        rest.push(time.to_string());
+    }
+    if !rest.is_empty() {
+        head = head.push(muted_meta(rest.join("  ·  "), tea));
     }
     head.into()
 }
@@ -1666,28 +1824,29 @@ fn turn_list_card(
     } else {
         status_tone(&status)
     };
-    let mut chips = row![status_chip(status, tone, tea)]
-        .spacing(8)
-        .align_y(Alignment::Center);
+    let mut chips = row![].spacing(8).align_y(Alignment::Center);
+    if status != "—" && !status.is_empty() {
+        chips = chips.push(status_chip(status, tone, tea));
+    }
+    let mut bits: Vec<String> = Vec::new();
     let caption = remap_turn_outcome_paren(&t.face_caption());
     if title != caption {
-        chips = chips.push(status_chip(caption, "", tea));
+        bits.push(caption);
     }
     if let Some(taken) = t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
-        chips = chips.push(status_chip(taken, "", tea));
+        bits.push(taken);
     }
     if t.event_count > 0 {
-        chips = chips.push(status_chip(format!("{} events", t.event_count), "", tea));
+        bits.push(format!("{} events", t.event_count));
     }
     if t.tool_call_count > 0 {
-        chips = chips.push(status_chip(format!("{} tools", t.tool_call_count), "", tea));
+        bits.push(format!("{} tools", t.tool_call_count));
     }
     if t.tool_error_count > 0 {
-        chips = chips.push(status_chip(
-            format!("{} tool errors", t.tool_error_count),
-            "error",
-            tea,
-        ));
+        bits.push(format!("{} tool errors", t.tool_error_count));
+    }
+    if !bits.is_empty() {
+        chips = chips.push(muted_meta(bits.join("  ·  "), tea));
     }
     closed_list_card(
         title,
@@ -1701,7 +1860,7 @@ fn turn_list_card(
 
 fn turns_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    let search = icedtea::widget::search_input(
+    let search = inset_search(
         hud.turns_query_draft(),
         Message::TurnsQuery,
         Some(Message::TurnsQuery(String::new())),
@@ -2100,7 +2259,7 @@ fn diff_context_tabs(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Mess
 
 fn diff_search(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    icedtea::widget::search_input(
+    inset_search(
         hud.diff_query(),
         Message::DiffQuery,
         Some(Message::DiffQuery(String::new())),
@@ -3570,6 +3729,9 @@ mod tests {
         assert!(prod.contains("widget::badge"));
         assert!(prod.contains("BadgeSize::Small"));
         assert!(prod.contains("fn session_state_row"));
+        assert!(prod.contains("muted_meta(meta, tea)"));
+        assert!(prod.contains("fn inset_search"));
+        assert!(prod.contains("fn list_tile"));
         assert!(prod.contains("fn session_state_from_meta"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(!prod.contains("QuietColumn"));
@@ -3594,7 +3756,7 @@ mod tests {
         assert!(prod.contains("kit::labeled_plain"));
         assert!(prod.contains("kit::context_progress"));
         assert!(prod.contains("kit::pane_tabs"));
-        assert!(prod.contains("icedtea::widget::search_input"));
+        assert!(prod.contains("fn inset_search"));
         assert!(!prod.contains("kit::search_field"));
         assert!(prod.contains("pattern::status_bar"));
         assert!(!prod.contains("kit::status_footer"));
@@ -3772,7 +3934,7 @@ mod tests {
             .next()
             .expect("heading body");
         assert!(heading.contains("label_badge"));
-        assert!(heading.contains("status_chip(format!(\"turn {turn}\")"));
+        assert!(heading.contains("muted_meta(rest.join"));
         assert!(heading.contains("format_tool_display"));
         let payload = prod
             .split("fn event_payload")
