@@ -1612,6 +1612,15 @@ pub fn turn_chrome_face(event_type: &str, text: &str) -> String {
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// List title for a turn bookend. Key=value chrome (``model=``, ``promptid=``)
+/// is empty — the type badge already names the row.
+pub fn list_turn_bookend_title(event_type: &str, text: &str) -> String {
+    if bookend_body_is_chrome(event_type, text) {
+        return String::new();
+    }
+    turn_chrome_face(event_type, text)
+}
+
 /// True when a turn bookend has no inspect body (heading already has the type).
 pub fn bookend_body_is_chrome(event_type: &str, text: &str) -> bool {
     match event_type {
@@ -3699,6 +3708,25 @@ mod tests {
             "turn started turn_number=0 model=grok-4.6"
         ));
         assert!(!bookend_body_is_chrome("user_message_chunk", "hello"));
+        assert_eq!(
+            list_turn_bookend_title(
+                "turn_started",
+                "turn started  turn_number=1  model=grok-4.6"
+            ),
+            ""
+        );
+        assert_eq!(
+            list_turn_bookend_title("turn_completed", "turn completed  promptid=abc"),
+            ""
+        );
+        assert_eq!(
+            list_turn_bookend_title("turn_ended", "turn ended  outcome=success"),
+            ""
+        );
+        assert_eq!(
+            list_turn_bookend_title("turn_started", "turn started  waiting for tool"),
+            "waiting for tool"
+        );
     }
 
     #[test]

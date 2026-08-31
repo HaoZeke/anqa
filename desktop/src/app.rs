@@ -389,6 +389,8 @@ pub struct Hud {
     tl_window: icedtea::collection::VisibleWindow,
     tl_heights: Vec<f32>,
     tl_scroll_id: Id,
+    /// List scroll when event detail opened, restored on Esc.
+    tl_return_scroll: Option<f32>,
     turn_window: icedtea::collection::VisibleWindow,
     turn_heights: Vec<f32>,
     turn_scroll_id: Id,
@@ -574,6 +576,7 @@ impl Default for Hud {
             tl_window: icedtea::collection::VisibleWindow::new(400.0),
             tl_heights: vec![],
             tl_scroll_id: Id::new("hud-timeline"),
+            tl_return_scroll: None,
             turn_window: icedtea::collection::VisibleWindow::new(400.0),
             turn_heights: vec![],
             turn_scroll_id: Id::new("hud-turns"),
@@ -1328,7 +1331,7 @@ impl Hud {
             Message::StartNote { turn, event } => {
                 self.note_draft = NoteDraft {
                     id: String::new(),
-                    turn_index: turn,
+                    turn_index: self.default_note_turn(&turn, &event),
                     event_index: event,
                     source: String::new(),
                     fields: vec![],
@@ -3904,6 +3907,7 @@ impl Hud {
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.timeline_open = None;
+        self.tl_return_scroll = None;
         self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
         self.timeline_prompt = None;
@@ -4131,6 +4135,33 @@ impl Hud {
     /// Prefer the open overview (or in-flight pending load) so clearing search
     /// never maps a filtered `active` index onto a different catalog row.
     /// `active` alone is not a pick — Spotlight starts with no highlight.
+    fn default_note_turn(&self, turn: &str, event: &str) -> String {
+        if !turn.trim().is_empty() {
+            return turn.trim().to_string();
+        }
+        if let Ok(ix) = event.trim().parse::<i64>() {
+            if let Some(ti) = self.turn_index_of_event(ix) {
+                return ti.to_string();
+            }
+        }
+        if let Some(ix) = self.timeline_focus {
+            if let Some(ti) = self.turn_index_of_event(ix) {
+                return ti.to_string();
+            }
+        }
+        if let Some(ti) = self.turns_focus {
+            return ti.to_string();
+        }
+        if let Some(ti) = self.events_turn_index {
+            return ti.to_string();
+        }
+        self.overview
+            .as_ref()
+            .and_then(|o| o.turns.turns.last())
+            .map(|t| t.turn_index.to_string())
+            .unwrap_or_default()
+    }
+
     fn session_keep_id(&self) -> String {
         if let Some(path) = self
             .overview
@@ -4470,6 +4501,9 @@ impl Hud {
             motion::event_open_role(already)
         };
         self.go_page(role, PageLayer::Pane, slide);
+        if self.timeline_open.is_none() {
+            self.tl_return_scroll = Some(self.tl_window.scroll);
+        }
         if let Some(prev) = self.timeline_open {
             self.unbind_event_fields(prev);
         }
@@ -4488,6 +4522,7 @@ impl Hud {
         }
         self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
+        self.tl_return_scroll = None;
     }
 
     fn edge_event_index(&self, edge: DetailTurnEdge) -> Option<i64> {
@@ -4513,13 +4548,16 @@ impl Hud {
             self.timeline_focus = Some(ix);
         }
         self.workflow_inspect_id = None;
-        // Pin the focused row to the top so Esc always lands on a visible
-        // selected card (cover-only can leave it below the fold after detail).
         let Some(pos) = self.timeline_focus_pos() else {
+            self.tl_return_scroll = None;
             return Task::none();
         };
         let view_h = self.tl_window.viewport.max(1.0);
-        let y = list_scroll_to_top(&self.tl_heights, pos, view_h);
+        let base = self
+            .tl_return_scroll
+            .take()
+            .unwrap_or(self.tl_window.scroll);
+        let y = list_scroll_to_cover(&self.tl_heights, pos, base, view_h);
         apply_clip_scroll(self.tl_scroll_id.clone(), &mut self.tl_window, y)
     }
 
@@ -7208,6 +7246,26 @@ mod tests {
     }
 
     #[test]
+    fn close_timeline_detail_keeps_the_list_scroll() {
+        let mut hud = hud_with_session();
+        let events: Vec<Value> = (0..20).map(|i| ev_json(i, "e")).collect();
+        load_page(&mut hud, 0, false, true, events, 20, 0);
+        hud.tl_window.viewport = 400.0;
+        hud.tl_window.scroll = 320.0;
+        let before = hud.tl_window.scroll;
+        let _ = hud.update(Message::SelectTimeline(8));
+        assert!(hud.is_timeline_open(8));
+        let _ = hud.update(Message::CloseTimelineDetail);
+        assert!(hud.timeline_open().is_none());
+        assert_eq!(hud.timeline_focus(), Some(8));
+        assert!(
+            (hud.tl_window.scroll - before).abs() < f32::EPSILON,
+            "Esc moved the list from {before} to {}",
+            hud.tl_window.scroll
+        );
+    }
+
+    #[test]
     fn timeline_detail_next_prev_steps_filtered_list() {
         let mut hud = hud_with_session();
         load_page(
@@ -8090,6 +8148,61 @@ mod tests {
         assert_eq!(hud.note_form_ix, Some(0));
         let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::CTRL);
         assert_eq!(hud.tab, Tab::Overview);
+    }
+
+    #[test]
+    fn start_note_fills_the_focused_turn() {
+        let mut hud = Hud {
+            overview: Some(Overview {
+                turns: crate::wire::TurnsBlock {
+                    turns: vec![
+                        crate::wire::TurnRow {
+                            turn_index: 0,
+                            event_indexes: vec![1],
+                            ..crate::wire::TurnRow::default()
+                        },
+                        crate::wire::TurnRow {
+                            turn_index: 2,
+                            event_indexes: vec![5],
+                            ..crate::wire::TurnRow::default()
+                        },
+                    ],
+                    ..crate::wire::TurnsBlock::default()
+                },
+                ..Overview::default()
+            }),
+            turns_focus: Some(2),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::StartNote {
+            turn: String::new(),
+            event: String::new(),
+        });
+        assert_eq!(hud.note_draft().turn_index, "2");
+    }
+
+    #[test]
+    fn start_note_fills_turn_from_the_event() {
+        let mut hud = Hud {
+            overview: Some(Overview {
+                turns: crate::wire::TurnsBlock {
+                    turns: vec![crate::wire::TurnRow {
+                        turn_index: 2,
+                        event_indexes: vec![5],
+                        ..crate::wire::TurnRow::default()
+                    }],
+                    ..crate::wire::TurnsBlock::default()
+                },
+                ..Overview::default()
+            }),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::StartNote {
+            turn: String::new(),
+            event: "5".into(),
+        });
+        assert_eq!(hud.note_draft().turn_index, "2");
+        assert_eq!(hud.note_draft().event_index, "5");
     }
 
     #[test]
@@ -10021,7 +10134,7 @@ mod tests {
             crate::model::OverviewSection::Tasks,
         ));
         assert_eq!(hud.overview_heights().len(), 1);
-        assert!(hud.overview_heights()[0] >= 80.0);
+        assert!(hud.overview_heights()[0] >= OVERVIEW_LIST_ROW_H);
         assert_eq!(hud.tasks_focus(), Some(0));
         let _ = hud.update(Message::FocusOverviewRow(0));
         assert_eq!(hud.tasks_focus(), Some(0));

@@ -18,14 +18,14 @@ use crate::format::{
     image_result_path, is_chat_message, is_tool_identity, job_command, job_description,
     job_event_id, job_event_label, job_exit_code, job_inspect_blocks, job_inspect_log,
     job_list_preview, job_output_path, job_status, list_event_detail, list_status_label,
-    looks_like_markdown, note_display_fields, overview_fields, overview_row_status,
-    overview_subagent_rows, overview_task_rows, overview_workflow_rows, path_hint_from_raw,
-    remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks, schedule_last_fire,
-    session_duration_chip, status_tone, stills_from_session, subagent_inspect_blocks,
-    subagent_list_preview, syntax_for_fence, syntax_for_tool_field, syntax_for_tool_output,
-    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_brand_role,
-    tool_fields_from_raw, turn_chrome_face, workflow_for_event, workflow_name_from_raw,
-    workflow_status_word, BodyPaint, BrandRole, ToolField,
+    list_turn_bookend_title, looks_like_markdown, note_display_fields, overview_fields,
+    overview_row_status, overview_subagent_rows, overview_task_rows, overview_workflow_rows,
+    path_hint_from_raw, remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks,
+    schedule_last_fire, session_duration_chip, status_tone, stills_from_session,
+    subagent_inspect_blocks, subagent_list_preview, syntax_for_fence, syntax_for_tool_field,
+    syntax_for_tool_output, timeline_body_text, timeline_count_caption, timeline_query_hit,
+    tool_brand_role, tool_fields_from_raw, turn_chrome_face, workflow_for_event,
+    workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -52,11 +52,9 @@ fn list_tile(tea: icedtea::theme::Tokens, selected: bool) -> iced::widget::conta
             Color::TRANSPARENT
         })),
         text_color: Some(s.on_surface),
-        border: Border {
-            color: Color::TRANSPARENT,
-            width: 0.0,
-            radius: tea.radius(icedtea::m3::shape::Component::Card),
-        },
+        // Square wash: Card radius under Pill leaves a rounded slab
+        // that fights the hairline rows.
+        border: Border::default(),
         shadow: iced::Shadow::default(),
         snap: false,
     }
@@ -83,6 +81,7 @@ fn muted_meta(line: String, tea: icedtea::theme::Tokens) -> Element<'static, Mes
         .size(tea.meta())
         .color(tea.muted)
         .font(typo::UI)
+        .wrapping(iced::widget::text::Wrapping::None)
         .into()
 }
 
@@ -291,19 +290,24 @@ fn paint_badge(
     border.radius = tea.radius(icedtea::m3::shape::Component::Badge);
     // Pill ends eat icedtea Small [2, 5]; keep a readable inset.
     icedtea::a11y::attach(
-        container(text(label).size(tea.meta()).color(ink))
-            .padding(Padding {
-                top: 4.0,
-                right: 10.0,
-                bottom: 4.0,
-                left: 10.0,
-            })
-            .style(move |_| {
-                let mut st = icedtea::style::fill(wash, ink);
-                st.border = border;
-                st
-            })
-            .into(),
+        container(
+            text(label)
+                .size(tea.meta())
+                .color(ink)
+                .wrapping(iced::widget::text::Wrapping::None),
+        )
+        .padding(Padding {
+            top: 4.0,
+            right: 10.0,
+            bottom: 4.0,
+            left: 10.0,
+        })
+        .style(move |_| {
+            let mut st = icedtea::style::fill(wash, ink);
+            st.border = border;
+            st
+        })
+        .into(),
         &a11y,
     )
 }
@@ -1322,20 +1326,8 @@ fn glance_row<'a>(hud: &'a Hud, field: &crate::format::OverviewField) -> Element
         icedtea::typo::FontFace::Ui
     };
     let _ = field.danger;
-    let open = field.open.as_ref().map(|target| {
-        let title = if target.starts_with("http") {
-            "Open"
-        } else {
-            "Folder"
-        };
-        icedtea::action::Action::new(
-            "overview.open",
-            title,
-            Message::OpenExternal(target.clone()),
-        )
-    });
     if let Some(buf) = hud.field(&id) {
-        return kit::labeled_value(
+        let value = kit::labeled_value(
             field.label,
             buf,
             {
@@ -1346,10 +1338,16 @@ fn glance_row<'a>(hud: &'a Hud, field: &crate::format::OverviewField) -> Element
                 }
             },
             face,
-            open,
             tea,
             A11y::new(field.label, Role::Group),
         );
+        let Some(target) = field.open.as_ref() else {
+            return value;
+        };
+        return row![value, glance_open_btn(target, tea)]
+            .spacing(tea.density.gap())
+            .align_y(Alignment::Center)
+            .into();
     }
     if field.danger {
         return kit::labeled_plain(field.label, field.value.clone(), tea);
@@ -1386,19 +1384,45 @@ fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element
     )
 }
 
-fn note_chip(
-    label: String,
-    msg: Message,
-    tea: icedtea::theme::Tokens,
-) -> Element<'static, Message> {
-    icedtea::widget::chip(
-        label.clone(),
-        Some(msg),
-        None,
+fn note_add_btn(msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    icedtea::widget::tooltip_wrap(
+        icedtea::widget::icon_button(
+            Icon::DocumentCreate,
+            Some(msg),
+            tea,
+            Variant::Ghost,
+            icedtea::widget::ControlSize::Default,
+            A11y::button("Add note"),
+        ),
+        "Add note",
+        icedtea::widget::TooltipAnchor::Follow,
         tea,
-        Variant::Chip,
-        icedtea::widget::ChipKind::Assist,
-        icedtea::icon::Icons::leading(Icon::DocumentCreate),
+        A11y::button("Add note"),
+    )
+}
+
+const OPEN_MARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="black" d="M4 3h5v2H6v5h5V7h2v5H4zm5 0h4v4h-1.5V5.5L8 9 7 8l3.5-3.5H9z"/></svg>"#;
+
+fn glance_open_btn(target: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let http = target.starts_with("http");
+    let label = if http { "Open" } else { "Open folder" };
+    let icon = if http {
+        icedtea::icon::Glyph::Bytes(OPEN_MARK)
+    } else {
+        Icon::FolderOpen.into()
+    };
+    icedtea::widget::tooltip_wrap(
+        icedtea::widget::icon_button(
+            icon,
+            Some(Message::OpenExternal(target.to_string())),
+            tea,
+            Variant::Ghost,
+            icedtea::widget::ControlSize::Default,
+            A11y::button(label),
+        ),
+        label,
+        icedtea::widget::TooltipAnchor::Follow,
+        tea,
         A11y::button(label),
     )
 }
@@ -1458,7 +1482,7 @@ fn card_cmds_row(
     let tok = hud.tokens();
     let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
-        cmds = cmds.push(note_chip("Add note".into(), msg, tea));
+        cmds = cmds.push(note_add_btn(msg, tea));
     }
     if let Some(msg) = jump {
         cmds = cmds.push(jump_control(msg, tok.muted, tea));
@@ -1482,7 +1506,8 @@ fn closed_list_card(
             .size(tea.body())
             .font(if selected { typo::UI_BOLD } else { typo::UI })
             .color(tea.text)
-            .width(Length::Fill);
+            .width(Length::Fill)
+            .wrapping(iced::widget::text::Wrapping::None);
         column![title, badges].spacing(4).width(Length::Fill)
     };
     column![
@@ -1605,7 +1630,12 @@ fn event_list_title(ev: &TimelineEvent) -> String {
     } else {
         raw_preview
     };
-    let preview = if job_event_label(&ev.event_type, event_is_monitor(&ev.raw_input)).is_some() {
+    let preview = if matches!(
+        ev.event_type.as_str(),
+        "turn_started" | "turn_ended" | "turn_completed"
+    ) {
+        list_turn_bookend_title(&ev.event_type, raw_preview)
+    } else if job_event_label(&ev.event_type, event_is_monitor(&ev.raw_input)).is_some() {
         job_list_preview(&ev.event_type, &ev.raw_input, raw_preview)
     } else if ev.tool_name == "workflow" {
         let name = workflow_name_from_raw(&ev.raw_input);
@@ -1964,11 +1994,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     return Space::new().height(0).into();
                 };
                 let selected = hud.turns_focus() == Some(t.turn_index);
-                column![
-                    turn_list_card(t, selected, tea),
-                    Space::new().height(crate::live::LIST_GAP),
-                ]
-                .into()
+                turn_list_card(t, selected, tea)
             },
             A11y::new("Turns", Role::List),
         )
@@ -2024,15 +2050,14 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             };
             let ix = ev.index;
             let selected = hud.timeline_focus() == Some(ix);
-            let card = closed_list_card(
+            closed_list_card(
                 event_list_title(ev),
                 event_list_heading(ev, tea),
                 Message::FocusTimeline(ix),
                 Message::SelectTimeline(ix),
                 selected,
                 tea,
-            );
-            column![card, Space::new().height(crate::live::LIST_GAP)].into()
+            )
         },
         A11y::new("Timeline", Role::List),
     );
@@ -2471,8 +2496,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     col = col.push(
         row![
             icedtea::widget::meta(notes_label, tea, A11y::new("Notes count", Role::Status)),
-            note_chip(
-                "Add note".into(),
+            note_add_btn(
                 Message::StartNote {
                     turn: String::new(),
                     event: String::new(),
@@ -2536,7 +2560,7 @@ fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
     ));
     form = form.push(
         container(icedtea::widget::text_input(
-            "session",
+            "",
             &hud.note_draft().turn_index,
             Message::NoteTurn,
             Some(Message::SaveNote),
@@ -2846,7 +2870,7 @@ fn workflow_child_list<'a>(hud: &'a Hud, children: &'a [WorkflowChildRow]) -> El
             } else {
                 card.into()
             };
-            column![row, Space::new().height(crate::live::LIST_GAP)].into()
+            row
         },
         A11y::new("Agents", Role::List),
     )
@@ -3474,7 +3498,7 @@ mod tests {
             content: "turn started  turn_number=0  model=v9".into(),
             ..started.clone()
         };
-        assert_eq!(event_list_title(&with_model), "model=v9");
+        assert_eq!(event_list_title(&with_model), "");
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
             .next()
@@ -3766,6 +3790,17 @@ mod tests {
         assert!(prod.contains("Message::SessionsHome"));
         assert!(prod.contains("fn status_chip"));
         assert!(prod.contains("fn paint_badge"));
+        let badge = prod
+            .split("fn paint_badge")
+            .nth(1)
+            .expect("paint_badge")
+            .split("fn session_state_row")
+            .next()
+            .expect("badge body");
+        assert!(
+            badge.contains("Wrapping::None"),
+            "badge text must stay on one line"
+        );
         assert!(prod.contains("chip_face"));
         assert!(prod.contains("fn session_state_row"));
         assert!(prod.contains("muted_meta(meta, tea)"));
@@ -4237,5 +4272,109 @@ mod tests {
             ..WorkflowChildRow::default()
         };
         let _ = workflow_child_list(&hud, &[closed]);
+    }
+
+    #[test]
+    fn closed_list_card_keeps_a_single_title_line() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        let card = prod
+            .split("fn closed_list_card")
+            .nth(1)
+            .expect("closed_list_card")
+            .split("fn turn_title")
+            .next()
+            .expect("card body");
+        assert!(card.contains("Wrapping::None"));
+        let tile = prod
+            .split("fn list_tile")
+            .nth(1)
+            .expect("list_tile")
+            .split("fn list_hairline")
+            .next()
+            .expect("tile body");
+        assert!(tile.contains("Border::default()"));
+        assert!(!tile.contains("Component::Card"));
+        let turns = prod
+            .split("fn turns_tab")
+            .nth(1)
+            .expect("turns_tab")
+            .split("fn timeline_tab")
+            .next()
+            .expect("turns body");
+        assert!(
+            !turns.contains("LIST_GAP"),
+            "row height already includes the hairline"
+        );
+        let timeline = prod
+            .split("fn timeline_tab")
+            .nth(1)
+            .expect("timeline_tab")
+            .split("fn event_detail")
+            .next()
+            .expect("timeline body");
+        assert!(!timeline.contains("LIST_GAP"));
+    }
+
+    #[test]
+    fn glance_open_and_add_note_use_icon_buttons() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        let glance = prod
+            .split("fn glance_row")
+            .nth(1)
+            .expect("glance_row")
+            .split("fn footer")
+            .next()
+            .expect("glance body");
+        assert!(glance.contains("glance_open_btn"));
+        assert!(!glance.contains("Action::new"));
+        let open = prod
+            .split("fn glance_open_btn")
+            .nth(1)
+            .expect("glance_open_btn")
+            .split("fn command_end")
+            .next()
+            .expect("open body");
+        assert!(open.contains("icon_button"));
+        assert!(open.contains("FolderOpen"));
+        let cmds = prod
+            .split("fn card_cmds_row")
+            .nth(1)
+            .expect("card_cmds_row")
+            .split("fn closed_list_card")
+            .next()
+            .expect("cmds body");
+        assert!(cmds.contains("note_add_btn"));
+        assert!(!cmds.contains("note_chip"));
+        let add = prod
+            .split("fn note_add_btn")
+            .nth(1)
+            .expect("note_add_btn")
+            .split("fn glance_open_btn")
+            .next()
+            .expect("add body");
+        assert!(add.contains("icon_button"));
+        assert!(add.contains("DocumentCreate"));
+        let notes = prod
+            .split("fn notes_tab")
+            .nth(1)
+            .expect("notes_tab")
+            .split("fn notes_compose_form")
+            .next()
+            .expect("notes body");
+        assert!(notes.contains("note_add_btn"));
+        assert!(!notes.contains("note_chip"));
+        let form = prod
+            .split("fn notes_compose_form")
+            .nth(1)
+            .expect("notes_compose_form")
+            .split("fn note_list_card")
+            .next()
+            .expect("form body");
+        assert!(
+            !form.contains("\"session\""),
+            "turn field must not use session as the placeholder"
+        );
     }
 }

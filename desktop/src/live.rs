@@ -28,23 +28,22 @@ pub const TIMELINE_OPEN_CHARS: u32 = 50_000;
 /// Vertical gap after each virtual list card (must be inside row height —
 /// ``virtual_column`` clips each row to ``heights[i]``).
 pub const LIST_GAP: f32 = 8.0;
-/// Closed timeline tile + gap. Title line plus one badge row (same
-/// face as Recent). Open event detail uses the full pane.
-pub const TIMELINE_ROW_H: f32 = 80.0;
+/// Closed timeline tile + hairline. One title line, one badge row.
+pub const TIMELINE_ROW_H: f32 = 72.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Closed Turns tile + gap. Title line plus one badge row.
-pub const CLOSED_TURN_CARD_H: f32 = 80.0;
+/// Closed Turns tile + hairline. One title line, one badge row.
+pub const CLOSED_TURN_CARD_H: f32 = 72.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 1;
-/// Overview Tasks / Workflows / Subagents card + gap (chips + name).
-pub const OVERVIEW_LIST_ROW_H: f32 = 80.0;
+/// Overview Tasks / Workflows / Subagents tile + hairline.
+pub const OVERVIEW_LIST_ROW_H: f32 = 72.0;
 /// Extra mounted Overview list cards beyond the viewport.
 pub const OVERVIEW_LIST_OVERSCAN: usize = 1;
 /// icedtea ``data_table`` body row on Overview Stats.
 pub const STATS_ROW_H: f32 = 32.0;
-/// Workflow-event agent/result child tile + gap.
-pub const AGENT_ROW_H: f32 = 80.0;
+/// Workflow-event agent/result child tile + hairline.
+pub const AGENT_ROW_H: f32 = 72.0;
 /// Extra mounted workflow-child cards beyond the viewport.
 pub const AGENT_OVERSCAN: usize = 1;
 /// Cap on the open-workflow inspect scroll so the Agents clip gets Fill.
@@ -1517,6 +1516,17 @@ mod tests {
             fenced > one + 20.0,
             "fenced field must be taller than a one-line field: fenced={fenced} one={one}"
         );
+    }
+
+    #[test]
+    fn closed_list_row_fits_one_title_line() {
+        assert!(
+            CLOSED_TURN_CARD_H < 80.0,
+            "hairline tiles must not reserve the old boxed-card slot"
+        );
+        assert_eq!(CLOSED_TURN_CARD_H, TIMELINE_ROW_H);
+        assert_eq!(CLOSED_TURN_CARD_H, OVERVIEW_LIST_ROW_H);
+        assert_eq!(CLOSED_TURN_CARD_H, AGENT_ROW_H);
     }
 
     #[test]

@@ -109,7 +109,6 @@ pub fn labeled_value<'a>(
     content: &'a iced::widget::text_editor::Content,
     on_action: impl Fn(iced::widget::text_editor::Action) -> Message + 'a,
     face: FontFace,
-    open: Option<icedtea::action::Action<Message>>,
     tea: Tokens,
     a11y: A11y,
 ) -> Element<'a, Message> {
@@ -117,7 +116,7 @@ pub fn labeled_value<'a>(
         title,
         content,
         on_action,
-        open.as_ref(),
+        None,
         face,
         LABEL_GUTTER,
         tea,
