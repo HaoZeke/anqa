@@ -1540,6 +1540,16 @@ pub fn turn_chrome_face(event_type: &str, text: &str) -> String {
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// True when a turn bookend has no inspect body (heading already has the type).
+pub fn bookend_body_is_chrome(event_type: &str, text: &str) -> bool {
+    match event_type {
+        "turn_started" | "turn_ended" | "turn_completed" => {}
+        _ => return false,
+    }
+    let face = turn_chrome_face(event_type, text);
+    face.is_empty() || face.split_whitespace().all(|w| w.contains('='))
+}
+
 /// TUI-style human type label: Grok wire id with underscores → spaces.
 ///
 /// Prefers honest job labels, then control `type_label`, then `event_type`.
@@ -3612,6 +3622,11 @@ mod tests {
             turn_chrome_face("user_message_chunk", "turn_number=0"),
             "turn_number=0"
         );
+        assert!(bookend_body_is_chrome(
+            "turn_started",
+            "turn started turn_number=0 model=grok-4.6"
+        ));
+        assert!(!bookend_body_is_chrome("user_message_chunk", "hello"));
     }
 
     #[test]

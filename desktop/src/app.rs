@@ -6461,6 +6461,9 @@ impl Hud {
         self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
         self.catalog_search_pending = false;
         self.catalog_query.clear();
+        if self.status.starts_with("No matches") || self.status.ends_with(" matches") {
+            self.status = format!("{} sessions · ready", self.all_sessions.len());
+        }
     }
 
     fn abandon_turns_search(&mut self) {
@@ -8739,7 +8742,10 @@ mod tests {
         assert_eq!(overlay.window.size, Size::new(HUD_W, HUD_H));
         assert!(!overlay.window.decorations);
         assert_eq!(overlay.window.max_size, Some(Size::new(HUD_W, HUD_H)));
-        assert_eq!(overlay.iced_settings.fonts.len(), crate::typo::files().len());
+        assert_eq!(
+            overlay.iced_settings.fonts.len(),
+            crate::typo::files().len()
+        );
         assert_eq!(overlay.iced_settings.default_font, crate::typo::UI);
         let desk = desktop_prepared();
         assert!(desk.window.decorations);

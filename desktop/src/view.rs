@@ -12,19 +12,20 @@ use icedtea::variant::Variant;
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
-    body_paint_for, capped_display, display_message_text, display_tool_output, event_brand_role,
-    event_is_monitor, fenced_code_block, fmt_duration, format_note_time, format_tool_display,
-    human_event_type_label, image_result_path, is_chat_message, is_tool_identity, job_command,
-    job_description, job_event_id, job_event_label, job_exit_code, job_inspect_blocks,
-    job_inspect_log, job_list_preview, job_output_path, job_status, list_event_detail,
-    list_status_label, looks_like_markdown, note_display_fields, overview_fields,
-    overview_row_status, overview_subagent_rows, overview_task_rows, overview_workflow_rows,
-    path_hint_from_raw, remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks,
-    schedule_last_fire, session_duration_chip, status_tone, stills_from_session,
-    subagent_inspect_blocks, subagent_list_preview, syntax_for_fence, syntax_for_tool_field,
-    syntax_for_tool_output, timeline_body_text, timeline_count_caption, timeline_query_hit,
-    tool_brand_role, tool_fields_from_raw, turn_chrome_face, workflow_for_event,
-    workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole, ToolField,
+    body_paint_for, bookend_body_is_chrome, capped_display, display_message_text,
+    display_tool_output, event_brand_role, event_is_monitor, fenced_code_block, fmt_duration,
+    format_note_time, format_tool_display, human_event_type_label, image_result_path,
+    is_chat_message, is_tool_identity, job_command, job_description, job_event_id, job_event_label,
+    job_exit_code, job_inspect_blocks, job_inspect_log, job_list_preview, job_output_path,
+    job_status, list_event_detail, list_status_label, looks_like_markdown, note_display_fields,
+    overview_fields, overview_row_status, overview_subagent_rows, overview_task_rows,
+    overview_workflow_rows, path_hint_from_raw, remap_turn_outcome_paren, sanitize_console_text,
+    schedule_inspect_blocks, schedule_last_fire, session_duration_chip, status_tone,
+    stills_from_session, subagent_inspect_blocks, subagent_list_preview, syntax_for_fence,
+    syntax_for_tool_field, syntax_for_tool_output, timeline_body_text, timeline_count_caption,
+    timeline_query_hit, tool_brand_role, tool_fields_from_raw, turn_chrome_face,
+    workflow_for_event, workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole,
+    ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -1666,12 +1667,7 @@ fn event_body<'a>(
             A11y::new("Content truncated by control", Role::Status),
         ));
     }
-    let note = if ev.tool_name == "workflow" {
-        None
-    } else {
-        Some(event_note(ev))
-    };
-    col.push(card_chips(hud, mark, note, None)).into()
+    col.push(card_chips(hud, mark, None, None)).into()
 }
 
 fn note_when(n: &NoteRow) -> String {
@@ -2077,51 +2073,39 @@ fn event_detail_chrome(
     ev: Option<&TimelineEvent>,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let head = ev.map(|e| event_list_heading(e, tea)).unwrap_or_else(|| {
-        text(format!("#{ix}"))
-            .size(tea.meta())
-            .font(typo::UI_BOLD)
-            .color(tea.text)
-            .into()
-    });
-    column![head, event_pager(hud, tea)]
-        .spacing(4)
-        .width(Length::Fill)
-        .into()
+    let head = ev
+        .map(|e| event_list_heading(e, tea))
+        .unwrap_or_else(|| muted_meta(format!("#{ix}"), tea));
+    let note = ev.filter(|e| e.tool_name != "workflow").map(event_note);
+    row![
+        event_step(hud, -1, Icon::Back, "Previous event", tea),
+        container(head).width(Length::Fill),
+        card_cmds_row(hud, note, None),
+        event_step(hud, 1, Icon::Chevron, "Next event", tea),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .width(Length::Fill)
+    .into()
 }
 
-/// Event step: Previous on the start edge, Next on the end. Turn is on the heading.
-fn event_pager(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+fn event_step(
+    hud: &Hud,
+    delta: i32,
+    icon: Icon,
+    label: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
     let (at, n) = hud.timeline_detail_pos().unwrap_or((0, 0));
-    if n == 0 {
-        return Space::new().height(0).into();
-    }
-    let has_prev = at > 1;
-    let has_next = at < n;
-    row![
-        icedtea::widget::button(
-            "Previous",
-            has_prev.then_some(Message::TimelineDetailStep(-1)),
-            tea,
-            Variant::Quiet,
-            icedtea::icon::Icons::NONE,
-            icedtea::widget::ButtonOpts::SHRINK,
-            A11y::button("Previous event").with_disabled(!has_prev),
-        ),
-        Space::new().width(Length::Fill),
-        icedtea::widget::button(
-            "Next",
-            has_next.then_some(Message::TimelineDetailStep(1)),
-            tea,
-            Variant::Quiet,
-            icedtea::icon::Icons::NONE,
-            icedtea::widget::ButtonOpts::SHRINK,
-            A11y::button("Next event").with_disabled(!has_next),
-        ),
-    ]
-    .width(Length::Fill)
-    .align_y(Alignment::Center)
-    .into()
+    let enabled = n > 0 && ((delta < 0 && at > 1) || (delta > 0 && at < n));
+    icedtea::widget::icon_button(
+        icon,
+        enabled.then_some(Message::TimelineDetailStep(delta)),
+        tea,
+        Variant::Ghost,
+        icedtea::widget::ControlSize::Default,
+        A11y::button(label).with_disabled(!enabled),
+    )
 }
 
 fn diff_tab(hud: &Hud) -> Element<'_, Message> {
@@ -3012,6 +2996,9 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     let preview = ev.preview.clone();
     let content = ev.content.clone();
     let raw_body = timeline_body_text(&preview, &content, selected, 240);
+    if bookend_body_is_chrome(&event_type, &raw_body) {
+        return Space::new().height(0).into();
+    }
     let raw_body = turn_chrome_face(&event_type, &raw_body);
     let body = display_message_text(&sanitize_console_text(&display_tool_output(
         &raw_body, &tool,
@@ -3907,18 +3894,20 @@ mod tests {
         assert!(!prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));
-        assert!(prod.contains("fn event_pager"));
-        let pager = prod
-            .split("fn event_pager")
+        assert!(prod.contains("fn event_step"));
+        let chrome = prod
+            .split("fn event_detail_chrome")
             .nth(1)
-            .expect("event_pager")
-            .split("fn diff_tab")
+            .expect("event_detail_chrome")
+            .split("fn event_step")
             .next()
-            .expect("pager body");
-        assert!(pager.contains("\"Previous\""));
-        assert!(pager.contains("\"Next\""));
-        assert!(pager.contains("Space::new().width(Length::Fill)"));
-        assert!(!pager.contains("{at} of {n}"));
+            .expect("chrome body");
+        assert!(chrome.contains("Icon::Back"));
+        assert!(chrome.contains("Icon::Chevron"));
+        assert!(chrome.contains("card_cmds_row"));
+        assert!(!chrome.contains("\"Previous\""));
+        assert!(!chrome.contains("\"Next\""));
+        assert!(!chrome.contains("{at} of {n}"));
         assert!(!prod.contains("fn neighbor_link"));
         assert!(!prod.contains("‹ {name}"));
         assert!(!prod.contains("{name} ›"));
