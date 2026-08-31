@@ -222,6 +222,17 @@ class GrokAdapter:
 
         return list_turn_outcome_for_dir(SessionRef.path(ref))
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import prune_empty_parents_after_session_delete, rmtree_robust
+
+        path = SessionRef.path(ref)
+        if not path.is_dir():
+            raise FileNotFoundError(f"grok session not found: {path}")
+        parent = path.parent
+        rmtree_robust(path)
+        roots = self.default_host_roots()
+        prune_empty_parents_after_session_delete(parent, stop_at=roots[0] if roots else None)
+
     def reported_completion_ids(self, state: JsonObject) -> set[str]:
         block = state.get("grok_build.ReportedTaskCompletions")
         if not isinstance(block, dict):

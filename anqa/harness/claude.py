@@ -650,6 +650,15 @@ class ClaudeAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import rmtree_robust, unlink_file
+
+        path, sid = _jsonl_from_ref(ref, self.root())
+        folder = path.parent / sid
+        if folder.is_dir():
+            rmtree_robust(folder)
+        unlink_file(path, stop_at=self.root())
+
 
 __all__ = [
     "CLAUDE_HARNESS_ID",

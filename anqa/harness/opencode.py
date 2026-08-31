@@ -341,6 +341,28 @@ class OpenCodeAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        db, sid = _db_from_ref(ref, self.db())
+        if not sid:
+            raise FileNotFoundError("opencode session id is required")
+        db = _assert_readable(db)
+        con = sqlite3.connect(str(db))
+        try:
+            kids = [
+                str(row[0])
+                for row in con.execute("SELECT id FROM session WHERE parent_id = ?", (sid,))
+            ]
+            for child in kids:
+                con.execute("DELETE FROM part WHERE session_id = ?", (child,))
+                con.execute("DELETE FROM message WHERE session_id = ?", (child,))
+                con.execute("DELETE FROM session WHERE id = ?", (child,))
+            con.execute("DELETE FROM part WHERE session_id = ?", (sid,))
+            con.execute("DELETE FROM message WHERE session_id = ?", (sid,))
+            con.execute("DELETE FROM session WHERE id = ?", (sid,))
+            con.commit()
+        finally:
+            con.close()
+
     def _dbs_in(self, roots: Sequence[Path | str] | None) -> list[Path]:
         if roots is None:
             path = self.db()

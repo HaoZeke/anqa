@@ -460,6 +460,35 @@ class CopilotAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import rmtree_robust
+
+        db, sid = _db_from_ref(ref, self.db())
+        if not sid:
+            raise FileNotFoundError("copilot session id is required")
+        db = _assert_readable(db)
+        con = sqlite3.connect(str(db))
+        try:
+            for table in (
+                "turns",
+                "checkpoints",
+                "session_files",
+                "session_refs",
+                "forge_trajectory_events",
+                "assistant_usage_events",
+            ):
+                try:
+                    con.execute(f"DELETE FROM {table} WHERE session_id = ?", (sid,))
+                except sqlite3.OperationalError:
+                    continue
+            con.execute("DELETE FROM sessions WHERE id = ?", (sid,))
+            con.commit()
+        finally:
+            con.close()
+        state = _state_dir(db, sid)
+        if state.is_dir():
+            rmtree_robust(state)
+
     def _dbs_in(self, roots: Sequence[Path | str] | None) -> list[Path]:
         if roots is None:
             path = self.db()

@@ -339,6 +339,12 @@ class PiAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import unlink_file
+
+        path, _sid = _jsonl_from_ref(ref, self.root())
+        unlink_file(path, stop_at=self.root())
+
 
 def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
     events: list[TraceEvent] = []

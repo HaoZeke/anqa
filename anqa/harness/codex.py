@@ -532,6 +532,12 @@ class CodexAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import unlink_file
+
+        path, _sid = _jsonl_from_ref(ref, default_sessions_root())
+        unlink_file(path, stop_at=default_sessions_root())
+
 
 __all__ = [
     "CODEX_HARNESS_ID",

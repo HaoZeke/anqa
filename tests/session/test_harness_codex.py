@@ -10,6 +10,7 @@ from anqa.harness.codex import CODEX_HARNESS_ID, CodexAdapter
 from anqa.harness.registry import require_adapter
 from anqa.harness.views import session_overview, session_timeline
 from anqa.session.catalog import list_session_catalog
+from anqa.session.delete import delete_session_dirs
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
@@ -60,6 +61,13 @@ def test_catalog_lists_codex_sessions() -> None:
     assert by_id[_SID]["path"] == f"codex:{_SID}"
     assert by_id[_SID]["status"] == "complete"
     assert by_id[_RUNNING_SID]["status"] == "—"
+
+
+def test_delete_session_removes_rollout() -> None:
+    path = _install_store()
+    stats = delete_session_dirs([path])
+    assert int(stats["deleted"] or 0) == 1
+    assert not path.exists()
 
 
 def test_last_open_turn_is_idle() -> None:

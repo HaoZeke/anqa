@@ -404,6 +404,17 @@ class CursorAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import rmtree_robust, unlink_file
+
+        path, sid = _jsonl_from_ref(ref, self.root())
+        unlink_file(path, stop_at=self.root())
+        chats = self.root() / "chats"
+        if chats.is_dir():
+            for meta in chats.glob(f"*/{sid}"):
+                if meta.is_dir():
+                    rmtree_robust(meta)
+
 
 __all__ = [
     "CURSOR_HARNESS_ID",

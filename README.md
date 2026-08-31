@@ -202,7 +202,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
 | Ctrl+Shift+C | browser | Same as y |
 | E | browser | Export a session bundle |
-| x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session |
+| x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session (every harness store) |
 | s | pickers | Select |
 | Ctrl+S | pickers | Apply the selection |
 | Esc | pickers | Cancel |

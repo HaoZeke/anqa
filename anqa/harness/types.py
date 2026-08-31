@@ -76,3 +76,6 @@ class HarnessAdapter(Protocol):
 
     def list_turn_outcome(self, ref: SessionRef | Path | str) -> str:
         """Cheap list-row turn outcome from disk, or empty."""
+
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        """Remove this session from the native store (directory, file, or row)."""

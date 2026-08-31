@@ -8,10 +8,12 @@ import sqlite3
 import tarfile
 from pathlib import Path
 
+import pytest
 from anqa.harness.opencode import OPENCODE_HARNESS_ID, OpenCodeAdapter
 from anqa.harness.registry import require_adapter
 from anqa.harness.views import session_overview, session_timeline
 from anqa.session.catalog import list_session_catalog
+from anqa.session.delete import delete_session_dirs
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
@@ -67,6 +69,14 @@ def test_load_meta_and_timeline() -> None:
     tool = next(e for e in events if e.event_type == "tool_call")
     assert tool.tool_name == "bash"
     assert tool.raw_input.as_str("command") == "echo PROBE_OK"
+
+
+def test_delete_session_removes_row() -> None:
+    _install_store()
+    stats = delete_session_dirs([Path("opencode:ses_probe")])
+    assert int(stats["deleted"] or 0) == 1
+    with pytest.raises(FileNotFoundError):
+        require_adapter(Path("opencode:ses_probe")).load_meta(Path("opencode:ses_probe"))
 
 
 def test_running_session_is_not_complete() -> None:

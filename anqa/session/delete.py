@@ -1,4 +1,4 @@
-"""Delete session directories on disk."""
+"""Delete native session locators (directory, file, or database row)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,16 @@ from pathlib import Path
 from ..models import JsonObject, as_json_object
 
 logger = logging.getLogger(__name__)
+
+
+def unlink_file(path: Path, *, stop_at: Path | None = None) -> None:
+    """Remove one session file and optional empty parents up to *stop_at*."""
+    path = Path(path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    path.unlink()
+    if stop_at is not None:
+        prune_empty_parents_after_session_delete(path, stop_at=stop_at)
 
 
 def rmtree_robust(path: Path) -> None:
@@ -24,18 +34,31 @@ def rmtree_robust(path: Path) -> None:
 
 
 def session_dirs_for_delete(session_dirs: list[Path]) -> list[Path]:
-    """Normalize and de-dupe paths before delete."""
+    """Normalize and de-dupe locators before delete.
+
+    ``harness:id`` catalog refs stay as that string. Filesystem paths
+    are resolved.
+    """
+    from ..harness.ref import parse_session_ref_string
+
     seen: set[str] = set()
     out: list[Path] = []
     for sd in session_dirs:
-        try:
-            key = str(Path(sd).expanduser().resolve())
-        except OSError:
-            key = str(sd)
+        text = str(sd)
+        if parse_session_ref_string(text) is not None:
+            key = text
+            loc = Path(text)
+        else:
+            try:
+                loc = Path(sd).expanduser().resolve()
+                key = str(loc)
+            except OSError:
+                loc = Path(sd)
+                key = text
         if key in seen:
             continue
         seen.add(key)
-        out.append(Path(key))
+        out.append(loc)
     return out
 
 
@@ -48,11 +71,12 @@ def prune_empty_parents_after_session_delete(
     removed: list[Path] = []
     try:
         cur = Path(session_dir).expanduser()
-        cur = cur.parent if cur.exists() else cur.parent
         try:
             cur = cur.resolve()
         except OSError:
             pass
+        if not cur.is_dir():
+            cur = cur.parent
         stop: Path | None = None
         if stop_at is not None:
             try:
@@ -94,40 +118,25 @@ def delete_session_dirs(
     traces_root: Path | None = None,
     prune_empty_parents: bool = True,
 ) -> JsonObject:
-    """Delete session directories and optional empty parents.
+    """Delete native session locators (directory, file, or database row).
 
     :returns: Counts and error strings.
     """
+    from ..harness.registry import require_adapter
+
     deleted = 0
     errors: list[str] = []
     parents_pruned: list[str] = []
+    _ = (traces_root, prune_empty_parents)
 
-    stop_at: Path | None = None
-    if traces_root is not None:
+    for sd in session_dirs_for_delete(session_dirs):
         try:
-            stop_at = Path(traces_root).expanduser().resolve()
-        except OSError:
-            stop_at = Path(traces_root)
-
-    for sd in session_dirs:
-        p = Path(sd)
-        try:
-            if not p.exists():
-                errors.append(f"missing: {p}")
-                continue
-            if not p.is_dir():
-                errors.append(f"not a dir: {p}")
-                continue
-            parent_before = p.parent
-            rmtree_robust(p)
+            require_adapter(sd).delete_session(sd)
             deleted += 1
-            if prune_empty_parents:
-                for gone in prune_empty_parents_after_session_delete(
-                    parent_before, stop_at=stop_at
-                ):
-                    parents_pruned.append(str(gone))
+        except FileNotFoundError:
+            errors.append(f"missing: {sd}")
         except OSError as exc:
-            errors.append(f"{p}: {exc}")
+            errors.append(f"{sd}: {exc}")
 
     return as_json_object(
         {

@@ -36,7 +36,9 @@ A shipped adapter does all of this:
    that store’s own live signals through ``from_last``. ``running``
    is a turn in progress. ``—`` is no list status (last user row or
    bookend). Never default a new adapter to complete.
-9. **Scheduler blocks** (`scheduler_state`, `reported_completion_ids`)
+9. **Delete** (`delete_session`) so `x` on the session list removes
+   the native locator (directory, transcript file, or database row).
+10. **Scheduler blocks** (`scheduler_state`, `reported_completion_ids`)
    when the store has durable schedules.
 
 Next prompt, end session, rewind, and the context meter appear when

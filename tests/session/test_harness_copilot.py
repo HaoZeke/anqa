@@ -6,10 +6,12 @@ import shutil
 import tarfile
 from pathlib import Path
 
+import pytest
 from anqa.harness.copilot import COPILOT_HARNESS_ID, CopilotAdapter
 from anqa.harness.registry import require_adapter
 from anqa.harness.views import session_overview, session_timeline
 from anqa.session.catalog import list_session_catalog
+from anqa.session.delete import delete_session_dirs
 from anqa.session.export_bundle import export_session_bundle
 from anqa.session.query import CatalogQueryRow, row_matches_query
 
@@ -59,6 +61,17 @@ def test_catalog_lists_copilot_sessions() -> None:
     assert by_id[_SID]["path"] == f"copilot:{_SID}"
     assert by_id[_SID]["status"] == "complete"
     assert by_id[_RUNNING_SID]["status"] == "—"
+
+
+def test_delete_session_removes_row_and_state() -> None:
+    dest = _install_store()
+    state = dest.parent / "session-state" / _SID
+    assert state.is_dir()
+    stats = delete_session_dirs([Path(f"copilot:{_SID}")])
+    assert int(stats["deleted"] or 0) == 1
+    assert not state.exists()
+    with pytest.raises(FileNotFoundError):
+        require_adapter(Path(f"copilot:{_SID}")).load_meta(Path(f"copilot:{_SID}"))
 
 
 def test_last_open_turn_is_idle() -> None:

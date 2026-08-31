@@ -539,6 +539,30 @@ class AntigravityAdapter:
         except FileNotFoundError:
             return ""
 
+    def delete_session(self, ref: SessionRef | Path | str) -> None:
+        from ..session.delete import rmtree_robust
+
+        db, sid = _paths_from_ref(ref, self.root())
+        if not sid:
+            raise FileNotFoundError("antigravity session id is required")
+        root = self._store_root_for(db) if db.is_file() else self.root()
+        if db.is_file():
+            db.unlink()
+        brain = root / "brain" / sid
+        if brain.is_dir():
+            rmtree_robust(brain)
+        summaries = _summaries_db(root)
+        if summaries.is_file():
+            con = sqlite3.connect(str(summaries))
+            try:
+                con.execute(
+                    "DELETE FROM conversation_summaries WHERE conversation_id = ?",
+                    (sid,),
+                )
+                con.commit()
+            finally:
+                con.close()
+
 
 __all__ = [
     "ANTIGRAVITY_HARNESS_ID",
