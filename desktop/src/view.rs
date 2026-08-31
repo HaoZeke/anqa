@@ -1715,12 +1715,7 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
     column![search, hint]
         .spacing(tea.density.gap() / 2.0)
         .width(Length::Fill)
-        .padding(Padding {
-            top: 0.0,
-            right: 0.0,
-            bottom: 8.0,
-            left: 0.0,
-        })
+        .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
         .into()
 }
 
@@ -3325,6 +3320,21 @@ mod tests {
             .next()
             .expect("detail");
         assert!(detail.contains("turns_filter(hud)"));
+    }
+
+    #[test]
+    fn turns_filter_uses_chrome_inset() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        let filter = prod
+            .split("fn turns_filter")
+            .nth(1)
+            .expect("turns_filter")
+            .split("fn turns_tab")
+            .next()
+            .expect("turns_filter body");
+        assert!(filter.contains("tea.density.inset()"));
+        assert!(filter.contains("tea.density.gap()"));
     }
 
     #[test]
