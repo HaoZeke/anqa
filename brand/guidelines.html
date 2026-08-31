@@ -6,7 +6,7 @@
 <title>anqa — identity guidelines 2.0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
 <style>
   @font-face {
     font-family: "Fira Sans";
@@ -28,6 +28,26 @@
     src: url("fonts/FiraSans-ExtraBold.ttf") format("truetype");
     font-weight: 800; font-style: normal;
   }
+  @font-face {
+    font-family: "Fira Code";
+    src: url("fonts/FiraCode-Regular.ttf") format("truetype");
+    font-weight: 400; font-style: normal;
+  }
+  @font-face {
+    font-family: "Fira Code";
+    src: url("fonts/FiraCode-Medium.ttf") format("truetype");
+    font-weight: 500; font-style: normal;
+  }
+  @font-face {
+    font-family: "Fira Code";
+    src: url("fonts/FiraCode-SemiBold.ttf") format("truetype");
+    font-weight: 600; font-style: normal;
+  }
+  @font-face {
+    font-family: "Fira Code";
+    src: url("fonts/FiraCode-Bold.ttf") format("truetype");
+    font-weight: 700; font-style: normal;
+  }
   :root {
     --ink: #0B0D0C;
     --cream: #F4EFE6;
@@ -40,14 +60,16 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--cream); color: var(--ink);
     font-family: "Fira Sans", system-ui, sans-serif; font-weight: 400;
-    font-size: 16px; line-height: 1.5; }
+    font-size: 16px; line-height: 1.5;
+    font-variant-ligatures: common-ligatures contextual;
+    font-feature-settings: "liga" 1, "calt" 1; }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 64px 32px 120px; }
   h1 { font-weight: 800; font-size: 56px; letter-spacing: -0.04em; line-height: 1; margin: 0 0 12px; }
   h2 { font-weight: 800; font-size: 28px; letter-spacing: -0.03em; margin: 72px 0 16px; }
   h3 { font-weight: 600; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; margin: 32px 0 12px; }
   p { max-width: 68ch; }
   .lede { font-size: 20px; font-weight: 500; max-width: 52ch; }
-  .meta { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; opacity: .7; }
+  .meta { font-family: "Fira Code", ui-monospace, monospace; font-size: 12px; opacity: .7; }
   .rule { border: 0; border-top: 1px solid var(--line); margin: 48px 0; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -59,11 +81,11 @@
   .swatch { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
   .swatch .chip { height: 88px; }
   .swatch .info { padding: 12px 14px; background: #fff; font-size: 13px; }
-  .swatch code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+  .swatch code { font-family: "Fira Code", ui-monospace, monospace; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; opacity: .65; font-weight: 600; }
-  code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; }
+  code, .mono { font-family: "Fira Code", ui-monospace, monospace; font-size: 13px; }
   .specimen { font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
   .clear { position: relative; display: inline-block; padding: 28px; outline: 1px dashed var(--pink); }
   .dont { opacity: .85; }
@@ -133,15 +155,15 @@
   <tr><th>Role</th><th>Face</th><th>Weight</th><th>Tracking</th><th>Case</th></tr>
   <tr><td>Wordmark</td><td>Fira Sans</td><td>800 ExtraBold</td><td>−40 (−0.04 em)</td><td>lowercase only</td></tr>
   <tr><td>UI / guidelines / site</td><td>Fira Sans</td><td>400 / 500 / 600</td><td>0</td><td>sentence</td></tr>
-  <tr><td>Code, HUD, hex labels</td><td>JetBrains Mono</td><td>400 / 500</td><td>0</td><td>as written</td></tr>
+  <tr><td>Code, HUD, hex labels</td><td>Fira Code</td><td>400 / 500 / 600 / 700</td><td>0</td><td>as written; liga + calt</td></tr>
 </table>
-<p>Install: <span class="mono">fonts/FiraSans-ExtraBold.ttf</span> (and Regular / Medium / SemiBold). License: <span class="mono">fonts/OFL.txt</span>. Google Fonts CSS:</p>
+<p>Install: <span class="mono">fonts/FiraSans-*.ttf</span> and <span class="mono">fonts/FiraCode-*.ttf</span>. Licenses: <span class="mono">fonts/OFL.txt</span> (Sans), <span class="mono">fonts/FiraCode-OFL.txt</span> (Code). Ligatures are on for both faces. Google Fonts CSS:</p>
 <p class="mono" style="background:#fff;border:1px solid var(--line);padding:12px 14px;border-radius:8px">
-https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap
+https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;800&amp;family=Fira+Code:wght@400;500;600;700&amp;display=swap
 </p>
 <p class="specimen" style="font-size:72px;margin:24px 0 8px">anqa</p>
 <p class="specimen" style="font-size:36px;font-weight:500;letter-spacing:0">Fira Sans · 500</p>
-<p class="mono" style="font-size:18px;margin-top:8px">JetBrains Mono · anqa serve −d</p>
+<p class="mono" style="font-size:18px;margin-top:8px">Fira Code · anqa serve -d ==&gt; ready</p>
 
 <h2>7. Clear space and minimum size</h2>
 <p>Clear space on every side equals <strong>one eye</strong> (the cyan disc). Call that unit <span class="mono">E</span>. Nothing (type, rules, other marks) enters that margin.</p>
@@ -201,14 +223,19 @@ https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;800&amp;fami
     FiraSans-SemiBold.ttf
     FiraSans-Medium.ttf
     FiraSans-Regular.ttf
+    FiraCode-Regular.ttf
+    FiraCode-Medium.ttf
+    FiraCode-SemiBold.ttf
+    FiraCode-Bold.ttf
     OFL.txt
+    FiraCode-OFL.txt
   png/                     ← usable rasters
   svg/                     ← typeset wordmark + PNG wrappers
 </p>
 <p>Regenerate after replacing the painting or the decorated word: <span class="mono">uv run --with fonttools --with numpy --with pillow python build.py</span>.</p>
 
 <footer>
-  anqa 2.0 · truck-art mark · Fira Sans © Mozilla and Telefónica, SIL OFL 1.1 · JetBrains Mono © JetBrains, SIL OFL 1.1
+  anqa 2.0 · truck-art mark · Fira Sans © Mozilla and Telefónica, SIL OFL 1.1 · Fira Code © The Fira Code Project Authors, SIL OFL 1.1
 </footer>
 </div>
 </body>

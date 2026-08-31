@@ -83,8 +83,8 @@ Cursor (`cursor`) are registered.
 
 ### Desktop HUD
 
-- UI type is brand Fira Sans (Regular / SemiBold), loaded from
-  `brand/fonts/`. Mono stays the host face.
+- UI type is brand Fira Sans and Fira Code from `brand/fonts/`.
+  Ligatures are on (`liga` / `calt`).
 - `anqa hud` is the summonable session palette (Overview, Turns,
   Timeline, Diff, Notes).
 - It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`

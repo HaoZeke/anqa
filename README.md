@@ -266,8 +266,8 @@ Timeline search (same `AND` / `OR` / `NOT`) also takes `is:tool` (or `user`, `as
 
 Summonable palette: Recent sessions (scroll or `j` for more), catalog
 search (same query language as the terminal list), then Overview /
-Turns / Timeline / Diff / Notes. `u` or the logo
-returns to the session list.
+Turns / Timeline / Diff / Notes. Type is Fira Sans and Fira Code
+with ligatures. `u` or the logo returns to the session list.
 Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash

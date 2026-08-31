@@ -22,7 +22,7 @@ out, so it sits on a dark page. The solid reverse and the dock tiles are
 the only filled fields: reverse for print on ink, dock tiles so the OS
 icon slot is a cream square.
 
-Wordmark type (when setting the name in product chrome) is **Fira Sans ExtraBold 800**, tracking −0.04 em, lowercase only. Files and SIL license in `fonts/`. The decorated letters under the bird live in `source/word-ornament.png`.
+Wordmark type (when setting the name in product chrome) is **Fira Sans ExtraBold 800**, tracking −0.04 em, lowercase only. Code is **Fira Code**. Files and SIL licenses in `fonts/` (`OFL.txt` for Sans, `FiraCode-OFL.txt` for Code). The decorated letters under the bird live in `source/word-ornament.png`.
 
 Rebuild after replacing `source/approved.jpg` or `source/word-ornament.png` (fonttools, numpy, pillow):
 

@@ -22,6 +22,7 @@ iced = { version = "0.14", default-features = true, features = [
     "canvas",
     "image",
     "advanced",
+    "advanced-shaping",
     "lazy",
     "highlighter",
     "svg",
