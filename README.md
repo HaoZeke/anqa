@@ -188,7 +188,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | q | everywhere | Quit when no field is focused |
 | / | sessions | Search (Tab completes the last token) |
 | s / Space | sessions | Select (also Space) |
-| S | sessions | Select all |
+| S | sessions | Select all rows in the current filter |
 | E | sessions | Export a session bundle |
 | Ctrl+O | sessions / HUD | Import a harness archive or anqa export |
 | x | sessions | Delete (press twice) |

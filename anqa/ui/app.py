@@ -1635,14 +1635,14 @@ class AnqaApp(App):
             self.refresh_bindings()
 
     def action_select_all(self) -> None:
-        """Select all or deselect all (in-place markers; no cursor jump)."""
+        """Select or clear every row in the current filter (not the whole catalog)."""
         table = self.query_one("#session-table", DataTable)
         preserve = self._session_row_key_at_cursor(table)
-        if self._selected:
-            self._selected.clear()
+        visible = {str(meta.session_dir) for meta, _ in self._filtered_session_rows()}
+        if visible and visible <= self._selected:
+            self._selected -= visible
         else:
-            for meta, _ in self._meta_only:
-                self._selected.add(str(meta.session_dir))
+            self._selected |= visible
         self._refresh_session_selection_markers(table)
         if preserve:
             self._restore_cursor(table, preserve)

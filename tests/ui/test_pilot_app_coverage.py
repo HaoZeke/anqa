@@ -295,6 +295,26 @@ async def test_model_token_filters_sessions(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_select_all_uses_filtered_rows(tmp_path: Path) -> None:
+    """``S`` selects every row in the current filter, not the whole catalog."""
+    app, _, _ = _make_app(tmp_path, n_sessions=4, model_ids=["alpha", "beta"])
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
+        table = app.query_one("#session-table", DataTable)
+        await wait_until(pilot, lambda: table.row_count >= 4, description="table populated")
+        app._set_session_query("model:alpha")
+        await wait_until(pilot, lambda: table.row_count == 2, description="filter applied")
+        app.action_select_all()
+        await pilot.pause()
+        assert len(app._selected) == 2
+        visible = {str(meta.session_dir) for meta, _ in app._filtered_session_rows()}
+        assert app._selected == visible
+        app.action_select_all()
+        await pilot.pause()
+        assert app._selected == set()
+
+
+@pytest.mark.asyncio
 async def test_auto_theme_is_not_pinned_to_ansi(tmp_path: Path) -> None:
     """Applying auto must not write ansi-light / ansi-dark into config.toml."""
     import tomlkit
