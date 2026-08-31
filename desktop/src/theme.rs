@@ -207,15 +207,14 @@ fn user_theme_tokens(name: &str) -> Option<Tokens> {
             .unwrap_or(fallback)
     };
     let canvas = hex(&["background", "canvas"], Color::from_rgb8(18, 18, 20));
-    let catalog_ink = hex(&["foreground", "text"], Color::from_rgb8(224, 224, 224));
-    let text = ink_on_at(catalog_ink, canvas, 7.0);
+    let text = hex(&["foreground", "text"], Color::from_rgb8(224, 224, 224));
     let primary = hex(&["primary"], Color::from_rgb8(1, 120, 212));
     Some(Tokens::from_aliases(
         canvas,
         hex(&["surface"], mix(text, canvas, 0.08)),
         hex(&["panel"], mix(text, canvas, 0.10)),
         text,
-        hex(&["muted", "secondary"], ink_on(catalog_ink, canvas)),
+        hex(&["muted", "secondary"], mix(text, canvas, 0.45)),
         primary,
         hex(&["accent"], Color::from_rgb8(254, 166, 43)),
         hex(&["success"], Color::from_rgb8(78, 191, 113)),
@@ -406,19 +405,16 @@ pub fn tokens_with(name: &str, look: Look) -> Tokens {
 }
 
 fn textual_tokens(name: &str) -> Tokens {
+    // Same fields as ``theme_from_mapping`` in the terminal app.
     let colors = catalog_colors(name).unwrap_or(Value::Null);
     let fallback_bg = Color::from_rgb8(18, 18, 20);
     let canvas = color_of(&colors, "background", fallback_bg);
-    let catalog_ink = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
-    // Textual ``foreground`` is often mid-gray (Solarized base0). Lift body
-    // ink to 7:1 so titles and hunks stay readable.
-    let text = ink_on_at(catalog_ink, canvas, 7.0);
-    let catalog_muted = color_of(
+    let text = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
+    let muted = color_of(
         &colors,
         "foreground-darken-2",
-        color_of(&colors, "foreground-muted", catalog_ink),
+        color_of(&colors, "foreground-muted", mix(text, canvas, 0.45)),
     );
-    let muted = ink_on(catalog_muted, canvas);
     let primary = color_of(&colors, "primary", Color::from_rgb8(1, 120, 212));
     let accent = color_of(&colors, "accent", Color::from_rgb8(254, 166, 43));
     let success = color_of(&colors, "success", Color::from_rgb8(78, 191, 113));
@@ -426,8 +422,7 @@ fn textual_tokens(name: &str) -> Tokens {
     let danger = color_of(&colors, "error", Color::from_rgb8(185, 60, 91));
     let surface = color_of(&colors, "surface", mix(text, canvas, 0.08));
     let panel = color_of(&colors, "panel", mix(text, canvas, 0.10));
-    // Catalog ``border`` is usually the TUI focus blue. Quiet outline for HUD.
-    let border = mix(text, canvas, 0.28);
+    let border = color_of(&colors, "primary-background", mix(primary, canvas, 0.35));
     Tokens::from_aliases(
         canvas, surface, panel, text, muted, primary, accent, success, warning, danger, border,
     )
@@ -733,18 +728,12 @@ mod tests {
     }
 
     #[test]
-    fn solarized_dark_body_ink_beats_catalog_foreground() {
+    fn solarized_dark_uses_tui_foreground_and_a_faded_mute() {
         let t = tokens("solarized-dark");
-        let catalog = Color::from_rgb8(0x83, 0x94, 0x96);
-        assert!(
-            contrast_ratio(t.text, t.canvas) >= 7.0,
-            "solarized body {} on {} is {:.2}",
-            t.text.r,
-            t.canvas.r,
-            contrast_ratio(t.text, t.canvas)
-        );
-        assert!(contrast_ratio(t.text, t.canvas) > contrast_ratio(catalog, t.canvas));
-        assert!(contrast_ratio(t.muted, t.canvas) >= 4.5);
+        assert_eq!(t.text, Color::from_rgb8(0x83, 0x94, 0x96));
+        assert_eq!(t.canvas, Color::from_rgb8(0x00, 0x2B, 0x36));
+        assert_ne!(t.muted, t.text);
+        assert!(contrast_ratio(t.muted, t.canvas) < contrast_ratio(t.text, t.canvas));
     }
 
     #[test]

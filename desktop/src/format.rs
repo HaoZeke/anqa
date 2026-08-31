@@ -46,7 +46,7 @@ pub fn origin_label(origin: &str) -> &'static str {
 }
 
 pub fn is_blank_status(status: &str) -> bool {
-    status.trim().is_empty()
+    matches!(status.trim(), "" | "—" | "-" | "–")
 }
 
 /// Home-list terminal labels. A later live label without a live outcome is hydrate flicker.
@@ -2814,7 +2814,7 @@ mod tests {
     fn list_status_prefers_status_then_outcome() {
         assert_eq!(list_status_label("complete", ""), "complete");
         assert_eq!(list_status_label("completed", ""), "complete");
-        assert_eq!(list_status_label("—", "completed"), "—");
+        assert_eq!(list_status_label("—", "completed"), "complete");
         assert_eq!(
             remap_turn_outcome_paren("turn 56 (completed)"),
             "turn 56 (complete)"
@@ -2832,7 +2832,7 @@ mod tests {
         assert_eq!(status_tone("cancelled"), "cancelled");
         assert_eq!(status_tone("complete"), "complete");
         assert!(is_blank_status(""));
-        assert!(!is_blank_status("—"));
+        assert!(is_blank_status("—"));
         assert!(!is_blank_status("complete"));
         assert!(is_terminal_status("complete"));
         assert!(is_terminal_status("cancelled"));

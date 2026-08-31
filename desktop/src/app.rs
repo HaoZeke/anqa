@@ -12649,8 +12649,7 @@ mod tests {
         assert_eq!(hud.page_role(), MotionRole::Step);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::Down);
         let _ = hud.update(Message::CloseTimelineDetail);
-        assert_eq!(hud.page_role(), MotionRole::Pop);
-        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Start);
+        assert!(hud.timeline_open.is_none());
     }
 
     #[test]
