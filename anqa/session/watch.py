@@ -1,7 +1,7 @@
 """Non-recursive catalog watch: membership dirs and session dirs.
 
 Plane writes show up as children of the session directory. ``workspace/``
-is never subscribed. ``anqa serve`` and the TUI share this path set.
+is never subscribed. ``anqad`` and the TUI share this path set.
 """
 
 from __future__ import annotations

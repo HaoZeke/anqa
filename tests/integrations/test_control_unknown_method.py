@@ -1,4 +1,4 @@
-"""Unknown-method errors mean a stale anqa serve, not a dead socket."""
+"""Unknown-method errors mean a stale anqad, not a dead socket."""
 
 from __future__ import annotations
 

@@ -806,8 +806,7 @@ def control_json_schema() -> JsonObject:
             "$id": SCHEMA_ID,
             "title": SCHEMA_TITLE,
             "description": (
-                "JSON-RPC 2.0 control protocol for anqa serve "
-                f"(protocolVersion {PROTOCOL_VERSION})."
+                f"JSON-RPC 2.0 control protocol for anqad (protocolVersion {PROTOCOL_VERSION})."
             ),
             "type": "object",
             "additionalProperties": False,
@@ -892,33 +891,33 @@ and talk JSON-RPC 2.0. They never bind the socket.
 
 Implementation: `anqa/control/contract.py` (contract),
 `anqa/control/server.py` (owner),
-`anqa/control/daemon.py` (`anqa serve`),
+`anqa/control/daemon.py` (`anqad`),
 `anqa/control/client.py` (Python attach).
 
 ## Start and stop
 
 ```bash
-anqa serve                 # foreground (Ctrl-C / SIGTERM)
-anqa serve -d              # background; return when the socket accepts
-anqa serve stop
-anqa serve restart         # stop, then start -d
-anqa serve status          # exit 0 if live
+anqad                 # foreground (Ctrl-C / SIGTERM)
+anqad -d              # background; return when the socket accepts
+anqad stop
+anqad restart         # stop, then start -d
+anqad status          # exit 0 if live
 ```
 
-A second `serve -d` reports already running. Quitting a client leaves the
-owner up.
+A second `anqad -d` reports already running. Quitting a client leaves the
+control process up.
 
 ## Socket
 
 Default path: `$XDG_RUNTIME_DIR/anqa/control.sock`, or
 `~/.anqa/run/control.sock` when `XDG_RUNTIME_DIR` is unset.
 
-`-s` / `--socket PATH` on `serve` and on every client selects another
-path. The HUD also reads `ANQA_CONTROL_SOCKET` (the Python launcher sets
-this when it starts the palette).
+`-s` / `--socket PATH` on `anqad` and on every client selects another
+path. The desktop palette also reads `ANQA_CONTROL_SOCKET` (the Python
+launcher sets this when it starts the palette).
 
 ```bash
-anqa serve -d -s /path/to/control.sock
+anqad -d -s /path/to/control.sock
 anqa -s /path/to/control.sock
 ```
 

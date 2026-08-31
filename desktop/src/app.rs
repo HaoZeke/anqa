@@ -4470,7 +4470,7 @@ impl Hud {
         if n == 0 {
             self.status_err = true;
             crate::log::error("no sessions from control");
-            self.status = "No sessions from control · is anqa serve running?".into();
+            self.status = "No sessions from control · is anqad running?".into();
             return;
         }
         self.status_err = false;

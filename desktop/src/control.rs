@@ -102,7 +102,7 @@ fn dirs_home() -> Option<PathBuf> {
 /// macOS surfaces listen-queue pressure and SO_RCVTIMEO expiry as EAGAIN
 /// (os error 35, "Resource temporarily unavailable") — not always as
 /// ``WouldBlock``. Also retry refused/missing path while the control owner
-/// binds after ``anqa serve`` / auto-serve spawn.
+/// binds after ``anqad`` / auto-start spawn.
 #[cfg(unix)]
 fn is_transient_io_error(err: &std::io::Error) -> bool {
     use std::io::ErrorKind;
@@ -179,7 +179,7 @@ fn connect_unix(path: &Path) -> Result<std::os::unix::net::UnixStream, ControlEr
             }
             Err(e) => {
                 return Err(ControlError::Message(format!(
-                    "connect {}: {e} (run: anqa serve start -d)",
+                    "connect {}: {e} (run: anqad -d)",
                     path.display()
                 )));
             }
@@ -192,7 +192,7 @@ fn connect_unix(path: &Path) -> Result<std::os::unix::net::UnixStream, ControlEr
         )
     });
     Err(ControlError::Message(format!(
-        "connect {}: {e} (run: anqa serve start -d)",
+        "connect {}: {e} (run: anqad -d)",
         path.display()
     )))
 }
@@ -295,7 +295,7 @@ fn request(method: &str, params: Value) -> Result<Value, ControlError> {
         }
         Err(last.unwrap_or_else(|| {
             ControlError::Message(format!(
-                "control {method} timed out on {} (run: anqa serve start -d)",
+                "control {method} timed out on {} (run: anqad -d)",
                 path.display()
             ))
         }))

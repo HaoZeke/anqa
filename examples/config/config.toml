@@ -5,7 +5,7 @@
 
 theme = "auto"
 follow_os = false
-auto_serve = true
+auto_anqad = true
 live_refresh_workers = 1
 
 [hud]

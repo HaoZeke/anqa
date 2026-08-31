@@ -1456,5 +1456,5 @@ ui-origin-import = Import
 
 ui-control-socket-attach-failed = Control owner not reachable
 
-ui-control-owner-stale = control owner is older · run: anqa serve restart
+ui-control-owner-stale = control owner is older · run: anqad restart
 

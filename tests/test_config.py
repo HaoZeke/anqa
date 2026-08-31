@@ -31,7 +31,7 @@ def test_defaults_when_missing() -> None:
     cfg = load_app_config()
     assert cfg.theme == "auto"
     assert cfg.follow_os is False
-    assert cfg.auto_serve is True
+    assert cfg.auto_anqad is True
     assert cfg.live_refresh_workers == 1
     assert cfg.hud.window_mode is False
     assert cfg.hud.global_shortcut == ""
@@ -178,7 +178,7 @@ def test_schema_has_published_id() -> None:
     for key in (
         "theme",
         "follow_os",
-        "auto_serve",
+        "auto_anqad",
         "live_refresh_workers",
         "hud",
         "export",
@@ -195,7 +195,7 @@ def test_validate_example_file() -> None:
     cfg = validate_config_file(path)
     assert cfg.theme == "auto"
     assert cfg.follow_os is False
-    assert cfg.auto_serve is True
+    assert cfg.auto_anqad is True
     assert cfg.live_refresh_workers == 1
     assert cfg.hud.desktop_notifications is True
     assert cfg.export.default_profile == ""

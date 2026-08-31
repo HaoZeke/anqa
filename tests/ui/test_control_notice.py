@@ -14,7 +14,7 @@ def test_unknown_method_uses_restart_copy() -> None:
     )
     assert text == t("ui-control-owner-stale")
     assert "method not found" not in text
-    assert "anqa serve restart" in text
+    assert "anqad restart" in text
 
 
 def test_other_errors_keep_fallback() -> None:

@@ -333,7 +333,7 @@ fn catalog_query_ink(kind: QuerySpanKind) -> icedtea::widget::FieldInk {
 }
 
 fn empty_sessions(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    kit::status_empty("No sessions", "Is anqa serve running?", tea)
+    kit::status_empty("No sessions", "Is anqad running?", tea)
 }
 
 fn no_session_matches(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -3771,7 +3771,7 @@ mod tests {
         let _ = empty_sessions(tea());
         let _ = busy_pane();
         let _ = select_session(tea());
-        let _ = status_copy("control socket down · run: anqa serve -d", true, tea());
+        let _ = status_copy("control socket down · run: anqad -d", true, tea());
         let _ = status_copy("12 sessions · ready", false, tea());
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")

@@ -90,25 +90,25 @@ Cursor (`cursor`) are registered.
   Ligatures are on (`liga` / `calt`). Search chrome uses a 64px-tall
   mark. List rows are hairline tiles; status is a pill; other facts
   are muted text. The search glass sits inside the field.
-- `anqa hud` is the summonable session palette (Overview, Turns,
+- `anqa desktop` is the summonable session palette (Overview, Turns,
   Timeline, Diff, Notes).
 - It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`
   cargo-builds this checkout.
 - Default hotkey is Cmd+Shift+A (macOS) / Ctrl+Shift+A (Windows and
-  X11). On Wayland bind `anqa hud --toggle`.
+  X11). On Wayland bind `anqa desktop --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
 
 ### Control
 
-- `anqa serve` owns the per-user Unix socket. The four clients
+- `anqad` owns the per-user Unix socket. The four clients
   attach: terminal app, desktop HUD, Emacs, and Neovim.
 - Serve arms each catalog root watch off the serve loop. The watch
   covers membership directories and session directories (not each
   plane file). Catalog ``has:goal`` / ``has:plan`` follow the goal
   and plan files on disk.
-- Bare `anqa` and `anqa hud` detach-start serve when the socket is
-  free. Quitting a client leaves serve running.
+- Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
+  free. Quitting a client leaves anqad running.
 - `protocolVersion` is semver (`1.0.0`), independent of the product
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.

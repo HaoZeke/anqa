@@ -20,14 +20,14 @@ def invalidate_prefs_cache() -> None:
     invalidate_config_cache()
 
 
-def auto_serve_enabled() -> bool:
-    """Whether the TUI should detach-start a control owner when the socket is free."""
-    return load_app_config().auto_serve
+def auto_anqad_enabled() -> bool:
+    """Whether the TUI should detach-start anqad when the socket is free."""
+    return load_app_config().auto_anqad
 
 
-def set_auto_serve(enabled: bool) -> None:
+def set_auto_anqad(enabled: bool) -> None:
     try:
-        update_app_config(auto_serve=bool(enabled))
+        update_app_config(auto_anqad=bool(enabled))
     except OSError:
         logger.warning(t("ui-failed-to-write-prefs-to-s"), app_config_path(), exc_info=True)
 

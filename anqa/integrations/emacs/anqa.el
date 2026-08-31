@@ -9,7 +9,7 @@
 ;; View a running Anqa session as an Org buffer and edit operator notes
 ;; without making the generated trace projection writable.
 ;;
-;; Requires a live control owner (``anqa serve start -d`` or TUI auto-serve)
+;; Requires a live control process (``anqad -d`` or TUI auto-start)
 ;; on the same Unix socket as other clients (HUD, Vim).
 
 ;;; Code:

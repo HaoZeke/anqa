@@ -141,9 +141,9 @@ class AppConfig(BaseModel):
         default=False,
         description="Named pairs follow the host light/dark setting.",
     )
-    auto_serve: bool = Field(
+    auto_anqad: bool = Field(
         default=True,
-        description="Detach-start anqa serve when the control socket is free.",
+        description="Detach-start anqad when the control socket is free.",
     )
     live_refresh_workers: int = Field(
         default=1, ge=1, description="Live timeline refresh pool size."
@@ -217,7 +217,7 @@ def _ensure_table(container: tomlkit.TOMLDocument | Table, key: str) -> Table:
 def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     doc["theme"] = cfg.theme
     doc["follow_os"] = cfg.follow_os
-    doc["auto_serve"] = cfg.auto_serve
+    doc["auto_anqad"] = cfg.auto_anqad
     doc["live_refresh_workers"] = cfg.live_refresh_workers
     # Dropped keys; ignored on read so a leftover file does not grow them back.
     if "analysis" in doc:
@@ -265,7 +265,7 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
     for key in (
         "theme",
         "follow_os",
-        "auto_serve",
+        "auto_anqad",
         "live_refresh_workers",
     ):
         if key in raw:

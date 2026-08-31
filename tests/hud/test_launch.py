@@ -281,7 +281,7 @@ def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
             error="",
         )
         os.environ.pop("ANQA_HUD_SHOW_ON_START", None)
-        code = hud_app.run_hud(summon="show", auto_serve=True, socket_path=sock)
+        code = hud_app.run_hud(summon="show", auto_anqad=True, socket_path=sock)
         assert code == 0
         assert os.environ.get("ANQA_HUD_SHOW_ON_START") == "1"
         mock_launch.assert_called_once()
@@ -296,7 +296,7 @@ def test_run_hud_summon_toggle_when_socket_live() -> None:
         patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
         patch.object(hud_app, "launch_hud") as mock_launch,
     ):
-        code = hud_app.run_hud(summon="toggle", auto_serve=False)
+        code = hud_app.run_hud(summon="toggle", auto_anqad=False)
     assert code == 0
     mock_send.assert_called_once_with("toggle")
     mock_daemon.assert_not_called()

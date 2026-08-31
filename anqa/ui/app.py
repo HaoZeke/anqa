@@ -379,7 +379,7 @@ class AnqaApp(App):
                 self._config_path,
                 theme=str(self._config.get("theme") or "auto"),
                 follow_os=self._config.get("follow_os") is True,
-                auto_serve=self._config.get("auto_serve") is not False,
+                auto_anqad=self._config.get("auto_anqad") is not False,
             )
         except OSError:
             logger.warning(
@@ -788,7 +788,7 @@ class AnqaApp(App):
         return bool(self._control_attached and self._control_socket is not None)
 
     def is_control_owner(self) -> bool:
-        """Always false: headless ``anqa serve`` is the sole socket owner."""
+        """Always false: headless ``anqad`` is the sole socket owner."""
         return False
 
     def control_client(self) -> ControlClient | None:

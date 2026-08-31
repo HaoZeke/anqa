@@ -7,7 +7,7 @@ search (pick, save, delete). Open a session for Overview,
 Turns, Timeline, Diff, and Notes. Notes use the same schema as the
 [terminal app](../README.md#terminal-app).
 
-It attaches to [`anqa serve`](../docs/control.md) — same socket as the
+It attaches to [`anqad`](../docs/control.md) — same socket as the
 [terminal app](../README.md#terminal-app), [Emacs](../README.md#emacs),
 and [Neovim](../README.md#neovim-09). See [Desktop
 HUD](../README.md#desktop-hud) in the main README.
@@ -15,12 +15,12 @@ HUD](../README.md#desktop-hud) in the main README.
 ## Run
 
 ```bash
-anqa serve -d
-anqa hud
+anqad -d
+anqa desktop
 ```
 
-`anqa hud` detaches and starts serve when the socket is free. One
-process, one tray tile: a second `anqa hud` shows the palette. It runs
+`anqa desktop` detaches and starts anqad when the socket is free. One
+process, one tray tile: a second `anqa desktop` shows the palette. It runs
 the `anqa-hud` on `PATH` from `uv tool install` (or `ANQA_HUD_BIN`).
 `--rebuild` cargo-builds this checkout, then launches that binary.
 `--restart` replaces a running palette (including `--dev --restart`).
@@ -29,9 +29,9 @@ terminal. `anqa --version` and `anqa-hud --version` (`-V`) print the
 product version.
 
 ```bash
-anqa hud --toggle    # show or hide
-anqa hud --show
-anqa hud --hide
+anqa desktop --toggle    # show or hide
+anqa desktop --show
+anqa desktop --hide
 ```
 
 `--install-desktop` writes user-local icons and a launcher named
@@ -42,7 +42,7 @@ Windows Start Menu). Re-run after moving the binary.
 
 Default **Cmd+Shift+A** (macOS) / **Ctrl+Shift+A** (Windows and X11
 Linux). Override with `hud.global_shortcut` in `~/.anqa/config.toml`
-or `ANQA_HUD_SHORTCUT`. On Wayland bind `anqa hud --toggle` (the
+or `ANQA_HUD_SHORTCUT`. On Wayland bind `anqa desktop --toggle` (the
 compositor sends an activation token so you can type). Tray **Show**
 and a terminal `--toggle` do not steal the keyboard. Sway
 places the overlay; focus is the token.
@@ -103,9 +103,9 @@ tray tile; macOS and Windows use the square app icon
 ## Develop
 
 ```bash
-uv run anqa hud             # PATH / ANQA_HUD_BIN, else checkout release
-uv run anqa hud --restart
-uv run anqa hud --rebuild   # cargo release of this tree
+uv run anqa desktop             # PATH / ANQA_HUD_BIN, else checkout release
+uv run anqa desktop --restart
+uv run anqa desktop --rebuild   # cargo release of this tree
 just hud-check                # from the repo root
 ```
 

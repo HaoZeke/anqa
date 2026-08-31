@@ -11,7 +11,7 @@ def control_operator_text(exc: BaseException, *, fallback_id: str) -> str:
     """Friendly toast copy; callers log the raw exception separately.
 
     Unknown-method (-32601) means this process is talking to an older
-    ``anqa serve``. Other failures keep *fallback_id* with a short ``err``.
+    ``anqad``. Other failures keep *fallback_id* with a short ``err``.
     """
     if is_unknown_method(exc):
         return t("ui-control-owner-stale")

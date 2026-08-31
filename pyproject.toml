@@ -53,6 +53,7 @@ Documentation = "https://indynull.github.io/anqa/"
 
 [project.scripts]
 anqa = "anqa.cli:main"
+anqad = "anqa.anqad:main"
 
 [project.optional-dependencies]
 test = [

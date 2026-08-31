@@ -29,7 +29,7 @@ def run_hud(
     *,
     socket_path: Path | None = None,
     catalog_root: Path | None = None,
-    auto_serve: bool = True,
+    auto_anqad: bool = True,
     dev: bool = False,
     debug: bool = False,
     rebuild: bool = False,
@@ -56,7 +56,7 @@ def run_hud(
     running, ``show`` and ``toggle`` start it with
     ``ANQA_HUD_SHOW_ON_START``; ``hide`` is a no-op (exit 0).
 
-    The HUD is always a **client**. A live TUI or ``anqa serve`` already
+    The HUD is always a **client**. A live TUI or ``anqad`` already
     holding the socket is success (attach), not an error.
 
     :returns: Process exit code (0 normal, 1 failure, 127 binary missing).
@@ -68,8 +68,8 @@ def run_hud(
         if code == 127:
             sys.stderr.write(
                 "error: anqa-hud binary not found.\n"
-                "From a checkout with Rust installed, ``anqa hud`` auto-builds.\n"
-                "  anqa hud --rebuild --install-desktop\n"
+                "From a checkout with Rust installed, ``anqa desktop`` auto-builds.\n"
+                "  anqa desktop --rebuild --install-desktop\n"
                 "Override path with ANQA_HUD_BIN.\n"
             )
         return code
@@ -112,7 +112,7 @@ def run_hud(
     load_app_config()
     sock = Path(socket_path or default_socket_path()).expanduser()
     tr = resolve_catalog_root(catalog_root)
-    if auto_serve:
+    if auto_anqad:
         result = ensure_control_daemon(
             socket_path=sock,
             traces_path=tr,
@@ -131,7 +131,7 @@ def run_hud(
             sys.stderr.write(f"error: control owner unavailable: {result.error}\n")
             return 1
         if result.already_running:
-            sys.stderr.write(f"anqa hud: using existing control owner at {sock}\n")
+            sys.stderr.write(f"anqa desktop: using existing control owner at {sock}\n")
         if not wait_until_control_accepts(sock, timeout=8.0):
             sys.stderr.write(f"error: control socket not accepting: {sock}\n")
             return 1
@@ -154,10 +154,10 @@ def run_hud(
     if code == 127:
         sys.stderr.write(
             "error: anqa-hud binary not found.\n"
-            "From a checkout with Rust installed, ``anqa hud`` auto-builds.\n"
-            "  anqa hud --rebuild\n"
-            "Unoptimized binary: anqa hud --debug\n"
-            "Debug cargo run: anqa hud --dev\n"
+            "From a checkout with Rust installed, ``anqa desktop`` auto-builds.\n"
+            "  anqa desktop --rebuild\n"
+            "Unoptimized binary: anqa desktop --debug\n"
+            "Debug cargo run: anqa desktop --dev\n"
             "Override path with ANQA_HUD_BIN.\n"
         )
         return 127

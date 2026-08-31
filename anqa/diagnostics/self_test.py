@@ -115,7 +115,7 @@ def _check_session_display() -> CheckResult:
         if x11:
             detail += f"; Xwayland DISPLAY={x11}"
         detail += (
-            " — HUD summon: anqa hud --toggle (forwards XDG_ACTIVATION_TOKEN) "
+            " — HUD summon: anqa desktop --toggle (forwards XDG_ACTIVATION_TOKEN) "
             "/ tray (no X11 hotkey)"
         )
         return CheckResult(
@@ -183,14 +183,14 @@ def _check_hud_summon_socket() -> CheckResult:
             id="hud_summon",
             name="HUD summon socket",
             ok=True,
-            detail=f"listening at {path} (anqa hud --toggle)",
+            detail=f"listening at {path} (anqa desktop --toggle)",
             required=False,
         )
     return CheckResult(
         id="hud_summon",
         name="HUD summon socket",
         ok=False,
-        detail=f"not listening ({path}) — start with: anqa hud",
+        detail=f"not listening ({path}) — start with: anqa desktop",
         required=False,
     )
 

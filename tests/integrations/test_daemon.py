@@ -315,8 +315,7 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
     cmd_base = [
         sys.executable,
         "-c",
-        "from anqa.cli import main; main()",
-        "serve",
+        "from anqa.anqad import main; main()",
         "-P",
         str(store),
         "-s",
@@ -470,7 +469,7 @@ async def test_tui_attaches_as_client_to_daemon_owner(tmp_path: Path) -> None:
 def test_stop_terminates_foreground_pid_file_owner(tmp_path: Path) -> None:
     """serve stop must kill a pid-file owner that is NOT a session leader.
 
-    Foreground ``anqa serve`` writes a pid file but does not call
+    Foreground ``anqad`` writes a pid file but does not call
     start_new_session; killpg(pid) raises ESRCH for that process. Stop must
     fall through to kill(pid) and actually terminate the owner.
     """
@@ -616,8 +615,7 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
     cmd = [
         sys.executable,
         "-c",
-        "from anqa.cli import main; main()",
-        "serve",
+        "from anqa.anqad import main; main()",
         "-d",
         "-P",
         str(work),
@@ -640,8 +638,7 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
         status_cmd = [
             sys.executable,
             "-c",
-            "from anqa.cli import main; main()",
-            "serve",
+            "from anqa.anqad import main; main()",
             "status",
             "-s",
             str(sock),
@@ -660,8 +657,7 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
             [
                 sys.executable,
                 "-c",
-                "from anqa.cli import main; main()",
-                "serve",
+                "from anqa.anqad import main; main()",
                 "stop",
                 "-s",
                 str(sock),
@@ -735,8 +731,8 @@ async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_launch_tui_ensure_serve_sets_attach_only(tmp_path: Path) -> None:
-    """Shipped launch_tui with ensure_serve starts daemon and attaches."""
+def test_launch_tui_ensure_anqad_sets_attach_only(tmp_path: Path) -> None:
+    """Shipped launch_tui with ensure_anqad starts anqad and attaches."""
     from anqa.cli import launch_tui
     from anqa.control import daemon as daemon_mod
 
@@ -759,7 +755,7 @@ def test_launch_tui_ensure_serve_sets_attach_only(tmp_path: Path) -> None:
                 path=work,
                 config=None,
                 socket=sock,
-                ensure_serve=True,
+                ensure_anqad=True,
             )
         assert captured
         assert captured[0]["control_attach_only"] is True
@@ -769,7 +765,7 @@ def test_launch_tui_ensure_serve_sets_attach_only(tmp_path: Path) -> None:
         daemon_mod.stop_control_daemon(sock, timeout=5.0)
 
 
-def test_launch_tui_no_serve_does_not_spawn(tmp_path: Path) -> None:
+def test_launch_tui_no_anqad_does_not_spawn(tmp_path: Path) -> None:
     from anqa.cli import launch_tui
     from anqa.control import daemon as daemon_mod
 
@@ -790,7 +786,7 @@ def test_launch_tui_no_serve_does_not_spawn(tmp_path: Path) -> None:
             path=work,
             config=None,
             socket=sock,
-            ensure_serve=False,
+            ensure_anqad=False,
         )
     # No spawn; still attaches as client when a socket path is set.
     assert captured[0]["control_attach_only"] is True

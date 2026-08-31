@@ -20,7 +20,7 @@ rejected-design narration.
 ## 1. Quick start
 
 ```bash
-uv tool install --editable .    # ``anqa`` + ``anqa-hud`` on PATH (needs Rust)
+uv tool install --editable .    # ``anqa`` + ``anqad`` + ``anqa-hud`` on PATH (needs Rust)
 just install        # .venv (test+dev) for lint/test
 just test           # pytest (default unit suite)
 just lint           # ruff + mypy + fluent/typing + harness adapter check
@@ -30,8 +30,8 @@ just ci             # lint + schema-check + hud-check + examples-check + test (l
 | CLI | Role |
 |-----|------|
 | ``anqa`` / ``anqa tui`` / ``anqa PATH`` | Interactive TUI (control client) |
-| ``anqa serve`` | Control owner (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
-| ``anqa hud`` | Desktop palette (iced; control client) |
+| ``anqad`` | Control process (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
+| ``anqa desktop`` | Desktop palette (iced; control client) |
 | ``anqa doctor`` | Host checks (config home, catalog, HUD seat) — no TUI |
 | ``anqa editor …`` | Packaged Emacs / Neovim client paths |
 
@@ -113,7 +113,7 @@ later.”
 **Parity rules**
 
 1. **One implementation, many front doors.** Catalog and notes
-   live in domain modules. TUI, HUD, and ``anqa serve`` call those APIs.
+   live in domain modules. TUI, HUD, and ``anqad`` call those APIs.
 2. **Operator docs are part of done.** README key tables / CLI sections and
    in-app help must match bindings. Leaving “only Fluent” or “only code”
    incomplete is a process failure.
@@ -155,7 +155,7 @@ anqa/
                          #   jobs (background / monitor / schedule merge),
                          #   query (luqum), event_search (Timeline store)
   notes.py               # configurable operator notes (TOML schema + session store)
-  control/               # contract, server, client, serve (``anqa serve``)
+  control/               # contract, server, client, daemon (``anqad``)
   integrations/          # Emacs / Neovim packs (not the control owner)
   hud/                   # launches iced palette binary
   session/control_views.py  # payloads for session/overview|timeline|turns|diff
@@ -181,13 +181,13 @@ schemas/                 # committed JSON Schema (config, control)
 UI may schedule **read-only** live reloads (meta / signals / light timeline) on
 worker pools.
 
-**Local control plane:** headless ``anqa serve`` is the sole owner of the
+**Local control plane:** headless ``anqad`` is the sole owner of the
 per-user Unix socket (JSON-RPC for Emacs/Neovim/HUD/TUI). Lifecycle: bare
-``serve`` starts (foreground; ``-d`` detaches); ``serve stop`` /
+``anqad`` starts (foreground; ``-d`` detaches); ``anqad stop`` /
 ``restart`` / ``status``. Domain path: ``session/access`` +
-``session/catalog`` / ``control_views`` + notes on disk; serve also warms the
+``session/catalog`` / ``control_views`` + notes on disk; anqad also warms the
 catalog and watches the traces tree. TUI **never
-owns** the socket: default is detach-start owner if free (``--no-serve``
+owns** the socket: default is detach-start anqad if free (``--no-anqad``
 skips spawn; ``--no-socket`` runs offline), then attach and listen.
 When a socket is configured, the home catalog is control-only — attach
 failure toasts and does not walk traces on disk. TUI exit does not stop
@@ -346,7 +346,7 @@ for those notes live in [TODO.md](TODO.md). Keep the two files in step.
 GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build). Pushes to ``main``, version tags, and workflow dispatch also run **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
 HUD Cargo trees: ``just hud-cov`` writes ``desktop/lcov.info`` and deletes
-``target/llvm-cov-target``. ``anqa hud`` deletes coverage leftovers under
+``target/llvm-cov-target``. ``anqa desktop`` deletes coverage leftovers under
 ``target/`` and keeps the debug and release graphs so iced does not rebuild
 from scratch. ``just clean`` runs ``cargo clean``.
 

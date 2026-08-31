@@ -15,7 +15,7 @@
 and a summonable desktop palette. It reads [supported
 harnesses](#supported-harnesses) from their native stores.
 
-Four clients talk to [`anqa serve`](#control).
+Four clients talk to [`anqad`](#control).
 
 | Client | What it does |
 |--------|----------------|
@@ -27,15 +27,15 @@ Four clients talk to [`anqa serve`](#control).
 ## Install
 
 ```bash
-uv tool install --editable .    # clone: anqa + anqa-hud on PATH (needs Rust)
+uv tool install --editable .    # clone: anqa + anqad + anqa-hud on PATH (needs Rust)
 anqa                          # terminal app
-anqa hud                      # desktop palette
+anqa desktop                  # desktop palette
 ```
 
 ```bash
 uv tool install git+https://github.com/indynull/anqa
 anqa
-anqa hud
+anqa desktop
 uv tool upgrade anqa
 ```
 
@@ -71,7 +71,7 @@ Schema: [config](https://indynull.github.io/anqa/schemas/config.schema.json)
 
 theme = "auto"
 follow_os = false
-auto_serve = true
+auto_anqad = true
 live_refresh_workers = 1
 
 [hud]
@@ -237,7 +237,7 @@ it like any other session.
 
 ### Catalog search
 
-`/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `anqa serve`.
+`/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `anqad`.
 
 | Token | Matches |
 |-------|---------|
@@ -278,28 +278,28 @@ with ligatures. `u` or the logo returns to the session list.
 Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash
-anqa serve -d        # or let the client start serve
-anqa hud             # PATH binary from uv tool install; one process + tray
-anqa hud --toggle    # show or hide (Wayland bind this)
-anqa hud --restart   # replace the running palette
-anqa hud --rebuild   # cargo-build this checkout, then launch
+anqad -d             # or let the client start anqad
+anqa desktop         # PATH binary from uv tool install; one process + tray
+anqa desktop --toggle    # show or hide (Wayland bind this)
+anqa desktop --restart   # replace the running palette
+anqa desktop --rebuild   # cargo-build this checkout, then launch
 ```
 
-`anqa hud` runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`. From a
+`anqa desktop` runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`. From a
 checkout, `--rebuild` builds this tree; `--debug` is the unoptimized
 binary; `--dev` is `cargo run`.
 
 Default hotkey **Cmd+Shift+A** (macOS) / **Ctrl+Shift+A** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
 `~/.anqa/config.toml` or `ANQA_HUD_SHORTCUT`. On Wayland bind
-`anqa hud --toggle`: a compositor bind forwards an activation token so
+`anqa desktop --toggle`: a compositor bind forwards an activation token so
 you can type immediately; tray **Show** or a terminal `--toggle`
 does not steal the keyboard. Sway places the overlay (float/center);
 focus is that token. While the overlay is on screen, a live poll
 re-reads overview about every **3 seconds** (idle sessions slower).
 An unfocused pop-out or hidden overlay waits on control notifies instead.
 
-`anqa hud --install-desktop` writes user-local icons and a launcher
+`anqa desktop --install-desktop` writes user-local icons and a launcher
 named **anqa** (Linux `.desktop` `Exec` uses `--show`, macOS
 `~/Applications/anqa.app`, Windows Start Menu). Re-run after moving
 the binary or to refresh the launcher. Tray **Quit anqa** exits the
@@ -308,20 +308,20 @@ palette only. [Emacs](#emacs) and
 
 ## Control
 
-`anqa serve` owns the per-user Unix socket. The four clients attach.
+`anqad` owns the per-user Unix socket. The four clients attach.
 
 ```bash
-anqa serve -d
-anqa serve status
-anqa serve stop
+anqad -d
+anqad status
+anqad stop
 anqa export-host -o host-catalog.json
 ```
 
-`export-host` writes the host catalog snapshot serve uses (summary,
-signals, and list status from the updates tail). It does not start serve.
+`export-host` writes the host catalog snapshot anqad uses (summary,
+signals, and list status from the updates tail). It does not start anqad.
 
-Bare `anqa` and `anqa hud` detach-start serve when the socket is
-free (`--no-serve` attaches only). Quitting a client leaves serve
+Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
+free (`--no-anqad` attaches only). Quitting a client leaves anqad
 running. Methods, framing, and notifications:
 [docs/control.md](docs/control.md).
 

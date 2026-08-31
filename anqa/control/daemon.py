@@ -748,14 +748,14 @@ def run_control_daemon(
 
     try:
         logger.info(
-            "anqa serve: control socket %s catalog=%s pid=%s log_level=%s",
+            "anqad: control socket %s catalog=%s pid=%s log_level=%s",
             sock,
             tr,
             os.getpid(),
             logging.getLevelName(logging.getLogger("anqa").level),
         )
         # Operator-facing banner on stderr (CLI entry only uses this process path).
-        sys.stderr.write(f"anqa serve: control socket {sock}\n")
+        sys.stderr.write(f"anqad: control socket {sock}\n")
         sys.stderr.write(f"  catalog={tr}\n")
         sys.stderr.write(f"  pid={os.getpid()}\n")
         sys.stderr.write(
@@ -960,7 +960,7 @@ def stop_control_daemon(
         if pid is None:
             sys.stderr.write(
                 "error: control socket is live but no daemon pid file "
-                "(owner is not a anqa serve process; not stopping)\n"
+                "(owner is not an anqad process; not stopping)\n"
             )
         else:
             sys.stderr.write(
@@ -1129,7 +1129,7 @@ def start_control_daemon_detached(
         )
     try:
         log_file.write(
-            f"\n--- anqa serve --daemon spawn pid_parent={os.getpid()} "
+            f"\n--- anqad --daemon spawn pid_parent={os.getpid()} "
             f"at {time.strftime('%Y-%m-%dT%H:%M:%S')} ---\n"
         )
         log_file.flush()
@@ -1200,7 +1200,7 @@ def start_control_daemon_detached(
                         err = (
                             f"control socket {sock} is held by another process "
                             f"that is not accepting connections (stale owner?). "
-                            f"Run: anqa serve stop  then  anqa serve -d"
+                            f"Run: anqad stop  then  anqad -d"
                         )
                     err = f"{err}\nlog tail:\n{tail}"
             except OSError:
@@ -1261,7 +1261,7 @@ def ensure_control_daemon(
 ) -> EnsureDaemonResult:
     """Ensure a live control owner exists (attach if up, else detach-start).
 
-    Shared by ``anqa serve -d`` and TUI/HUD auto-start. If the socket already
+    Shared by ``anqad -d`` and TUI/HUD auto-start. If the socket already
     accepts but ``initialize`` reports a different protocol major (or rejects
     this client), stop that owner and start a current one. Same major keeps
     the live owner. A failed probe does not stop an accepting owner.

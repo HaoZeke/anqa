@@ -158,7 +158,7 @@ def test_emit_doc_contains_version_methods_framing() -> None:
         assert f"`{name}`" in text, name
     for name in REQUIRED_NOTIFICATIONS:
         assert f"`{name}`" in text, name
-    assert "anqa serve" in text
+    assert "anqad" in text
     assert "ANQA_CONTROL_SOCKET" in text
     assert "Content-Length" in text
     assert "anqa/control/contract.py" in text

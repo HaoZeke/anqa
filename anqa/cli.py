@@ -3,8 +3,8 @@
 Default: interactive TUI. Optional path (``-P`` or leading argument) selects
 a session store or session (default catalog store).
 
-Commands: ``serve`` (control owner), ``hud``, ``doctor``, ``editor``,
-``keys``, ``config``, ``import``, ``export-host``.
+Commands: ``desktop``, ``doctor``, ``editor``, ``keys``, ``config``,
+``import``, ``export-host``. The control process is ``anqad``.
 
 Shell completion: ``uv run anqa --install-completion``
 """
@@ -30,11 +30,11 @@ app = typer.Typer(
         "With no command: open the TUI "
         "([cyan]PATH[/cyan] or [cyan]-P PATH[/cyan] = store or session; "
         "default catalog store).\n\n"
-        "[cyan]serve[/cyan] owns the control socket · "
-        "[cyan]hud[/cyan] palette · "
+        "[cyan]desktop[/cyan] palette · "
         "[cyan]doctor[/cyan] host checks · "
         "[cyan]editor[/cyan] Emacs/Neovim pack paths · "
-        "[cyan]keys[/cyan] resolved bindings."
+        "[cyan]keys[/cyan] resolved bindings.\n"
+        "Control process: [cyan]anqad[/cyan]."
     ),
     no_args_is_help=False,
     add_completion=True,
@@ -52,20 +52,6 @@ config_app = typer.Typer(
 )
 app.add_typer(config_app, name="config")
 
-serve_app = typer.Typer(
-    name="serve",
-    help=(
-        "Control owner: owns the local JSON-RPC Unix socket.\n\n"
-        "With no subcommand: start in the foreground. "
-        "[cyan]-d[/cyan] detaches. "
-        "Lifecycle: [cyan]stop[/cyan] · [cyan]restart[/cyan] · [cyan]status[/cyan]. "
-        "TUI and HUD attach as clients; leave serve running across launches."
-    ),
-    no_args_is_help=False,
-    invoke_without_command=True,
-)
-app.add_typer(serve_app, name="serve")
-
 editor_app = typer.Typer(
     name="editor",
     help="Packaged Emacs / Neovim client paths for install snippets.",
@@ -76,8 +62,7 @@ app.add_typer(editor_app, name="editor")
 # Subcommand names — must not be consumed as a TUI path positional.
 TOOL_COMMANDS = frozenset(
     {
-        "serve",
-        "hud",
+        "desktop",
         "tui",
         "doctor",
         "editor",
@@ -95,14 +80,14 @@ def launch_tui(
     *,
     socket: Path | bool | None = None,
     prompt_index: int | None = None,
-    ensure_serve: bool = True,
+    ensure_anqad: bool = True,
 ) -> None:
     """Start the TUI for *path* (store or session) or the default host store.
 
-    The TUI never owns the control socket. When *ensure_serve* is true and a
-    socket path is configured, detach-start a headless owner if the socket is
-    free, then attach as a client. When *ensure_serve* is false, attach only if
-    an owner is already live. Pass *socket* ``False`` to run without control.
+    The TUI never owns the control socket. When *ensure_anqad* is true and a
+    socket path is configured, detach-start ``anqad`` if the socket is
+    free, then attach as a client. When *ensure_anqad* is false, attach only if
+    a control process is already live. Pass *socket* ``False`` to run without control.
     """
     from .control.daemon import ensure_control_daemon
     from .control.server import default_socket_path
@@ -131,7 +116,7 @@ def launch_tui(
         if isinstance(socket, Path)
         else default_socket_path()
     )
-    if socket_path is not None and ensure_serve:
+    if socket_path is not None and ensure_anqad:
         result = ensure_control_daemon(
             socket_path=socket_path,
             traces_path=tr,
@@ -154,14 +139,14 @@ def launch_tui(
     ).run()
 
 
-@app.command("hud")
-def cmd_hud(
+@app.command("desktop")
+def cmd_desktop(
     path: Annotated[
         Path | None,
         typer.Option(
             "-P",
             "--path",
-            help="Catalog store when starting serve (default catalog store).",
+            help="Catalog store when starting anqad (default catalog store).",
             show_default=False,
         ),
     ] = None,
@@ -174,11 +159,11 @@ def cmd_hud(
             show_default=False,
         ),
     ] = None,
-    ensure_serve: Annotated[
+    ensure_anqad: Annotated[
         bool,
         typer.Option(
-            "--serve/--no-serve",
-            help="Detach-start control owner when the socket is free (default: serve).",
+            "--anqad/--no-anqad",
+            help="Detach-start anqad when the socket is free (default: start).",
         ),
     ] = True,
     dev: Annotated[
@@ -277,7 +262,7 @@ def cmd_hud(
     code = run_hud(
         socket_path=sock,
         catalog_root=path,
-        auto_serve=ensure_serve,
+        auto_anqad=ensure_anqad,
         dev=dev,
         debug=debug,
         rebuild=rebuild,
@@ -301,200 +286,12 @@ def editor_vim_path() -> None:
     typer.echo(Path(__file__).parent / "integrations" / "vim")
 
 
-# Shared serve option types.
-_ServePath = Annotated[
-    Path | None,
-    typer.Option(
-        "-P",
-        "--path",
-        help="Catalog store (default catalog store).",
-        show_default=False,
-    ),
-]
-_ServeSocket = Annotated[
-    Path | None,
-    typer.Option(
-        "-s",
-        "--socket",
-        help="Control Unix socket (default: runtime control.sock).",
-        show_default=False,
-    ),
-]
-_ServeDaemon = Annotated[
-    bool,
-    typer.Option(
-        "-d",
-        "--daemon/--foreground",
-        help="Run in the background; return when the socket accepts.",
-    ),
-]
-_ServeTimeout = Annotated[
-    float,
-    typer.Option(
-        "-t",
-        "--timeout",
-        help="Seconds to wait for stop/restart.",
-    ),
-]
-
-
-def _serve_socket_option(control_socket: Path | None) -> Path:
-    from .control.server import default_socket_path
-
-    return (
-        Path(control_socket).expanduser() if control_socket is not None else default_socket_path()
-    )
-
-
-def _run_serve_start(
-    *,
-    path: Path | None,
-    control_socket: Path | None,
-    daemonize: bool,
-) -> int:
-    """Start the control owner (foreground or detached)."""
-    from .control.daemon import (
-        run_control_daemon,
-        start_control_daemon_detached,
-    )
-
-    sock = _serve_socket_option(control_socket)
-    if daemonize:
-        result = start_control_daemon_detached(
-            socket_path=sock,
-            traces_path=path,
-            include_host=None,
-        )
-        if result.already_running and result.ok:
-            typer.echo(f"already running  pid={result.pid}  socket={sock}", err=True)
-            return 0
-        if not result.ok:
-            typer.echo(f"failed to start: {result.error}", err=True)
-            return 1
-        typer.echo(f"started  pid={result.pid}  socket={sock}", err=True)
-        return 0
-    return run_control_daemon(
-        socket_path=sock,
-        traces_path=path,
-        include_host=None,
-    )
-
-
-def _run_serve_stop(*, control_socket: Path | None, timeout: float) -> int:
-    from .control.daemon import stop_control_daemon
-
-    sock = _serve_socket_option(control_socket)
-    return stop_control_daemon(sock, timeout=timeout)
-
-
-def _run_serve_restart(
-    *,
-    path: Path | None,
-    control_socket: Path | None,
-    daemonize: bool,
-    timeout: float,
-) -> int:
-    """Stop if running, then start (default background for service restart)."""
-    from .control.daemon import control_daemon_status
-
-    sock = _serve_socket_option(control_socket)
-    st = control_daemon_status(sock)
-    # Stop live owners, recorded pids, and zombie lock holders (no socket).
-    if st.live or st.pid is not None or st.stale_lock or st.lock_pid is not None:
-        code = _run_serve_stop(control_socket=control_socket, timeout=timeout)
-        if code != 0 and st.live:
-            # Still try start if stop only failed for non-daemon owner messaging.
-            typer.echo("warning: stop returned non-zero; attempting start", err=True)
-    return _run_serve_start(
-        path=path,
-        control_socket=control_socket,
-        daemonize=daemonize,
-    )
-
-
-@serve_app.callback(invoke_without_command=True)
-def serve_callback(
-    ctx: typer.Context,
-    path: _ServePath = None,
-    control_socket: _ServeSocket = None,
-    daemonize: _ServeDaemon = False,
-) -> None:
-    """With no subcommand: start the control owner (foreground unless ``-d``)."""
-    if ctx.invoked_subcommand is not None:
-        return
-    raise typer.Exit(
-        _run_serve_start(
-            path=path,
-            control_socket=control_socket,
-            daemonize=daemonize,
-        )
-    )
-
-
-@serve_app.command("stop")
-def serve_stop(
-    control_socket: _ServeSocket = None,
-    timeout: _ServeTimeout = 5.0,
-) -> None:
-    """Stop the control owner (pid file and/or stale lock holders)."""
-    raise typer.Exit(_run_serve_stop(control_socket=control_socket, timeout=timeout))
-
-
-@serve_app.command("restart")
-def serve_restart(
-    path: _ServePath = None,
-    control_socket: _ServeSocket = None,
-    daemonize: _ServeDaemon = True,
-    timeout: _ServeTimeout = 5.0,
-) -> None:
-    """Stop then start (``-d`` by default)."""
-    raise typer.Exit(
-        _run_serve_restart(
-            path=path,
-            control_socket=control_socket,
-            daemonize=daemonize,
-            timeout=timeout,
-        )
-    )
-
-
-@serve_app.command("status")
-def serve_status(
-    control_socket: _ServeSocket = None,
-    as_json: Annotated[
-        bool,
-        typer.Option("--json", help="Machine-readable status."),
-    ] = False,
-) -> None:
-    """Print owner status (exit 0 if live and accepting)."""
-    from .control.daemon import control_daemon_status
-
-    sock = _serve_socket_option(control_socket)
-    status = control_daemon_status(sock)
-    if as_json:
-        typer.echo(json.dumps(status.as_mapping(), indent=2, sort_keys=True))
-    elif status.live:
-        pid = status.pid if status.pid is not None else "?"
-        typer.echo(f"running  pid={pid}  socket={status.socket_path}")
-    else:
-        typer.echo(f"stopped  socket={status.socket_path}")
-        if status.pid is not None and not status.pid_alive:
-            typer.echo(f"  stale pid file  pid={status.pid}", err=True)
-        if status.stale_lock:
-            lp = status.lock_pid if status.lock_pid is not None else "?"
-            typer.echo(
-                f"  stale lock  pid={lp}  (run: anqa serve stop)",
-                err=True,
-            )
-    raise typer.Exit(0 if status.live else 1)
-
-
 def _tui_options(
     path: Path | None,
     config: Path | None,
     socket: Path | None,
     use_socket: bool,
-    ensure_serve: bool,
+    ensure_anqad: bool,
     prompt_index: int | None,
 ) -> None:
     """Shared TUI launch (root default and ``tui`` command)."""
@@ -503,7 +300,7 @@ def _tui_options(
         config=config,
         socket=socket if use_socket else False,
         prompt_index=prompt_index,
-        ensure_serve=ensure_serve if use_socket else False,
+        ensure_anqad=ensure_anqad if use_socket else False,
     )
 
 
@@ -550,16 +347,16 @@ def main_callback(
         bool,
         typer.Option(
             "--no-socket",
-            help="Run the TUI without the control plane (no serve attach).",
+            help="Run the TUI without the control plane (no anqad attach).",
         ),
     ] = False,
-    ensure_serve: Annotated[
+    ensure_anqad: Annotated[
         bool,
         typer.Option(
-            "--serve/--no-serve",
+            "--anqad/--no-anqad",
             help=(
-                "When the control socket is free, detach-start the owner before attach "
-                "(default: serve). --no-serve only attaches if an owner is already live."
+                "When the control socket is free, detach-start anqad before attach "
+                "(default: start). --no-anqad only attaches if a process is already live."
             ),
         ),
     ] = True,
@@ -585,7 +382,7 @@ def main_callback(
     """Start the TUI when no subcommand is given."""
     if ctx.invoked_subcommand is not None:
         return
-    _tui_options(path, config, socket, not no_socket, ensure_serve, prompt_index)
+    _tui_options(path, config, socket, not no_socket, ensure_anqad, prompt_index)
 
 
 @app.command("tui")
@@ -614,11 +411,11 @@ def cmd_tui(
             help="Run without the control plane.",
         ),
     ] = False,
-    ensure_serve: Annotated[
+    ensure_anqad: Annotated[
         bool,
         typer.Option(
-            "--serve/--no-serve",
-            help="Detach-start control owner when free (default: serve).",
+            "--anqad/--no-anqad",
+            help="Detach-start anqad when free (default: start).",
         ),
     ] = True,
     prompt_index: Annotated[
@@ -627,7 +424,7 @@ def cmd_tui(
     ] = None,
 ) -> None:
     """Open the interactive TUI (same as bare ``anqa``)."""
-    _tui_options(path, config, socket, not no_socket, ensure_serve, prompt_index)
+    _tui_options(path, config, socket, not no_socket, ensure_anqad, prompt_index)
 
 
 @config_app.command("validate")

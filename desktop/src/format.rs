@@ -2384,7 +2384,7 @@ pub fn is_unknown_method(err: &str) -> bool {
 pub fn control_down_message(err: &str) -> String {
     let s = err.trim();
     if is_unknown_method(s) {
-        return "control owner is older · run: anqa serve restart".into();
+        return "control owner is older · run: anqad restart".into();
     }
     let short = if s.len() > 140 {
         format!("{}…", &s[..137])
@@ -2404,7 +2404,7 @@ pub fn control_down_message(err: &str) -> String {
         || low.contains("resource temporarily unavailable")
         || low.contains("os error 35")
     {
-        "control socket down · run: anqa serve -d".into()
+        "control socket down · run: anqad -d".into()
     } else {
         format!("control error · {short}")
     }
@@ -2798,15 +2798,15 @@ mod tests {
     fn soft_control_down_copy() {
         assert_eq!(
             control_down_message("connection refused"),
-            "control socket down · run: anqa serve -d"
+            "control socket down · run: anqad -d"
         );
         assert_eq!(
             control_down_message("method not found"),
-            "control owner is older · run: anqa serve restart"
+            "control owner is older · run: anqad restart"
         );
         assert_ne!(
             control_down_message("method not found"),
-            "control socket down · run: anqa serve -d"
+            "control socket down · run: anqad -d"
         );
     }
 

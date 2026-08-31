@@ -1,6 +1,6 @@
 //! StatusNotifier / menu-bar tray for the long-lived HUD process.
 //!
-//! Left-click toggles the overlay (same as ``anqa hud --toggle``).
+//! Left-click toggles the overlay (same as ``anqa desktop --toggle``).
 //! Menu **Show** always shows. **Quit anqa** exits this process only.
 
 use std::sync::mpsc::{self, Receiver, RecvError, SyncSender};

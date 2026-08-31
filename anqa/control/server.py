@@ -374,7 +374,7 @@ class ControlServer:
         reopen the race for a third starter.
 
         After the flock is held, the owner pid is written into the lock file so
-        ``anqa serve stop`` can find a zombie that still holds the lock after
+        ``anqad stop`` can find a zombie that still holds the lock after
         the socket / ``.pid`` file were lost.
         """
         lock_path = self.socket_path.with_name(self.socket_path.name + ".lock")

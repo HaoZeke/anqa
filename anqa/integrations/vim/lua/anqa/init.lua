@@ -1,5 +1,5 @@
 --- Live Anqa sessions over the control Unix socket (Neovim 0.9+).
---- Requires a live control owner: ``anqa serve start -d`` or a TUI/auto-serve.
+--- Requires a live control process: ``anqad -d`` or a TUI auto-start.
 
 local M = {}
 

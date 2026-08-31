@@ -153,7 +153,7 @@ def build_hud(checkout: Path | None = None, *, debug: bool = False) -> Path | No
     if not debug:
         cmd.append("--release")
     profile = "debug" if debug else "release"
-    sys.stderr.write(f"anqa hud: building {profile} anqa-hud ({' '.join(cmd[1:])})…\n")
+    sys.stderr.write(f"anqa desktop: building {profile} anqa-hud ({' '.join(cmd[1:])})…\n")
     sys.stderr.flush()
     try:
         proc = subprocess.run(cmd, cwd=str(root), check=False)
@@ -172,7 +172,7 @@ def build_hud(checkout: Path | None = None, *, debug: bool = False) -> Path | No
 
 
 def build_hud_debug(checkout: Path | None = None) -> Path | None:
-    """Build the unoptimized debug binary (``anqa hud --debug``)."""
+    """Build the unoptimized debug binary (``anqa desktop --debug``)."""
     return build_hud(checkout, debug=True)
 
 
@@ -218,7 +218,7 @@ def launch_hud_dev(
     socket_path: Path,
     extra_env: dict[str, str] | None = None,
 ) -> int:
-    """Run ``anqa hud --dev`` (``cargo run`` debug) in the checkout.
+    """Run ``anqa desktop --dev`` (``cargo run`` debug) in the checkout.
 
     :returns: Process exit code, or 127 when the checkout or cargo is unavailable.
     """
@@ -241,9 +241,9 @@ def launch_hud_dev(
         n = stop_hud_processes()
         if n:
             sys.stderr.write(
-                f"anqa hud: replaced {n} process(es); summon socket was not accepting\n"
+                f"anqa desktop: replaced {n} process(es); summon socket was not accepting\n"
             )
-    sys.stderr.write(f"anqa hud: cargo run (debug) in {checkout}\n")
+    sys.stderr.write(f"anqa desktop: cargo run (debug) in {checkout}\n")
     sys.stderr.flush()
     try:
         proc = subprocess.run(
@@ -387,7 +387,7 @@ def install_desktop(*, rebuild: bool = False, debug: bool = False) -> int:
     binary = ensure_hud_binary(rebuild=rebuild, debug=debug)
     if binary is None:
         return 127
-    sys.stderr.write(f"anqa hud: install-desktop via {binary}\n")
+    sys.stderr.write(f"anqa desktop: install-desktop via {binary}\n")
     sys.stderr.flush()
     try:
         proc = subprocess.run([str(binary), "--install-desktop"], check=False)
@@ -424,7 +424,7 @@ def launch_hud(
     if restart:
         n = stop_hud_processes()
         if n:
-            sys.stderr.write(f"anqa hud: stopped {n} running process(es)\n")
+            sys.stderr.write(f"anqa desktop: stopped {n} running process(es)\n")
 
     if dev or _truthy_env("ANQA_HUD_DEV"):
         return launch_hud_dev(socket_path=socket_path, extra_env=extra_env)
@@ -441,7 +441,7 @@ def launch_hud(
 
     attach = bool(foreground) if foreground is not None else _truthy_env("ANQA_HUD_FOREGROUND")
     chord_hint = env.get("ANQA_HUD_SHORTCUT", "").strip() or "Cmd+Shift+A / Ctrl+Shift+A"
-    summon_hint = "anqa hud --toggle (Wayland/Sway); tray Show"
+    summon_hint = "anqa desktop --toggle (Wayland/Sway); tray Show"
 
     if not restart and summon_socket_accepts():
         return send_summon_command("show")
@@ -449,15 +449,15 @@ def launch_hud(
         n = stop_hud_processes()
         if n:
             sys.stderr.write(
-                f"anqa hud: replaced {n} process(es); summon socket was not accepting\n"
+                f"anqa desktop: replaced {n} process(es); summon socket was not accepting\n"
             )
 
     logger.info("launching HUD binary %s (foreground=%s)", binary, attach)
-    sys.stderr.write(f"anqa hud: {binary}\n")
+    sys.stderr.write(f"anqa desktop: {binary}\n")
     hud_log = Path.home() / ".anqa" / "hud.log"
-    sys.stderr.write(f"anqa hud: errors → {hud_log}\n")
+    sys.stderr.write(f"anqa desktop: errors → {hud_log}\n")
     if env.get("ANQA_HUD_SHORTCUT"):
-        sys.stderr.write(f"anqa hud: ANQA_HUD_SHORTCUT={env['ANQA_HUD_SHORTCUT']}\n")
+        sys.stderr.write(f"anqa desktop: ANQA_HUD_SHORTCUT={env['ANQA_HUD_SHORTCUT']}\n")
     sys.stderr.flush()
 
     if attach:
@@ -481,7 +481,7 @@ def launch_hud(
         sys.stderr.write(f"error: could not launch {binary}: {exc}\n")
         return 1
     sys.stderr.write(
-        f"anqa hud: background pid {child.pid} "
+        f"anqa desktop: background pid {child.pid} "
         f"(summon: {summon_hint}; hotkey {chord_hint}; not in Dock or Cmd+Tab)\n"
     )
     return 0

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://indynull.github.io/anqa/schemas/control.schema.json",
   "title": "anqa-control",
-  "description": "JSON-RPC 2.0 control protocol for anqa serve (protocolVersion 1.0.0).",
+  "description": "JSON-RPC 2.0 control protocol for anqad (protocolVersion 1.0.0).",
   "type": "object",
   "additionalProperties": false,
   "required": [

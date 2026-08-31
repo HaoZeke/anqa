@@ -6,7 +6,7 @@
 //!
 //! Commands are one line: ``show``, ``hide``, ``toggle``, or
 //! ``show``/``toggle`` plus an xdg-activation token (optional trailing
-//! newline). Clients: ``anqa-hud --show`` / ``anqa hud --toggle``.
+//! newline). Clients: ``anqa-hud --show`` / ``anqa desktop --toggle``.
 //! ``--toggle`` forwards ``XDG_ACTIVATION_TOKEN`` (and unsets
 //! ``DESKTOP_STARTUP_ID``) so the long-lived HUD can activate its surface.
 

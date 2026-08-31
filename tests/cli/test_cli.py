@@ -30,8 +30,7 @@ def test_help_lists_main_commands() -> None:
     assert "-V" in out
     assert "product version" in out
     assert "doctor" in out
-    assert "serve" in out
-    assert "hud" in out
+    assert "desktop" in out
     assert "tui" in out
     assert "editor" in out
     assert "config" in out
@@ -41,7 +40,7 @@ def test_help_lists_main_commands() -> None:
     assert "emacs-path" not in out or "editor" in out
     assert "generator" not in out
     assert "audit" not in out
-    assert runner.invoke(app, ["serve", "--help"]).exit_code == 0
+    assert runner.invoke(app, ["desktop", "--help"]).exit_code == 0
     assert runner.invoke(app, ["editor", "--help"]).exit_code == 0
     assert runner.invoke(app, ["keys", "--help"]).exit_code == 0
 
@@ -49,16 +48,21 @@ def test_help_lists_main_commands() -> None:
 def test_tool_commands() -> None:
     assert TOOL_COMMANDS == frozenset(
         {
-            "serve",
-            "hud",
+            "desktop",
             "tui",
             "doctor",
             "editor",
             "keys",
             "config",
             "export-host",
+            "import",
         }
     )
+
+
+def test_anqa_has_no_serve_or_hud_command() -> None:
+    assert runner.invoke(app, ["serve", "--help"]).exit_code != 0
+    assert runner.invoke(app, ["hud", "--help"]).exit_code != 0
 
 
 def test_export_host_writes_snapshot_without_serve(tmp_path: Path) -> None:
@@ -84,16 +88,16 @@ def test_export_host_writes_snapshot_without_serve(tmp_path: Path) -> None:
     assert "serve" not in (result.output or "").lower()
 
 
-def test_serve_help_has_lifecycle_not_start() -> None:
-    result = runner.invoke(app, ["serve", "--help"])
+def test_anqad_help_has_lifecycle_not_start() -> None:
+    from anqa.anqad import app as anqad_app
+
+    result = runner.invoke(anqad_app, ["--help"])
     assert result.exit_code == 0
     out = (result.stdout or result.output or "").lower()
     assert "stop" in out
     assert "restart" in out
     assert "status" in out
-    # Bare serve starts; no separate start subcommand.
     assert "Commands" in (result.stdout or result.output or "")
-    # Click lists commands; start should not appear as a verb.
     lines = (result.stdout or result.output or "").splitlines()
     cmd_block = False
     for line in lines:
@@ -101,12 +105,12 @@ def test_serve_help_has_lifecycle_not_start() -> None:
             cmd_block = True
             continue
         if cmd_block and line.strip().startswith("start"):
-            pytest.fail("serve start should not be a subcommand")
+            pytest.fail("anqad start should not be a subcommand")
         if cmd_block and line.startswith("╭─") and "Commands" not in line:
             break
 
 
-def test_serve_restart_stop_then_start(tmp_path: Path) -> None:
+def test_anqad_restart_stop_then_start(tmp_path: Path) -> None:
     """restart = stop + start -d by default."""
     sock = tmp_path / "ctl.sock"
     calls: list[str] = []
@@ -143,16 +147,18 @@ def test_serve_restart_stop_then_start(tmp_path: Path) -> None:
         patch("anqa.control.daemon.control_daemon_status", fake_status),
         patch("anqa.control.daemon.start_control_daemon_detached", fake_detached),
     ):
+        from anqa.anqad import app as anqad_app
+
         result = runner.invoke(
-            app,
-            ["serve", "restart", "-s", str(sock), "-P", str(tmp_path)],
+            anqad_app,
+            ["restart", "-s", str(sock), "-P", str(tmp_path)],
         )
     assert result.exit_code == 0
     assert any(c.startswith("stop:") for c in calls)
     assert any(c.startswith("start:") for c in calls)
 
 
-def test_serve_status_running_line(tmp_path: Path) -> None:
+def test_anqad_status_running_line(tmp_path: Path) -> None:
     sock = tmp_path / "s.sock"
 
     def fake_status(socket_path):  # noqa: ANN001
@@ -168,7 +174,9 @@ def test_serve_status_running_line(tmp_path: Path) -> None:
         )
 
     with patch("anqa.control.daemon.control_daemon_status", fake_status):
-        result = runner.invoke(app, ["serve", "status", "-s", str(sock)])
+        from anqa.anqad import app as anqad_app
+
+        result = runner.invoke(anqad_app, ["status", "-s", str(sock)])
     assert result.exit_code == 0
     out = result.stdout or result.output or ""
     assert "running" in out
@@ -261,20 +269,20 @@ class TestLaunchTui:
         orig = ui_app_mod.AnqaApp
         ui_app_mod.AnqaApp = FakeApp  # type: ignore[assignment,misc]
         try:
-            launch_tui(path=tmp_path, config=None, ensure_serve=False)
+            launch_tui(path=tmp_path, config=None, ensure_anqad=False)
             assert len(captured_calls) == 1
             assert captured_calls[0]["traces_path"] == tmp_path.resolve()
             assert captured_calls[0]["control_socket"].name == "control.sock"
             assert captured_calls[0]["control_attach_only"] is True
 
             captured_calls.clear()
-            launch_tui(path=None, config=None, ensure_serve=False)
+            launch_tui(path=None, config=None, ensure_anqad=False)
             assert len(captured_calls) == 1
 
             cfg = tmp_path / "config.toml"
             cfg.write_text("", encoding="utf-8")
             captured_calls.clear()
-            launch_tui(path=tmp_path, config=cfg, ensure_serve=False)
+            launch_tui(path=tmp_path, config=cfg, ensure_anqad=False)
             assert captured_calls[0]["config_path"] == cfg.expanduser()
         finally:
             ui_app_mod.AnqaApp = orig  # type: ignore[assignment,misc]
@@ -300,7 +308,7 @@ class TestLaunchTui:
                 config=None,
                 socket=socket_path,
                 prompt_index=17,
-                ensure_serve=False,
+                ensure_anqad=False,
             )
 
         assert captured_calls == [
@@ -325,7 +333,7 @@ class TestLaunchTui:
                 pass
 
         with patch("anqa.ui.app.AnqaApp", FakeApp):
-            launch_tui(path=tmp_path, config=None, socket=False, ensure_serve=False)
+            launch_tui(path=tmp_path, config=None, socket=False, ensure_anqad=False)
 
         assert captured_calls[0]["control_socket"] is None
         assert captured_calls[0]["control_attach_only"] is False
@@ -341,7 +349,7 @@ class TestLaunchTui:
                 pass
 
         with patch("anqa.ui.app.AnqaApp", FakeApp):
-            launch_tui(path=tmp_path, config=None, ensure_serve=False)
+            launch_tui(path=tmp_path, config=None, ensure_anqad=False)
         err = capsys.readouterr().err
         assert "work_dir=" not in err
         assert "already live" not in err
@@ -375,7 +383,7 @@ class TestConfigCommands:
         assert result.exit_code == 0
         out = result.stdout or result.output or ""
         assert "config.schema.json" in out
-        assert "auto_serve" in out
+        assert "auto_anqad" in out
 
     def test_config_validate_default(self) -> None:
         result = runner.invoke(app, ["config", "validate"])

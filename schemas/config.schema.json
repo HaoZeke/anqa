@@ -79,10 +79,10 @@
       "title": "Follow Os",
       "type": "boolean"
     },
-    "auto_serve": {
+    "auto_anqad": {
       "default": true,
-      "description": "Detach-start anqa serve when the control socket is free.",
-      "title": "Auto Serve",
+      "description": "Detach-start anqad when the control socket is free.",
+      "title": "Auto Anqad",
       "type": "boolean"
     },
     "live_refresh_workers": {

@@ -28,7 +28,7 @@ pub fn sway_overlay_rules() -> String {
          for_window [app_id=\"{OVERLAY_APP_ID}\"] floating enable\n\
          for_window [app_id=\"{OVERLAY_APP_ID}\"] border pixel 0\n\
          for_window [app_id=\"{OVERLAY_APP_ID}\"] sticky enable\n\
-         bindsym $mod+Shift+a exec anqa hud --toggle\n"
+         bindsym $mod+Shift+a exec anqa desktop --toggle\n"
     )
 }
 
@@ -669,7 +669,7 @@ mod tests {
         assert!(body.contains(OVERLAY_APP_ID));
         assert!(!body.contains(&format!("app_id=\"{APP_ID}\"")));
         assert!(body.contains("sticky enable"));
-        assert!(body.contains("bindsym $mod+Shift+a exec anqa hud --toggle"));
+        assert!(body.contains("bindsym $mod+Shift+a exec anqa desktop --toggle"));
     }
 
     #[cfg(target_os = "linux")]
