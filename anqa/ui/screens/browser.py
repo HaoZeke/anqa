@@ -2985,6 +2985,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 if want:
                     card.scroll_visible(animate=False)
 
+    def timeline_search_text(self) -> str:
+        """Current Timeline search box."""
+        return self._timeline_search
+
+    def apply_timeline_search(self, query: str) -> None:
+        """Write the Timeline search box and run the matcher now."""
+        self._ensure_timeline_tab()
+        self._timeline_search = query
+        with suppress(Exception):
+            self.query_one("#search-input", Input).value = query
+        self._refresh_timeline_query_hints()
+        self._apply_debounced_timeline_search()
+
     def action_search(self) -> None:
         if self._active_browser_tab() == "tab-diff":
             view = self._diff_view()

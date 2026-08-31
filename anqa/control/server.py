@@ -14,6 +14,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..filters import (
+    SavedFilter,
+    expand,
+    filters_for_scope,
+    load_filters,
+    remove_filter,
+    upsert_filter,
+)
 from ..models import JsonObject, JsonValue, as_json_object, json_as_int, json_as_str
 from ..notes import (
     NoteEntry,
@@ -965,6 +973,70 @@ class ControlServer:
             )
         )
         return result
+
+    @_rpc("filters/list")
+    async def _rpc_filters_list(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        scope = json_as_str(params.get("scope")).strip()
+
+        def _load() -> JsonObject:
+            rows = filters_for_scope(scope) if scope else load_filters()
+            return as_json_object({"filters": [row.mapping() for row in rows]})
+
+        return await asyncio.to_thread(_load)
+
+    @_rpc("filters/upsert")
+    async def _rpc_filters_upsert(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        name = json_as_str(params.get("name"))
+        scope = json_as_str(params.get("scope"))
+        query = json_as_str(params.get("query"))
+
+        def _put() -> JsonObject:
+            try:
+                row = upsert_filter(SavedFilter(name, scope, query))
+            except ValueError as exc:
+                raise ControlError(-32602, str(exc)) from exc
+            return as_json_object({"filter": row.mapping()})
+
+        return await asyncio.to_thread(_put)
+
+    @_rpc("filters/remove")
+    async def _rpc_filters_remove(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        name = json_as_str(params.get("name")).strip()
+        scope = json_as_str(params.get("scope")).strip()
+        if not name or not scope:
+            raise ControlError(-32602, "name and scope are required")
+
+        def _drop() -> JsonObject:
+            return as_json_object({"removed": remove_filter(name, scope)})
+
+        return await asyncio.to_thread(_drop)
+
+    @_rpc("filters/expand")
+    async def _rpc_filters_expand(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        query = json_as_str(params.get("query"))
+        raw = params.get("answers")
+        if not isinstance(raw, dict):
+            raise ControlError(-32602, "answers is required")
+        answers: dict[str, str] = {}
+        for key, val in raw.items():
+            if isinstance(key, str) and isinstance(val, str):
+                answers[key] = val
+
+        def _exp() -> JsonObject:
+            try:
+                return as_json_object({"query": expand(query, answers)})
+            except ValueError as exc:
+                raise ControlError(-32602, str(exc)) from exc
+
+        return await asyncio.to_thread(_exp)
 
     async def notify(self, method: str, params: JsonObject) -> None:
         """Publish a notification to connected editor clients.

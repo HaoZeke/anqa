@@ -2,7 +2,8 @@
 
 Summonable session palette for anqa. The idle list is **Recent**
 (latest eight). Scroll down or press `j` at the bottom for the next
-eight. Type `/` to search the whole catalog. Open a session for Overview,
+eight. Type `/` to search the whole catalog. Saved filters sit next to
+search (pick, save, delete). Open a session for Overview,
 Turns, Timeline, Diff, and Notes. Notes use the same schema as the
 [terminal app](../README.md#terminal-app).
 

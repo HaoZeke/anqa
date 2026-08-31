@@ -1,0 +1,30 @@
+# Saved search filters. Copy to ~/.anqa/filters.toml
+#
+# scope is catalog (session list), timeline, or turns.
+# field:{a,b} is a choice hole; field:? is a free-text hole.
+# The apps collect answers, then run a normal query.
+
+[[filter]]
+name = "Awaiting notes"
+scope = "catalog"
+query = "has:note AND is:awaiting"
+
+[[filter]]
+name = "Harness"
+scope = "catalog"
+query = "is:complete AND harness:{grok,claude,codex}"
+
+[[filter]]
+name = "This repo"
+scope = "catalog"
+query = "in:?"
+
+[[filter]]
+name = "Tool errors"
+scope = "timeline"
+query = "has:error"
+
+[[filter]]
+name = "Long turns"
+scope = "turns"
+query = "duration:>1m"

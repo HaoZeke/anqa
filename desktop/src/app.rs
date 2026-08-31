@@ -17,6 +17,7 @@ use iced::{
 use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
+use crate::filters::{self, FilterForm, FilterHoleKind, SavedFilter};
 use crate::format::{
     control_down_message, event_body_text, extract_event, extract_turn, fenced_code_block,
     format_note_time, is_chat_message, list_status_label, looks_like_markdown,
@@ -114,6 +115,21 @@ pub enum Message {
         gen: u64,
         result: Result<Value, String>,
     },
+    FilterPicked(String),
+    FilterSaveOpen,
+    FilterSaveName(String),
+    FilterSaveCommit,
+    FilterDelete,
+    FilterFormCancel,
+    FilterHoleAnswer {
+        field: String,
+        value: String,
+    },
+    FilterHolesCommit,
+    FiltersLoaded(Result<Value, String>),
+    FilterSaved(Result<Value, String>),
+    FilterDeleted(Result<Value, String>),
+    FilterExpanded(Result<Value, String>),
     ListSearchLoaded {
         gen: u64,
         result: Result<Value, String>,
@@ -433,6 +449,12 @@ pub struct Hud {
     last_turns: Option<LastTurnsReq>,
     turns_filter: Vec<usize>,
     turns_search_id: Id,
+    filters: Vec<SavedFilter>,
+    filter_pick: Option<String>,
+    filter_form: FilterForm,
+    filter_save_name: String,
+    filter_answers: HashMap<String, String>,
+    filter_pending: Option<SavedFilter>,
     diff: crate::wire::DiffBlock,
     diff_sid: String,
     diff_gen: u64,
@@ -621,6 +643,12 @@ impl Default for Hud {
             last_turns: None,
             turns_filter: vec![],
             turns_search_id: Id::new("turns-search"),
+            filters: vec![],
+            filter_pick: None,
+            filter_form: FilterForm::Closed,
+            filter_save_name: String::new(),
+            filter_answers: HashMap::new(),
+            filter_pending: None,
             diff: crate::wire::DiffBlock::default(),
             diff_sid: String::new(),
             diff_gen: 0,
@@ -1396,6 +1424,94 @@ impl Hud {
                     }
                 }
             }
+            Message::FilterPicked(name) => self.on_filter_picked(name),
+            Message::FilterSaveOpen => {
+                if self.filter_scope().is_none() {
+                    return Task::none();
+                }
+                if self.current_filter_query().trim().is_empty() {
+                    self.toasts.push_warning("Type a search before saving");
+                    return Task::none();
+                }
+                self.filter_form = FilterForm::Save;
+                self.filter_save_name.clear();
+                Task::none()
+            }
+            Message::FilterSaveName(name) => {
+                self.filter_save_name = name;
+                Task::none()
+            }
+            Message::FilterSaveCommit => self.commit_filter_save(),
+            Message::FilterDelete => self.commit_filter_delete(),
+            Message::FilterFormCancel => {
+                self.close_filter_form();
+                Task::none()
+            }
+            Message::FilterHoleAnswer { field, value } => {
+                self.filter_answers.insert(field, value);
+                Task::none()
+            }
+            Message::FilterHolesCommit => self.commit_filter_holes(),
+            Message::FiltersLoaded(result) => {
+                match result {
+                    Ok(v) => self.filters = filters::parse_list(&v),
+                    Err(e) => {
+                        self.toasts.push_danger(e);
+                    }
+                }
+                Task::none()
+            }
+            Message::FilterSaved(result) => match result {
+                Ok(v) => {
+                    if let Some(row) = v.get("filter").and_then(filters::parse_row) {
+                        self.filters.retain(|item| {
+                            !(item.name.eq_ignore_ascii_case(&row.name) && item.scope == row.scope)
+                        });
+                        self.filters.push(row);
+                        self.toasts.push_success("Saved filter");
+                    }
+                    self.close_filter_form();
+                    Task::none()
+                }
+                Err(e) => {
+                    self.toasts.push_danger(e);
+                    Task::none()
+                }
+            },
+            Message::FilterDeleted(result) => match result {
+                Ok(v) => {
+                    if v.get("removed").and_then(Value::as_bool) == Some(true) {
+                        if let Some(name) = self.filter_pick.clone() {
+                            if let Some(scope) = self.filter_scope() {
+                                self.filters
+                                    .retain(|item| !(item.name == name && item.scope == scope));
+                            }
+                        }
+                        self.filter_pick = None;
+                        self.toasts.push_success("Deleted filter");
+                    }
+                    Task::none()
+                }
+                Err(e) => {
+                    self.toasts.push_danger(e);
+                    Task::none()
+                }
+            },
+            Message::FilterExpanded(result) => match result {
+                Ok(v) => {
+                    let query = v
+                        .get("query")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    self.close_filter_form();
+                    self.apply_filter_query(query)
+                }
+                Err(e) => {
+                    self.toasts.push_danger(e);
+                    Task::none()
+                }
+            },
             Message::LoadMoreTimeline => self.load_more_timeline(),
             Message::StartNote { turn, event } => {
                 if !self.composing_note() {
@@ -1702,7 +1818,7 @@ impl Hud {
                         .and_then(|s| s.to_str())
                         .unwrap_or("control.sock")
                 );
-                Task::none()
+                self.load_saved_filters()
             }
             Message::Inited(Err(e)) => {
                 self.mark_down(&e);
@@ -2148,6 +2264,174 @@ impl Hud {
     pub fn browse_mode(&self) -> bool {
         self.query.trim().is_empty()
             && (self.overview.is_some() || !self.overview_pending.is_empty())
+    }
+
+    pub fn filter_scope(&self) -> Option<&'static str> {
+        if !self.browse_mode() {
+            return Some("catalog");
+        }
+        match self.tab {
+            Tab::Timeline => Some("timeline"),
+            Tab::Turns => Some("turns"),
+            _ => None,
+        }
+    }
+
+    pub fn saved_filter_names(&self) -> Vec<String> {
+        let Some(scope) = self.filter_scope() else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = self
+            .filters
+            .iter()
+            .filter(|row| row.scope == scope)
+            .map(|row| row.name.clone())
+            .collect();
+        names.sort_by_key(|name| name.to_ascii_lowercase());
+        names
+    }
+
+    pub fn filter_pick(&self) -> Option<&str> {
+        self.filter_pick.as_deref()
+    }
+
+    pub fn filter_form(&self) -> FilterForm {
+        self.filter_form
+    }
+
+    pub fn filter_save_name(&self) -> &str {
+        &self.filter_save_name
+    }
+
+    pub fn filter_pending(&self) -> Option<&SavedFilter> {
+        self.filter_pending.as_ref()
+    }
+
+    pub fn filter_answer(&self, field: &str) -> &str {
+        self.filter_answers
+            .get(field)
+            .map(String::as_str)
+            .unwrap_or("")
+    }
+
+    fn current_filter_query(&self) -> &str {
+        match self.filter_scope() {
+            Some("timeline") => &self.timeline_query_draft,
+            Some("turns") => &self.turns_query_draft,
+            _ => &self.query,
+        }
+    }
+
+    fn close_filter_form(&mut self) {
+        self.filter_form = FilterForm::Closed;
+        self.filter_pending = None;
+        self.filter_answers.clear();
+        self.filter_save_name.clear();
+    }
+
+    fn load_saved_filters(&self) -> Task<Message> {
+        Task::perform(
+            async { control::filters_list(None).map_err(|e| e.to_string()) },
+            Message::FiltersLoaded,
+        )
+    }
+
+    fn on_filter_picked(&mut self, name: String) -> Task<Message> {
+        if name.is_empty() {
+            self.filter_pick = None;
+            return Task::none();
+        }
+        let Some(scope) = self.filter_scope() else {
+            return Task::none();
+        };
+        let Some(row) = self
+            .filters
+            .iter()
+            .find(|item| item.scope == scope && item.name == name)
+            .cloned()
+        else {
+            return Task::none();
+        };
+        self.filter_pick = Some(name);
+        if row.holes.is_empty() {
+            return self.apply_filter_query(row.query);
+        }
+        self.filter_answers.clear();
+        for hole in &row.holes {
+            if hole.kind == FilterHoleKind::Choice {
+                if let Some(first) = hole.choices.first() {
+                    self.filter_answers
+                        .insert(hole.field.clone(), first.clone());
+                }
+            }
+        }
+        self.filter_pending = Some(row);
+        self.filter_form = FilterForm::Holes;
+        Task::none()
+    }
+
+    fn apply_filter_query(&mut self, query: String) -> Task<Message> {
+        match self.filter_scope() {
+            Some("timeline") => self.update(Message::TimelineQuery(query)),
+            Some("turns") => self.update(Message::TurnsQuery(query)),
+            _ => self.update(Message::SearchChanged(query)),
+        }
+    }
+
+    fn commit_filter_save(&mut self) -> Task<Message> {
+        let Some(scope) = self.filter_scope() else {
+            return Task::none();
+        };
+        let name = self.filter_save_name.trim().to_string();
+        let query = self.current_filter_query().trim().to_string();
+        if name.is_empty() || query.is_empty() {
+            self.toasts.push_warning("Name and search are required");
+            return Task::none();
+        }
+        Task::perform(
+            async move { control::filters_upsert(&name, scope, &query).map_err(|e| e.to_string()) },
+            Message::FilterSaved,
+        )
+    }
+
+    fn commit_filter_delete(&mut self) -> Task<Message> {
+        let Some(scope) = self.filter_scope() else {
+            return Task::none();
+        };
+        let Some(name) = self.filter_pick.clone() else {
+            self.toasts.push_warning("Pick a saved filter to delete");
+            return Task::none();
+        };
+        Task::perform(
+            async move { control::filters_remove(&name, scope).map_err(|e| e.to_string()) },
+            Message::FilterDeleted,
+        )
+    }
+
+    fn commit_filter_holes(&mut self) -> Task<Message> {
+        let Some(row) = self.filter_pending.clone() else {
+            return Task::none();
+        };
+        if row.holes.iter().any(|hole| {
+            self.filter_answers
+                .get(&hole.field)
+                .map(|v| v.trim().is_empty())
+                .unwrap_or(true)
+        }) {
+            self.toasts.push_warning("Fill every field");
+            return Task::none();
+        }
+        let answers = serde_json::Value::Object(
+            self.filter_answers
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect(),
+        );
+        let query = row.query;
+        Task::perform(
+            async move { control::filters_expand(&query, &answers).map_err(|e| e.to_string()) },
+            Message::FilterExpanded,
+        )
     }
 
     pub fn help_open(&self) -> bool {
@@ -5970,6 +6254,10 @@ impl Hud {
             self.context_sel = None;
             return Task::none();
         }
+        if self.filter_form != FilterForm::Closed {
+            self.close_filter_form();
+            return Task::none();
+        }
         // Full-pane event detail → list at the current event before hide.
         if self.tab == Tab::Timeline && self.timeline_open.is_some() {
             return self.close_timeline_detail();
@@ -9170,6 +9458,51 @@ mod tests {
         let max = (content - hud.tl_window.viewport).max(0.0);
         assert!(hud.tl_window.scroll <= max + f32::EPSILON);
         assert!(hud.tl_window.scroll >= 0.0);
+    }
+
+    #[test]
+    fn filter_picked_applies_catalog_query() {
+        let mut hud = Hud {
+            filters: vec![SavedFilter {
+                name: "Awaiting".into(),
+                scope: "catalog".into(),
+                query: "is:awaiting".into(),
+                holes: vec![],
+            }],
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::FilterPicked("Awaiting".into()));
+        assert_eq!(hud.query(), "is:awaiting");
+        assert_eq!(hud.filter_pick(), Some("Awaiting"));
+    }
+
+    #[test]
+    fn filter_picked_with_holes_opens_form() {
+        let mut hud = Hud {
+            filters: vec![SavedFilter {
+                name: "Harness".into(),
+                scope: "catalog".into(),
+                query: "harness:{grok,claude}".into(),
+                holes: vec![crate::filters::FilterHole {
+                    field: "harness".into(),
+                    kind: FilterHoleKind::Choice,
+                    choices: vec!["grok".into(), "claude".into()],
+                }],
+            }],
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::FilterPicked("Harness".into()));
+        assert_eq!(hud.filter_form(), FilterForm::Holes);
+        assert_eq!(hud.query(), "");
+        assert_eq!(hud.filter_answer("harness"), "grok");
+    }
+
+    #[test]
+    fn escape_closes_filter_form() {
+        let mut hud = Hud::default();
+        hud.filter_form = FilterForm::Save;
+        let _ = hud.on_key(Key::Named(Named::Escape), KeyMods::empty());
+        assert_eq!(hud.filter_form(), FilterForm::Closed);
     }
 
     #[test]

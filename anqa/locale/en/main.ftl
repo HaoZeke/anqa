@@ -204,6 +204,40 @@ cmd-search-sessions = Search sessions
 
 cmd-search-sessions-help = Filter sessions as you type
 
+cmd-apply-filter = Apply saved filter
+
+cmd-apply-filter-help = Run a named search on this list
+
+cmd-save-filter = Save search as filter
+
+cmd-save-filter-help = Keep the current box as a named search
+
+cmd-delete-filter = Delete saved filter
+
+cmd-delete-filter-help = Remove a named search
+
+filter-pick-title = Saved filter
+
+filter-pick-empty = No saved filters
+
+filter-save-title = Save search
+
+filter-save-name = Name
+
+filter-holes-title = Fill this filter
+
+filter-applied = Applied {$name}
+
+filter-saved = Saved {$name}
+
+filter-deleted = Deleted {$name}
+
+filter-none = No saved filters for this search
+
+filter-empty-query = Type a search before saving
+
+filter-save-failed = Could not save that filter
+
 cmd-select-all-configs = Select all / none
 
 cmd-select-all-configs-help = Toggle all configs in selection (S)

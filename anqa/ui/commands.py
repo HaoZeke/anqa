@@ -57,6 +57,9 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
         ("action_show_help", U.cmd_help()),
         ("action_quit", U.cmd_quit()),
         ("action_refresh_everything", U.cmd_full_refresh()),
+        ("action_apply_saved_filter", U.cmd_apply_filter()),
+        ("action_save_filter", U.cmd_save_filter()),
+        ("action_delete_filter", U.cmd_delete_filter()),
     ):
         yield _app(app, method, th)
     match screen:

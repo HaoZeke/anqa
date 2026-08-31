@@ -66,6 +66,8 @@ class TestYieldAppCommands:
         assert len(cmds) > 5
         titles = [c[0] for c in cmds]
         assert any("Refresh" in t or "refresh" in t.lower() for t in titles)
+        assert any("saved filter" in t.lower() for t in titles)
+        assert any(t.lower().startswith("save search") for t in titles)
 
     def test_browser_screen_commands(self) -> None:
         from anqa.ui.screens.browser import BrowserScreen

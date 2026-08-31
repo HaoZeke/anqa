@@ -48,6 +48,9 @@ Cursor (`cursor`) are registered.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
+  Named filters live in `~/.anqa/filters.toml`. `field:{a,b}` and
+  `field:?` open a short form before the query runs. The terminal
+  command palette and the desktop Saved pick apply, save, and delete.
 - List Turn is `running` when a turn is in progress, `—` when the store
   wrote no list status (last user row or bookend).
 - Session delete (`x`) removes every store locator: directory, file, or
@@ -109,6 +112,8 @@ Cursor (`cursor`) are registered.
 - `protocolVersion` is semver (`1.0.0`), independent of the product
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.
+- `filters/list`, `filters/upsert`, `filters/remove`, and
+  `filters/expand` read and write `~/.anqa/filters.toml`.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.
 
 ### Examples
