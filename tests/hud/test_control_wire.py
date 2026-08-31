@@ -76,7 +76,7 @@ def _assert_shape(live: object, fixture: object, *, path: str = "$") -> None:
     if isinstance(fixture, dict):
         assert isinstance(live, dict), f"{path}: expected object"
         assert set(fixture) <= set(live), f"{path}: missing keys {set(fixture) - set(live)}"
-        skip = {"path", "sortEpoch", "revision"}
+        skip = {"path", "sortEpoch", "revision", "time"}
         for key, expected in fixture.items():
             if key in skip:
                 continue

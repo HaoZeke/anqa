@@ -213,7 +213,7 @@ Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
 Filter, only while All turns is selected. `u` or the logo leaves the
 open session for the session list. `g` on Turns opens Timeline for that
 turn. Enter opens (or edits the focused note). An open event has a
-**Raw** switch for that event as JSON.
+**Raw** Switch: this event as JSON.
 
 ### Export
 

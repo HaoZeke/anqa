@@ -1546,10 +1546,9 @@ mod tests {
 
     #[test]
     fn closed_list_row_fits_one_title_line() {
-        assert!(
-            CLOSED_TURN_CARD_H < 80.0,
-            "hairline tiles must not reserve the old boxed-card slot"
-        );
+        const {
+            assert!(CLOSED_TURN_CARD_H < 80.0);
+        }
         assert_eq!(CLOSED_TURN_CARD_H, TIMELINE_ROW_H);
         assert_eq!(CLOSED_TURN_CARD_H, OVERVIEW_LIST_ROW_H);
         assert_eq!(CLOSED_TURN_CARD_H, AGENT_ROW_H);

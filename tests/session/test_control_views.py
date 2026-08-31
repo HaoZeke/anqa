@@ -735,7 +735,7 @@ def _write_jobs_workflows_session(root: Path, name: str = "sess-reuse") -> Path:
     for i in range(40):
         updates.append(
             {
-                "timestamp": i,
+                "timestamp": i + 1,
                 "params": {
                     "update": {
                         "sessionUpdate": "tool_call",

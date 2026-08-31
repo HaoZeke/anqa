@@ -98,6 +98,7 @@ fn search_shell(tea: icedtea::theme::Tokens) -> iced::widget::container::Style {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn inset_search<'a>(
     value: &str,
     on_input: impl Fn(String) -> Message + 'a,
@@ -248,6 +249,7 @@ fn paint_badge(
 }
 
 /// Status plus identity chips — Overview, Recent cards, and the browse bar.
+#[allow(clippy::too_many_arguments)]
 fn session_state_row(
     status: &str,
     harness: &str,

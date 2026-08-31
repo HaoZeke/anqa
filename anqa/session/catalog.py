@@ -268,7 +268,7 @@ def list_session_catalog(
     return rows
 
 
-_DEAD_LIST_KEYS = ("originTag", "isHost")
+_DEAD_LIST_KEYS = ("originTag", "isHost", "origin")
 
 
 def public_catalog_row(row: JsonObject) -> JsonObject:

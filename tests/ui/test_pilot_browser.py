@@ -975,6 +975,15 @@ async def test_browser_first_paint_defers_summary_and_notes(tmp_path: Path) -> N
             )
             + "\n"
         )
+    with (sess / "updates.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(
+            json.dumps({"params": {"update": {"sessionUpdate": "user_message_chunk"}}})
+            + "\n"
+            + json.dumps({"params": {"update": {"sessionUpdate": "agent_message_chunk"}}})
+            + "\n"
+            + json.dumps({"params": {"update": {"sessionUpdate": "tool_call"}}})
+            + "\n"
+        )
     app = _host_app(work, traces)
 
     async with app.run_test(size=(140, 48)) as pilot:

@@ -482,10 +482,23 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return self._needs_live_timeline
         return self._recompute_needs_live_timeline()
 
+    def _timeline_has_open_turn(self) -> bool:
+        """True when the loaded timeline ends on ``turn_started``."""
+        open_turn = False
+        for ev in self.timeline or []:
+            et = (ev.event_type or "").strip().lower()
+            if et == "turn_started":
+                open_turn = True
+            elif et == "turn_ended":
+                open_turn = False
+        return open_turn
+
     def _recompute_needs_live_timeline(self) -> bool:
         meta = self.meta
         oc = (meta.turn_outcome or "").strip().lower().replace(" ", "_") if meta else ""
         need = oc in {"running", "in_progress", "pending", "ending"}
+        if not need:
+            need = self._timeline_has_open_turn()
         self._needs_live_timeline = need
         self._needs_live_timeline_valid = True
         return need
@@ -1804,6 +1817,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
         self._sync_compact_child_chrome()
+        self._invalidate_live_timeline_cache()
         self._sync_timeline_tail_checkbox()
         if self._requested_prompt_index is not None:
             self.select_prompt_index(self._requested_prompt_index)
