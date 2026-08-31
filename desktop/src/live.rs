@@ -215,6 +215,32 @@ pub fn diff_hunk_scroll_y(hit_line: Option<usize>) -> f32 {
         .unwrap_or(0.0)
 }
 
+/// Visible window for *scroll* so a remounted `virtual_column` builds the
+/// same rows (``rows_window`` reuses ``start..end``).
+pub fn list_window_at(
+    heights: &[f32],
+    scroll: f32,
+    view_h: f32,
+    overscan: usize,
+) -> icedtea::collection::VisibleWindow {
+    let view_h = view_h.max(1.0);
+    let vis = icedtea::collection::visible_range_var(scroll, view_h, heights);
+    let start = vis.start.saturating_sub(overscan);
+    let end = vis.end.saturating_add(overscan).min(heights.len());
+    icedtea::collection::VisibleWindow {
+        start,
+        end,
+        scroll,
+        viewport: view_h,
+    }
+}
+
+/// First layout of a remounted clip reports scroll 0. Keep the restored
+/// offset when that arrives before the widget catches up.
+pub fn absorb_remount_scroll(held: f32, incoming: f32) -> bool {
+    incoming < 1.0 && held > 1.0
+}
+
 /// Pin row top to the viewport top (expand / jump).
 pub fn list_scroll_to_top(heights: &[f32], active: usize, view_h: f32) -> f32 {
     let top: f32 = heights.iter().take(active).copied().sum();
@@ -1577,6 +1603,26 @@ mod tests {
         assert!((cover - 200.0).abs() < f32::EPSILON);
         assert!((pin - 500.0).abs() < f32::EPSILON);
         assert!(cover < pin);
+    }
+
+    #[test]
+    fn list_window_at_covers_the_scrolled_rows() {
+        let heights = vec![72.0; 20];
+        let view_h = 400.0;
+        let scroll = 72.0 * 8.0;
+        let win = list_window_at(&heights, scroll, view_h, 1);
+        assert!((win.scroll - scroll).abs() < f32::EPSILON);
+        assert_eq!(win.viewport, view_h);
+        assert!(win.start <= 8, "start {} must reach row 8", win.start);
+        assert!(win.end > 8, "end {} must pass row 8", win.end);
+    }
+
+    #[test]
+    fn absorb_remount_scroll_keeps_a_restored_offset() {
+        assert!(absorb_remount_scroll(320.0, 0.0));
+        assert!(!absorb_remount_scroll(320.0, 320.0));
+        assert!(!absorb_remount_scroll(0.0, 0.0));
+        assert!(!absorb_remount_scroll(0.0, 80.0));
     }
 
     #[test]

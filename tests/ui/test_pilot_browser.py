@@ -190,11 +190,17 @@ async def test_enter_opens_full_width_event_and_escape_restores_list(
             screen._current_event = tl.events[0]
         layout = screen.query_one("#browser-layout")
         assert not layout.has_class("event-reader")
+        opened = cursor_row_key(tl)
+        opened_event = screen._current_event.index if screen._current_event else None
         screen.action_toggle_event_reader()
         assert layout.has_class("event-reader")
         screen.action_go_back()
         assert not layout.has_class("event-reader")
         assert isinstance(app.screen, BrowserScreen)
+        assert cursor_row_key(tl) == opened
+        if opened_event is not None:
+            assert screen._current_event is not None
+            assert screen._current_event.index == opened_event
 
 
 @pytest.mark.asyncio

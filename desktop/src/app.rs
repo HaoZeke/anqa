@@ -24,20 +24,21 @@ use crate::format::{
     workflow_for_event,
 };
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, diff_hunk_scroll_y, filter_timeline_indices,
-    filter_turn_indices, find_session_index, first_list_fetch, is_partial_list_page,
-    is_soft_notes_save_error, last_timeline_page_offset, list_focus_after_scroll,
-    list_scroll_to_cover, list_scroll_to_top, locators_equal, merge_catalog_rows,
-    merge_timeline_by_index, next_list_offset, next_spotlight_limit, note_card_height,
-    note_field_input_key, note_form_fields, note_text_input_keys, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
-    row_matches_keep, scroll_after_prepend, session_card_height, session_needs_live_poll,
-    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
-    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
-    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
-    AGENT_ROW_H, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_TAIL_LIMIT, OVERVIEW_LIST_ROW_H,
-    SEARCH_DEBOUNCE_MS, SPOTLIGHT_RECENT, STATS_ROW_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK,
-    TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    absorb_remount_scroll, card_marks_from_overview, clamp_scroll, diff_hunk_scroll_y,
+    filter_timeline_indices, filter_turn_indices, find_session_index, first_list_fetch,
+    is_partial_list_page, is_soft_notes_save_error, last_timeline_page_offset,
+    list_focus_after_scroll, list_scroll_to_cover, list_window_at, locators_equal,
+    merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
+    note_card_height, note_field_input_key, note_form_fields, note_text_input_keys,
+    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
+    previous_timeline_page, row_matches_keep, scroll_after_prepend, session_card_height,
+    session_needs_live_poll, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
+    should_page_recent, spotlight_recent, timeline_coverage_complete, timeline_page_next,
+    timeline_range_label, timeline_window_start, trim_timeline_buffer, wants_periodic_poll,
+    CardMark, TickInput, AGENT_ROW_H, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_TAIL_LIMIT,
+    OVERVIEW_LIST_OVERSCAN, OVERVIEW_LIST_ROW_H, SEARCH_DEBOUNCE_MS, SPOTLIGHT_RECENT, STATS_ROW_H,
+    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN,
+    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H, TURNS_OVERSCAN,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -268,6 +269,9 @@ struct ParentFrame {
     turns_query_draft: String,
     turns_hits: Vec<crate::wire::TurnRow>,
     turn_scroll: f32,
+    timeline_scroll: f32,
+    note_scroll: f32,
+    overview_scroll: f32,
 }
 
 /// One selectable body buffer (expanded event or turn text).
@@ -393,6 +397,13 @@ pub struct Hud {
     tl_scroll_id: Id,
     /// List scroll when event detail opened, restored on Esc.
     tl_return_scroll: Option<f32>,
+    /// Ignore remount-at-0 until the restored Timeline offset lands.
+    tl_return_hold: bool,
+    /// Notes list scroll when compose opened, restored on cancel.
+    note_return_scroll: Option<f32>,
+    note_return_hold: bool,
+    turn_return_hold: bool,
+    overview_return_hold: bool,
     /// Event indexes whose detail is showing raw JSON.
     event_raw: HashSet<i64>,
     turn_window: icedtea::collection::VisibleWindow,
@@ -581,6 +592,11 @@ impl Default for Hud {
             tl_heights: vec![],
             tl_scroll_id: Id::new("hud-timeline"),
             tl_return_scroll: None,
+            tl_return_hold: false,
+            note_return_scroll: None,
+            note_return_hold: false,
+            turn_return_hold: false,
+            overview_return_hold: false,
             event_raw: HashSet::new(),
             turn_window: icedtea::collection::VisibleWindow::new(400.0),
             turn_heights: vec![],
@@ -748,6 +764,42 @@ fn apply_clip_scroll(
 ) -> Task<Message> {
     window.scroll = y;
     operation::scroll_to(id, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y })
+}
+
+fn place_clip_window(
+    id: Id,
+    window: &mut icedtea::collection::VisibleWindow,
+    heights: &[f32],
+    pos: Option<usize>,
+    saved: Option<f32>,
+    overscan: usize,
+    hold: &mut bool,
+) -> Task<Message> {
+    let view_h = window.viewport.max(1.0);
+    let base = saved.unwrap_or(window.scroll);
+    let y = match pos {
+        Some(p) => list_scroll_to_cover(heights, p, base, view_h),
+        None => base,
+    };
+    *window = list_window_at(heights, y, view_h, overscan);
+    *hold = y > 1.0;
+    apply_clip_scroll(id, window, y)
+}
+
+/// First remount of a `virtual_column` reports scroll 0. Keep the restored
+/// window until the widget publishes a real offset.
+fn take_returned_clip(
+    hold: &mut bool,
+    current: &mut icedtea::collection::VisibleWindow,
+    incoming: icedtea::collection::VisibleWindow,
+) -> bool {
+    if *hold && absorb_remount_scroll(current.scroll, incoming.scroll) {
+        current.viewport = incoming.viewport.max(current.viewport);
+        return false;
+    }
+    *hold = false;
+    *current = incoming;
+    true
 }
 
 fn open_hud_window(window_mode: bool) -> (window::Id, Task<window::Id>) {
@@ -1345,6 +1397,9 @@ impl Hud {
             }
             Message::LoadMoreTimeline => self.load_more_timeline(),
             Message::StartNote { turn, event } => {
+                if !self.composing_note() {
+                    self.note_return_scroll = Some(self.note_window.scroll);
+                }
                 self.note_draft = NoteDraft {
                     id: String::new(),
                     turn_index: self.default_note_turn(&turn, &event),
@@ -1367,14 +1422,7 @@ impl Hud {
                 self.open_note(&nid);
                 self.focus_first_note_field()
             }
-            Message::ResetDraft => {
-                self.note_draft = NoteDraft::default();
-                self.note_form_ix = None;
-                self.note_compose_lock = false;
-                self.typing_notes = false;
-                self.note_saving = false;
-                Task::none()
-            }
+            Message::ResetDraft => self.leave_note_compose(),
             Message::NoteField { id, value } => {
                 self.note_draft.set_field(&id, value);
                 self.note_compose_lock = true;
@@ -1411,7 +1459,9 @@ impl Hud {
                 Task::none()
             }
             Message::TimelineScroll(win) => {
-                self.tl_window = win;
+                if !take_returned_clip(&mut self.tl_return_hold, &mut self.tl_window, win) {
+                    return Task::none();
+                }
                 if let Some(dest) = list_focus_after_scroll(
                     self.timeline_focus_pos(),
                     self.tl_window.scroll,
@@ -1444,19 +1494,31 @@ impl Hud {
                     .as_ref()
                     .map(|o| o.turns.turns.is_empty())
                     .unwrap_or(true);
-                self.turn_window = if empty {
-                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
-                } else {
-                    win
-                };
+                if empty {
+                    self.turn_window =
+                        icedtea::collection::VisibleWindow::new(win.viewport.max(1.0));
+                    self.turn_return_hold = false;
+                } else if !take_returned_clip(
+                    &mut self.turn_return_hold,
+                    &mut self.turn_window,
+                    win,
+                ) {
+                    return Task::none();
+                }
                 Task::none()
             }
             Message::OverviewScroll(win) => {
-                self.overview_window = if self.overview_list_count() == 0 {
-                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
-                } else {
-                    win
-                };
+                if self.overview_list_count() == 0 {
+                    self.overview_window =
+                        icedtea::collection::VisibleWindow::new(win.viewport.max(1.0));
+                    self.overview_return_hold = false;
+                } else if !take_returned_clip(
+                    &mut self.overview_return_hold,
+                    &mut self.overview_window,
+                    win,
+                ) {
+                    return Task::none();
+                }
                 Task::none()
             }
             Message::WorkflowChildScroll(win) => {
@@ -1468,11 +1530,17 @@ impl Hud {
                 Task::none()
             }
             Message::NoteScroll(win) => {
-                self.note_window = if self.note_heights.is_empty() {
-                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
-                } else {
-                    win
-                };
+                if self.note_heights.is_empty() {
+                    self.note_window =
+                        icedtea::collection::VisibleWindow::new(win.viewport.max(1.0));
+                    self.note_return_hold = false;
+                } else if !take_returned_clip(
+                    &mut self.note_return_hold,
+                    &mut self.note_window,
+                    win,
+                ) {
+                    return Task::none();
+                }
                 Task::none()
             }
             Message::FocusOverviewRow(i) => {
@@ -1907,13 +1975,11 @@ impl Hud {
                 match result {
                     Ok(snap) => {
                         self.apply_notes_snapshot(&snap);
-                        self.note_draft = NoteDraft::default();
-                        self.note_form_ix = None;
-                        self.note_compose_lock = false;
-                        self.typing_notes = false;
+                        let restore = self.leave_note_compose();
                         self.toasts.push_success("Note saved");
                         self.mark_up();
                         self.status = "Note saved".into();
+                        return restore;
                     }
                     Err(e) => {
                         if !is_soft_notes_save_error(&e) {
@@ -1931,13 +1997,14 @@ impl Hud {
                 match result {
                     Ok(snap) => {
                         self.apply_notes_snapshot(&snap);
-                        if self.note_draft.id == id {
-                            self.note_draft = NoteDraft::default();
-                            self.note_form_ix = None;
-                            self.note_compose_lock = false;
-                        }
+                        let restore = if self.note_draft.id == id {
+                            self.leave_note_compose()
+                        } else {
+                            Task::none()
+                        };
                         self.mark_up();
                         self.status = "Note deleted".into();
+                        return restore;
                     }
                     Err(e) => {
                         if !is_soft_notes_save_error(&e) {
@@ -2531,17 +2598,14 @@ impl Hud {
         let Some(pos) = self.tasks_focus else {
             return Task::none();
         };
-        let view_h = self.overview_window.viewport.max(1.0);
-        let y = list_scroll_to_cover(
-            &self.overview_heights,
-            pos,
-            self.overview_window.scroll,
-            view_h,
-        );
-        apply_clip_scroll(
+        place_clip_window(
             self.overview_scroll_id.clone(),
             &mut self.overview_window,
-            y,
+            &self.overview_heights,
+            Some(pos),
+            None,
+            OVERVIEW_LIST_OVERSCAN,
+            &mut self.overview_return_hold,
         )
     }
 
@@ -3931,6 +3995,11 @@ impl Hud {
         self.timeline_focus = None;
         self.timeline_open = None;
         self.tl_return_scroll = None;
+        self.tl_return_hold = false;
+        self.note_return_scroll = None;
+        self.note_return_hold = false;
+        self.turn_return_hold = false;
+        self.overview_return_hold = false;
         self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
         self.timeline_prompt = None;
@@ -4404,6 +4473,9 @@ impl Hud {
             turns_query_draft: self.turns_query_draft.clone(),
             turns_hits: self.turns_hits.clone(),
             turn_scroll: self.turn_window.scroll,
+            timeline_scroll: self.tl_window.scroll,
+            note_scroll: self.note_window.scroll,
+            overview_scroll: self.overview_window.scroll,
         })
     }
 
@@ -4423,6 +4495,13 @@ impl Hud {
         self.turns_hits = frame.turns_hits.clone();
         self.rebuild_turns_filter();
         self.turn_window.scroll = frame.turn_scroll;
+        self.tl_window.scroll = frame.timeline_scroll;
+        self.note_window.scroll = frame.note_scroll;
+        self.overview_window.scroll = frame.overview_scroll;
+        self.tl_return_hold = frame.timeline_scroll > 1.0;
+        self.turn_return_hold = frame.turn_scroll > 1.0;
+        self.note_return_hold = frame.note_scroll > 1.0;
+        self.overview_return_hold = frame.overview_scroll > 1.0;
         self.restore_around = if frame.tab == Tab::Timeline {
             frame.timeline_open.or(frame.timeline_focus)
         } else {
@@ -4484,9 +4563,15 @@ impl Hud {
         let Some(pos) = self.timeline_focus_pos() else {
             return Task::none();
         };
-        let view_h = self.tl_window.viewport.max(1.0);
-        let y = list_scroll_to_cover(&self.tl_heights, pos, self.tl_window.scroll, view_h);
-        apply_clip_scroll(self.tl_scroll_id.clone(), &mut self.tl_window, y)
+        place_clip_window(
+            self.tl_scroll_id.clone(),
+            &mut self.tl_window,
+            &self.tl_heights,
+            Some(pos),
+            None,
+            TIMELINE_OVERSCAN,
+            &mut self.tl_return_hold,
+        )
     }
 
     fn filter_pos(&self, index: i64) -> Option<usize> {
@@ -4571,17 +4656,20 @@ impl Hud {
             self.timeline_focus = Some(ix);
         }
         self.workflow_inspect_id = None;
-        let Some(pos) = self.timeline_focus_pos() else {
+        let pos = self.timeline_focus_pos();
+        if pos.is_none() {
             self.tl_return_scroll = None;
             return Task::none();
-        };
-        let view_h = self.tl_window.viewport.max(1.0);
-        let base = self
-            .tl_return_scroll
-            .take()
-            .unwrap_or(self.tl_window.scroll);
-        let y = list_scroll_to_cover(&self.tl_heights, pos, base, view_h);
-        apply_clip_scroll(self.tl_scroll_id.clone(), &mut self.tl_window, y)
+        }
+        place_clip_window(
+            self.tl_scroll_id.clone(),
+            &mut self.tl_window,
+            &self.tl_heights,
+            pos,
+            self.tl_return_scroll.take(),
+            TIMELINE_OVERSCAN,
+            &mut self.tl_return_hold,
+        )
     }
 
     fn turn_row_for_event(&self, index: i64) -> Option<&crate::wire::TurnRow> {
@@ -4866,8 +4954,10 @@ impl Hud {
             self.timeline_total = 0;
             self.timeline_offset = 0;
             self.timeline_next = 0;
-            self.tl_window =
-                icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
+            if !self.tl_return_hold {
+                self.tl_window =
+                    icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
+            }
             self.tl_filter.clear();
             self.tl_heights.clear();
         }
@@ -5121,6 +5211,9 @@ impl Hud {
     }
 
     fn open_note(&mut self, nid: &str) {
+        if !self.composing_note() {
+            self.note_return_scroll = Some(self.note_window.scroll);
+        }
         let Some(o) = &self.overview else {
             self.tab = Tab::Notes;
             return;
@@ -5169,6 +5262,28 @@ impl Hud {
         self.notes_open.insert(nid.to_string());
         self.notes_focus = Some(nid.to_string());
         self.tab = Tab::Notes;
+    }
+
+    fn leave_note_compose(&mut self) -> Task<Message> {
+        self.note_draft = NoteDraft::default();
+        self.note_form_ix = None;
+        self.note_compose_lock = false;
+        self.typing_notes = false;
+        self.note_saving = false;
+        let ids: Vec<String> = self.notes_sorted().iter().map(|n| n.id.clone()).collect();
+        let pos = self
+            .notes_focus
+            .as_ref()
+            .and_then(|id| ids.iter().position(|x| x == id));
+        place_clip_window(
+            self.note_scroll_id.clone(),
+            &mut self.note_window,
+            &self.note_heights,
+            pos,
+            self.note_return_scroll.take(),
+            OVERVIEW_LIST_OVERSCAN,
+            &mut self.note_return_hold,
+        )
     }
 
     fn save_note(&mut self) -> Task<Message> {
@@ -5855,6 +5970,9 @@ impl Hud {
         if self.tab == Tab::Timeline && self.timeline_open.is_some() {
             return self.close_timeline_detail();
         }
+        if self.tab == Tab::Notes && self.composing_note() {
+            return self.leave_note_compose();
+        }
         if !self.parent_stack.is_empty() {
             return self.return_to_parent();
         }
@@ -6432,9 +6550,15 @@ impl Hud {
         }) else {
             return Task::none();
         };
-        let view_h = self.turn_window.viewport.max(1.0);
-        let y = list_scroll_to_cover(&self.turn_heights, pos, self.turn_window.scroll, view_h);
-        apply_clip_scroll(self.turn_scroll_id.clone(), &mut self.turn_window, y)
+        place_clip_window(
+            self.turn_scroll_id.clone(),
+            &mut self.turn_window,
+            &self.turn_heights,
+            Some(pos),
+            None,
+            TURNS_OVERSCAN,
+            &mut self.turn_return_hold,
+        )
     }
 
     /// Enter: open the next level (pick → browse → event detail → next event).
@@ -7300,6 +7424,52 @@ mod tests {
             (hud.tl_window.scroll - before).abs() < f32::EPSILON,
             "Esc moved the list from {before} to {}",
             hud.tl_window.scroll
+        );
+        let pos = hud.timeline_focus_pos().expect("focus");
+        assert!(
+            hud.tl_window.start <= pos && pos < hud.tl_window.end,
+            "return window {}..{} must include row {pos}",
+            hud.tl_window.start,
+            hud.tl_window.end
+        );
+    }
+
+    #[test]
+    fn remount_scroll_zero_does_not_steal_timeline_focus_after_detail() {
+        let mut hud = hud_with_session();
+        let events: Vec<Value> = (0..20).map(|i| ev_json(i, "e")).collect();
+        load_page(&mut hud, 0, false, true, events, 20, 0);
+        hud.tl_window.viewport = 400.0;
+        hud.tl_window.scroll = crate::live::TIMELINE_ROW_H * 8.0;
+        hud.tl_window.start = 7;
+        hud.tl_window.end = 16;
+        let _ = hud.update(Message::SelectTimeline(8));
+        assert!(hud.is_timeline_open(8));
+        let _ = hud.update(Message::CloseTimelineDetail);
+        assert_eq!(hud.timeline_focus(), Some(8));
+        let remount = icedtea::collection::VisibleWindow {
+            start: 0,
+            end: 6,
+            scroll: 0.0,
+            viewport: 400.0,
+        };
+        let _ = hud.update(Message::TimelineScroll(remount));
+        assert_eq!(
+            hud.timeline_focus(),
+            Some(8),
+            "remount at 0 must not snap focus to the first visible row"
+        );
+        assert!(
+            hud.tl_window.scroll > 1.0,
+            "return scroll must stay on the opened row, got {}",
+            hud.tl_window.scroll
+        );
+        let pos = hud.timeline_focus_pos().expect("focus");
+        assert!(
+            hud.tl_window.start <= pos && pos < hud.tl_window.end,
+            "remounted window {}..{} must include row {pos}",
+            hud.tl_window.start,
+            hud.tl_window.end
         );
     }
 
@@ -8338,11 +8508,87 @@ mod tests {
         assert_eq!(hud.note_draft().id, "n-a");
         let _ = hud.update(Message::ResetDraft);
         assert!(!hud.composing_note());
+        assert_eq!(hud.notes_focus(), Some("n-a"));
         let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
         let _ = hud.on_key(Key::Character("x".into()), Modifiers::empty());
         assert_eq!(hud.note_delete_armed(), "n-a");
         let _ = hud.on_key(Key::Character("x".into()), Modifiers::empty());
         assert!(hud.note_delete_armed().is_empty());
+    }
+
+    #[test]
+    fn remount_scroll_zero_does_not_steal_notes_place_after_compose() {
+        let notes: Vec<crate::wire::NoteRow> = (0..12)
+            .map(|i| crate::wire::NoteRow {
+                id: format!("n-{i}"),
+                fields: serde_json::json!({"summary": format!("note {i}")}),
+                ..crate::wire::NoteRow::default()
+            })
+            .collect();
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes,
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        hud.rebuild_note_heights();
+        hud.note_window.viewport = 200.0;
+        hud.note_window.scroll = 240.0;
+        hud.note_window.start = 3;
+        hud.note_window.end = 8;
+        hud.notes_focus = Some("n-6".into());
+        let _ = hud.update(Message::OpenNote("n-6".into()));
+        assert!(hud.composing_note());
+        let _ = hud.update(Message::ResetDraft);
+        assert!(!hud.composing_note());
+        assert_eq!(hud.notes_focus(), Some("n-6"));
+        let remount = icedtea::collection::VisibleWindow {
+            start: 0,
+            end: 3,
+            scroll: 0.0,
+            viewport: 200.0,
+        };
+        let _ = hud.update(Message::NoteScroll(remount));
+        assert_eq!(hud.notes_focus(), Some("n-6"));
+        assert!(
+            hud.note_window.scroll > 1.0,
+            "return scroll must stay on the opened note, got {}",
+            hud.note_window.scroll
+        );
+    }
+
+    #[test]
+    fn escape_closes_notes_compose_before_hiding_hud() {
+        let mut hud = Hud {
+            visible: true,
+            tab: Tab::Notes,
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![crate::wire::NoteRow {
+                        id: "n-a".into(),
+                        fields: serde_json::json!({"summary": "one"}),
+                        ..crate::wire::NoteRow::default()
+                    }],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            notes_focus: Some("n-a".into()),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::OpenNote("n-a".into()));
+        assert!(hud.composing_note());
+        let _ = hud.update(Message::Hide);
+        assert!(!hud.composing_note());
+        assert_eq!(hud.notes_focus(), Some("n-a"));
+        assert!(hud.visible, "first Esc leaves the HUD up");
+        let _ = hud.update(Message::Hide);
+        assert!(!hud.visible);
     }
 
     #[test]
@@ -8904,7 +9150,7 @@ mod tests {
         hud.tl_window.scroll = 0.0;
         let _ = hud.scroll_focus_into_view();
         let want = list_scroll_to_cover(&hud.tl_heights, 5, 0.0, 400.0);
-        let pin = list_scroll_to_top(&hud.tl_heights, 5, 400.0);
+        let pin = crate::live::list_scroll_to_top(&hud.tl_heights, 5, 400.0);
         assert!((hud.tl_window.scroll - want).abs() < f32::EPSILON);
         assert!(hud.tl_window.scroll < pin);
     }
@@ -12785,6 +13031,23 @@ mod tests {
         assert!(hud.timeline_open.is_none());
         assert_eq!(hud.overview_pending, "parent-1");
         assert_eq!(hud.restore_around, Some(7));
+    }
+
+    #[test]
+    fn return_from_child_restores_timeline_scroll() {
+        let mut hud = parent_with_openable_child();
+        hud.tl_window.viewport = 400.0;
+        hud.tl_window.scroll = 320.0;
+        hud.tl_window.start = 4;
+        hud.tl_window.end = 12;
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert_eq!(hud.parent_stack[0].timeline_scroll, 320.0);
+        let _ = hud.return_to_parent();
+        assert!(
+            (hud.tl_window.scroll - 320.0).abs() < f32::EPSILON,
+            "parent Timeline scroll was {}",
+            hud.tl_window.scroll
+        );
     }
 
     #[test]
