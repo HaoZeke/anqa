@@ -549,11 +549,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Loading", Role::Progress),
     );
-    let chrome: Element<'_, Message> = if hud.look_open() {
-        icedtea::pattern::drawer(true, look_pane(hud, tea), busy, 1.0, tea)
-    } else {
-        busy
-    };
+    let chrome: Element<'_, Message> = busy;
     // Always stack the shell so opening the context menu does not remount
     // selectable editors (iced only paints a selection while they stay focused).
     let mut layers = stack![chrome];
@@ -580,60 +576,6 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         );
     }
     fade_palette(scene, hud, tea)
-}
-
-fn look_pane(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let look = hud.look();
-    let pick = |label: &'static str,
-                options: &[&str],
-                current: &'static str,
-                on: fn(String) -> Message| {
-        let opts: Vec<String> = options.iter().map(|s| (*s).to_string()).collect();
-        let el: Element<'_, Message> = column![
-            icedtea::widget::meta(label, tea, A11y::new(label, Role::Status)),
-            icedtea::widget::pick_list(
-                opts,
-                Some(current.to_string()),
-                on,
-                tea,
-                icedtea::widget::ControlSize::Default,
-                A11y::new(label, Role::ComboBox),
-            ),
-        ]
-        .spacing(4)
-        .into();
-        el
-    };
-    column![
-        icedtea::widget::meta("Look", tea, A11y::new("Look", Role::Header)),
-        pick(
-            "Density",
-            &["Compact", "Default", "Comfortable"],
-            look.density_label(),
-            Message::LookDensity,
-        ),
-        pick(
-            "Type",
-            &["90%", "100%", "110%", "125%"],
-            look.scale_label(),
-            Message::LookScale,
-        ),
-        pick(
-            "Shape",
-            &["Desktop", "Tight", "Soft", "Pill", "Material"],
-            look.shape_label(),
-            Message::LookShape,
-        ),
-        pick(
-            "Elevation",
-            &["Desktop", "Flat"],
-            look.elevation_label(),
-            Message::LookElevation,
-        ),
-    ]
-    .spacing(10)
-    .padding(12)
-    .into()
 }
 
 fn fade_palette<'a>(
@@ -3855,7 +3797,8 @@ mod tests {
         assert!(!prod.contains("Message::ShowJobLog"));
         assert!(!prod.contains("job.inspect"));
         assert!(prod.contains("kit::help_modal"));
-        assert!(prod.contains("pattern::drawer"));
+        assert!(!prod.contains("fn look_pane"));
+        assert!(!prod.contains("pattern::drawer"));
         assert!(prod.contains("kit::status_empty"));
         assert!(prod.contains("help_open()"));
         assert!(prod.contains("overview_fields"));

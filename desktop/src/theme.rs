@@ -27,8 +27,8 @@ impl Default for Look {
         Self {
             density: DensityName::Default,
             font_scale: 1.0,
-            shape: ShapePolicy::Pill,
-            elevation: ElevationPolicy::Flat,
+            shape: ShapePolicy::Soft,
+            elevation: ElevationPolicy::Desktop,
         }
     }
 }
@@ -378,7 +378,7 @@ pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: 
 /// Tokens for ``theme`` in ``~/.anqa/config.toml``.
 ///
 /// Default density is pad and control height. Type scale is 1.0
-/// (Material body). The F12 Look drawer changes scale live.
+/// (Material body). Shape is Soft; elevation is Desktop.
 pub fn tokens(name: &str) -> Tokens {
     tokens_with(name, Look::default())
 }
@@ -776,8 +776,8 @@ mod tests {
         let d = Look::default();
         assert_eq!(d.density_label(), "Default");
         assert_eq!(d.scale_label(), "100%");
-        assert_eq!(d.shape_label(), "Pill");
-        assert_eq!(d.elevation_label(), "Flat");
+        assert_eq!(d.shape_label(), "Soft");
+        assert_eq!(d.elevation_label(), "Desktop");
         assert_eq!(
             tokens_with("textual-dark", d.with_density_label("Comfortable"))
                 .density

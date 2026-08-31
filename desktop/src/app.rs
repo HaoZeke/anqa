@@ -240,12 +240,6 @@ pub enum Message {
     ToastDismiss(u64),
     /// Toggle the keyboard-shortcut cheatsheet (`?`).
     ToggleHelp,
-    /// Hidden look drawer (F12). Gallery density / type / shape / elevation.
-    ToggleLook,
-    LookDensity(String),
-    LookScale(String),
-    LookShape(String),
-    LookElevation(String),
     /// Discard — close handlers and contribution-shaped tab chrome.
     Noop,
 }
@@ -468,8 +462,6 @@ pub struct Hud {
     pending_activation_token: Option<String>,
     /// `?` keyboard-shortcut cheatsheet is open.
     help_open: bool,
-    /// Hidden F12 look drawer (debug).
-    look_open: bool,
     look: crate::theme::Look,
     /// Resolved keys.toml overlay (defaults when missing or refused).
     keys: crate::keys::KeyOverlay,
@@ -660,7 +652,6 @@ impl Default for Hud {
             },
             pending_activation_token: None,
             help_open: false,
-            look_open: false,
             look: crate::theme::Look::default(),
             keys: crate::keys::KeyOverlay::default(),
             leader_armed: false,
@@ -2067,27 +2058,6 @@ impl Hud {
                 self.context = None;
                 Task::none()
             }
-            Message::ToggleLook => {
-                self.look_open = !self.look_open;
-                self.context = None;
-                Task::none()
-            }
-            Message::LookDensity(name) => {
-                self.look = self.look.with_density_label(&name);
-                Task::none()
-            }
-            Message::LookScale(name) => {
-                self.look = self.look.with_scale_label(&name);
-                Task::none()
-            }
-            Message::LookShape(name) => {
-                self.look = self.look.with_shape_label(&name);
-                Task::none()
-            }
-            Message::LookElevation(name) => {
-                self.look = self.look.with_elevation_label(&name);
-                Task::none()
-            }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
             Message::Summon(req) => self.on_summon(req),
@@ -3280,14 +3250,6 @@ impl Hud {
     pub fn theme_name(&self) -> &str {
         &self.theme_name
     }
-    pub fn look_open(&self) -> bool {
-        self.look_open
-    }
-
-    pub fn look(&self) -> crate::theme::Look {
-        self.look
-    }
-
     pub fn tokens(&self) -> icedtea::theme::Tokens {
         let tok = crate::theme::paint_tokens(
             &prefs::theme_name(),
@@ -6004,10 +5966,6 @@ impl Hud {
             self.help_open = false;
             return Task::none();
         }
-        if self.look_open {
-            self.look_open = false;
-            return Task::none();
-        }
         if self.context.take().is_some() {
             self.context_sel = None;
             return Task::none();
@@ -6112,9 +6070,6 @@ impl Hud {
             }
             return self.on_escape();
         }
-        if matches!(key, Key::Named(Named::F12)) {
-            return self.update(Message::ToggleLook);
-        }
         if self.help_open {
             return Task::none();
         }
@@ -6130,7 +6085,6 @@ impl Hud {
             if self.browse_mode()
                 && self.tab == Tab::Notes
                 && self.composing_note()
-                && !self.look_open
                 && !modifiers.control()
                 && !modifiers.command()
             {
@@ -7688,33 +7642,17 @@ mod tests {
     }
 
     #[test]
-    fn f12_toggles_the_look_drawer() {
-        let mut hud = Hud::default();
-        assert!(!hud.look_open());
-        let _ = hud.on_key(Key::Named(Named::F12), KeyMods::empty());
-        assert!(hud.look_open());
-        let _ = hud.on_key(Key::Named(Named::Escape), KeyMods::empty());
-        assert!(!hud.look_open());
-    }
-
-    #[test]
-    fn look_picks_change_live_tokens() {
-        let mut hud = Hud::default();
+    fn default_look_is_soft_desktop() {
+        let hud = Hud::default();
         assert_eq!(
             hud.tokens().density.name,
             icedtea::density::DensityName::Default
         );
-        let _ = hud.update(Message::LookDensity("Comfortable".into()));
+        assert_eq!(hud.tokens().shape, icedtea::m3::ShapePolicy::Soft);
         assert_eq!(
-            hud.tokens().density.name,
-            icedtea::density::DensityName::Comfortable
+            hud.tokens().elevation,
+            icedtea::m3::ElevationPolicy::Desktop
         );
-        let _ = hud.update(Message::LookScale("110%".into()));
-        assert_eq!(hud.tokens().body(), 16.0);
-        let _ = hud.update(Message::LookShape("Pill".into()));
-        assert_eq!(hud.tokens().shape, icedtea::m3::ShapePolicy::Pill);
-        let _ = hud.update(Message::LookElevation("Flat".into()));
-        assert_eq!(hud.tokens().elevation, icedtea::m3::ElevationPolicy::Flat);
     }
 
     #[test]
