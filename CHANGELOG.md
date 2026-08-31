@@ -23,9 +23,8 @@ Cursor (`cursor`) are registered.
 - One product version across the Python package, `anqa-hud`, and
   `anqa-scan`.
 - Pushes to `main`, version tags, and workflow dispatch build Linux,
-  macOS, and Windows wheels plus a source distribution.
-- A version tag or manual workflow dispatch uploads those files to
-  TestPyPI.
+  macOS, and Windows wheels plus a source distribution, then upload
+  those files to TestPyPI.
 
 ### Paths and config
 
