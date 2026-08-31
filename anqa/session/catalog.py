@@ -29,7 +29,7 @@ from .mtime_export import (
     load_or_rebuild_catalog,
     load_or_rebuild_refs,
 )
-from .query import apply_catalog_presence_row, catalog_presence_from_meta
+from .query import apply_catalog_presence_row, catalog_presence, catalog_presence_from_meta
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_IMPORT,
@@ -111,7 +111,9 @@ def catalog_scan_roots(
 def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObject | None:
     """Build one ``session/list`` row from a :class:`SessionRef`.
 
-    Does not create a notes directory. Presence flags come from list meta.
+    Does not create a notes directory. Directory locators fill ``has:``
+    flags from the session tree (``goal/state.json``, ``plan.json``, …)
+    plus counts already on list meta.
     """
     impl = adapter(ref.harness)
     if impl is None:
@@ -153,6 +155,9 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
             sort_epoch = float(locator.stat().st_mtime)
         except OSError:
             sort_epoch = 0.0
+    presence = (
+        catalog_presence(locator, meta) if locator.is_dir() else catalog_presence_from_meta(meta)
+    )
     return {
         "sessionId": session_id,
         "path": path_str,
@@ -181,7 +186,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         "createdAt": created,
         "updatedAt": updated,
         "sortEpoch": sort_epoch,
-        **catalog_presence_from_meta(meta),
+        **presence,
     }
 
 

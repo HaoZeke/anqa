@@ -22,8 +22,8 @@ from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
-# Bump when a cached row is missing fields the list must show (harnessLabel).
-SNAPSHOT_ROW_FORMAT = 2
+# Bump when a cached row is missing fields the list must show.
+SNAPSHOT_ROW_FORMAT = 3
 _LIVE_LIST_STATUS = frozenset({"running", "in_progress", "pending", "awaiting", "ending"})
 
 
