@@ -19,6 +19,9 @@ work ships.
   `operation::scroll_to` lands. HUD keeps those lists mounted under
   detail / compose (`cover_stack`) until icedtea applies cover on first
   layout (or accepts an initial scroll).
+- icedtea `motion::overlay` (`OverlayLayer`) does not implement
+  `Widget::overlay`, so pick lists never open while that wrap is mounted.
+  `page_body` and `fade_palette` mount it only while the fade runs.
 
 ## Always on (`just ci` / `just lint`)
 

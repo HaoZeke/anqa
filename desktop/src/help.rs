@@ -23,7 +23,7 @@ pub struct KeyScope {
     pub turn_pick: bool,
     /// A specific Timeline turn is selected; h/l/] do not change it.
     pub turn_locked: bool,
-    /// Diff snapshot pick (more than one rewind record).
+    /// Diff turn pick (more than one rewind record).
     pub diff_pick: bool,
     pub tab: Tab,
     pub leader_armed: bool,
@@ -508,7 +508,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "events.prev_turn",
-            "Previous snapshot",
+            "Previous turn",
             "h,left",
             Message::Noop,
         );
@@ -516,7 +516,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "events.next_turn",
-            "Next snapshot",
+            "Next turn",
             "l,right",
             Message::Noop,
         );

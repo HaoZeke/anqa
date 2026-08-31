@@ -483,9 +483,9 @@ fn diff_point_label(point: &crate::wire::DiffPointRow, index: usize) -> String {
         return "Approximate edits".into();
     }
     if let Some(n) = point.prompt_index {
-        return format!("Prompt {n}");
+        return format!("Turn {n}");
     }
-    format!("Snapshot {}", index + 1)
+    format!("Turn {}", index + 1)
 }
 
 impl Default for Hud {
@@ -4694,13 +4694,8 @@ impl Hud {
     /// Leave full-pane detail and scroll the list to the event you were on
     /// (after Next/Prev that is the last open index, not the first opened).
     fn close_timeline_detail(&mut self) -> Task<Message> {
-        if self.timeline_open.is_some() {
-            self.go_page(
-                motion::event_close_role(),
-                PageLayer::Pane,
-                icedtea::motion::Slide::Start,
-            );
-        }
+        // Do not start a page slide: OverlayLayer would remount the list
+        // and swallow pick lists. cover_stack already keeps the clip.
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
             self.timeline_focus = Some(ix);
@@ -12091,6 +12086,8 @@ mod tests {
         };
         hud.rebuild_diff_point_options();
         assert_eq!(hud.diff_point_options().len(), 2);
+        assert_eq!(hud.diff_point_options()[0].label, "Turn 0");
+        assert_eq!(hud.diff_point_options()[1].label, "Turn 1");
         let pick = hud
             .diff_point_options()
             .iter()

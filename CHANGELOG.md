@@ -68,7 +68,7 @@ Cursor (`cursor`) are registered.
 - Summary and Overview share Session, Tasks, Workflows, Subagents,
   and Stats. Tasks is shells, monitors, and schedules. Enter on a
   bookend or child opens that inspect or session.
-- Diff lists rewind snapshots, Prompt/Assistant tabs, and a files/hunk
+- Diff lists turns, Prompt/Assistant tabs, and a files/hunk
   split. `/` finds path or hunk text.
 - `y` copies the selection or the pane body.
 - `E` writes a session bundle under `~/.anqa/reports/`. The nested

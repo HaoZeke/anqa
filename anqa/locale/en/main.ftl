@@ -707,11 +707,11 @@ ui-diff-1 =
     Diff
     
 
-diff-filter = Snapshot
+diff-filter = Turn
 
-diff-point-prompt = Prompt { $n }
+diff-point-prompt = Turn { $n }
 
-diff-point-rewind = Snapshot { $n }
+diff-point-rewind = Turn { $n }
 
 diff-point-edits = Approximate edits
 

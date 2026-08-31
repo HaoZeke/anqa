@@ -1,8 +1,6 @@
 //! Palette layout.
 
-use iced::widget::{
-    column, container, image, mouse_area, responsive, row, stack, text, text_input, Space,
-};
+use iced::widget::{column, container, image, mouse_area, responsive, row, stack, text, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::icon::Icon;
@@ -100,30 +98,6 @@ fn search_shell(tea: icedtea::theme::Tokens) -> iced::widget::container::Style {
     }
 }
 
-fn search_inner_style(
-    tea: icedtea::theme::Tokens,
-) -> impl Fn(&iced::Theme, text_input::Status) -> text_input::Style {
-    move |_theme, status| {
-        let s = tea.scheme();
-        let value = match status {
-            text_input::Status::Disabled => s.on_surface.scale_alpha(0.38),
-            _ => s.on_surface,
-        };
-        text_input::Style {
-            background: Background::Color(Color::TRANSPARENT),
-            border: Border {
-                color: Color::TRANSPARENT,
-                width: 0.0,
-                radius: 0.0.into(),
-            },
-            icon: s.on_surface_variant,
-            placeholder: s.on_surface_variant,
-            value,
-            selection: s.secondary_container,
-        }
-    }
-}
-
 fn inset_search<'a>(
     value: &str,
     on_input: impl Fn(String) -> Message + 'a,
@@ -134,52 +108,13 @@ fn inset_search<'a>(
     input_id: Option<iced::widget::Id>,
     highlight: &[icedtea::widget::FieldRun],
 ) -> Element<'a, Message> {
-    let _ = highlight;
-    let placeholder = if a11y.name.is_empty() {
-        "Search".to_string()
-    } else {
-        a11y.name.clone()
-    };
-    let mut i = text_input(&placeholder, value)
-        .style(search_inner_style(tea))
-        .padding(0)
-        .size(tea.body())
-        .width(Length::Fill)
-        .align_x(icedtea::i18n::align_x_start(tea.direction));
-    if let Some(id) = input_id {
-        i = i.id(id);
-    }
-    if !a11y.disabled {
-        i = i.on_input(on_input);
-        if let Some(m) = on_submit {
-            i = i.on_submit(m);
-        }
-    }
-    let glass = icedtea::widget::icon_svg(Icon::Search, tea, A11y::new("search", Role::Image));
-    let mut inner = row![glass, i]
-        .spacing(tea.density.gap())
-        .align_y(Alignment::Center)
-        .width(Length::Fill);
-    if let Some(clear) = on_clear {
-        if !value.is_empty() {
-            inner = inner.push(icedtea::widget::icon_button(
-                Icon::Close,
-                if a11y.disabled { None } else { Some(clear) },
-                tea,
-                Variant::Ghost,
-                icedtea::widget::ControlSize::Default,
-                A11y::button("Clear search").with_disabled(a11y.disabled),
-            ));
-        }
-    }
-    icedtea::a11y::attach(
-        container(inner)
-            .padding(Padding::from([6, 10]))
-            .width(Length::Fill)
-            .style(move |_| search_shell(tea))
-            .into(),
-        &a11y,
-    )
+    container(icedtea::widget::search_input(
+        value, on_input, on_clear, on_submit, tea, a11y, input_id, highlight,
+    ))
+    .padding(Padding::from([6, 10]))
+    .width(Length::Fill)
+    .style(move |_| search_shell(tea))
+    .into()
 }
 
 fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
@@ -726,19 +661,19 @@ fn page_body<'a>(
     hud: &Hud,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
-    // Always wrap so starting/ending a slide does not remount the list
-    // (VirtualClip state is scroll 0 on first layout).
-    let moving = hud.page_layer() == PageLayer::Pane && hud.page_moving();
-    let progress = if moving { hud.page_progress() } else { 1.0 };
-    let slide = if moving {
-        hud.page_slide()
-    } else {
-        icedtea::motion::Slide::None
-    };
+    // OverlayLayer still does not implement Widget::overlay, so pick lists
+    // (Diff Turn, Timeline Filter) never open while this wrapper is mounted.
+    // List clip state is kept by cover_stack under detail, not by this wrap.
+    if hud.page_layer() != PageLayer::Pane || !hud.page_moving() {
+        return container(child)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
     container(icedtea::motion::overlay(
         child,
-        progress,
-        slide,
+        hud.page_progress(),
+        hud.page_slide(),
         tea,
         A11y::new("page", Role::Group),
     ))
@@ -1415,7 +1350,7 @@ fn note_add_btn(msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, M
             Icon::DocumentCreate,
             Some(msg),
             tea,
-            Variant::Ghost,
+            Variant::Elevated,
             icedtea::widget::ControlSize::Default,
             A11y::button("Add note"),
         ),
@@ -1441,7 +1376,7 @@ fn glance_open_btn(target: &str, tea: icedtea::theme::Tokens) -> Element<'static
             icon,
             Some(Message::OpenExternal(target.to_string())),
             tea,
-            Variant::Ghost,
+            Variant::Elevated,
             icedtea::widget::ControlSize::Default,
             A11y::button(label),
         ),
@@ -2326,9 +2261,9 @@ fn diff_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     let mut header = row![].spacing(tea.density.gap()).align_y(Alignment::Center);
     if !hud.diff_point_options().is_empty() {
         header = header.push(icedtea::widget::meta(
-            "Snapshot",
+            "Turn",
             tea,
-            A11y::new("Snapshot", Role::Header),
+            A11y::new("Turn", Role::Header),
         ));
         header = header.push(icedtea::widget::pick_list(
             hud.diff_point_options(),
@@ -2336,7 +2271,7 @@ fn diff_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
             Message::DiffPointPicked,
             tea,
             icedtea::widget::ControlSize::Default,
-            A11y::new("Snapshot", Role::ComboBox),
+            A11y::new("Turn", Role::ComboBox),
         ));
     }
     header = header.push(diff_context_tabs(hud, tea));
@@ -3441,7 +3376,7 @@ fn pop_out_control(
             icedtea::icon::Glyph::Bytes(POP_OUT_MARK),
             Some(Message::PopOutWindow),
             tea,
-            Variant::Ghost,
+            Variant::Elevated,
             icedtea::widget::ControlSize::Default,
             A11y::button("Pop out"),
         ),
@@ -3883,6 +3818,11 @@ mod tests {
         assert!(prod.contains("fn session_state_row"));
         assert!(prod.contains("muted_meta(meta, tea)"));
         assert!(prod.contains("fn inset_search"));
+        assert!(
+            prod.contains("widget::search_input"),
+            "inset search must paint FieldRun highlight"
+        );
+        assert!(!prod.contains("let _ = highlight"));
         assert!(prod.contains("fn list_tile"));
         assert!(prod.contains("fn session_state_from_meta"));
         assert!(prod.contains("widget::virtual_column"));
@@ -4428,7 +4368,11 @@ mod tests {
             .next()
             .expect("page_body body");
         assert!(page.contains("motion::overlay"));
-        assert!(!page.contains("return container(child)"));
+        assert!(
+            page.contains("return container(child)"),
+            "at rest the wrap must drop so pick lists can open"
+        );
+        assert!(page.contains("page_moving()"));
     }
 
     #[test]
@@ -4453,6 +4397,8 @@ mod tests {
             .expect("open body");
         assert!(open.contains("icon_button"));
         assert!(open.contains("FolderOpen"));
+        assert!(open.contains("tooltip_wrap"));
+        assert!(open.contains("Variant::Elevated"));
         let cmds = prod
             .split("fn card_cmds_row")
             .nth(1)
@@ -4471,6 +4417,8 @@ mod tests {
             .expect("add body");
         assert!(add.contains("icon_button"));
         assert!(add.contains("DocumentCreate"));
+        assert!(add.contains("tooltip_wrap"));
+        assert!(add.contains("Variant::Elevated"));
         let notes = prod
             .split("fn notes_tab")
             .nth(1)

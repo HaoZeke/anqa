@@ -1,4 +1,4 @@
-"""Diff pane: snapshot picker, Prompt/Assistant bar, files | hunk split."""
+"""Diff pane: Turn picker, Prompt/Assistant bar, files | hunk split."""
 
 from __future__ import annotations
 

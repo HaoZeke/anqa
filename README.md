@@ -169,8 +169,8 @@ Failed runs are listed on Summary.
 ## Terminal app
 
 `anqa` (or `anqa tui`) is the session client: session list, browser
-panes, notes, and export. Diff lists rewind
-snapshots (or approximate `search_replace` edits) with Prompt and
+panes, notes, and export. Diff lists turns
+(or approximate `search_replace` edits) with Prompt and
 Assistant tabs above a files and hunk split.
 The footer lists the keys that apply now; `?` is the full list.
 
