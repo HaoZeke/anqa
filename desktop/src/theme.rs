@@ -147,7 +147,12 @@ pub fn contrast_ratio(a: Color, b: Color) -> f32 {
 
 /// Mix ``ink`` toward black or white until it holds 4.5:1 on ``canvas``.
 pub fn ink_on(ink: Color, canvas: Color) -> Color {
-    if contrast_ratio(ink, canvas) >= 4.5 {
+    ink_on_at(ink, canvas, 4.5)
+}
+
+/// Mix ``ink`` toward black or white until it holds ``min`` contrast on ``canvas``.
+pub fn ink_on_at(ink: Color, canvas: Color, min: f32) -> Color {
+    if contrast_ratio(ink, canvas) >= min {
         return ink;
     }
     let toward = if relative_luma(canvas) < 0.45 {
@@ -161,7 +166,7 @@ pub fn ink_on(ink: Color, canvas: Color) -> Color {
     for _ in 0..12 {
         let mid = (lo + hi) * 0.5;
         let candidate = mix(toward, ink, mid);
-        if contrast_ratio(candidate, canvas) >= 4.5 {
+        if contrast_ratio(candidate, canvas) >= min {
             best = candidate;
             hi = mid;
         } else {
@@ -202,14 +207,15 @@ fn user_theme_tokens(name: &str) -> Option<Tokens> {
             .unwrap_or(fallback)
     };
     let canvas = hex(&["background", "canvas"], Color::from_rgb8(18, 18, 20));
-    let text = hex(&["foreground", "text"], Color::from_rgb8(224, 224, 224));
+    let catalog_ink = hex(&["foreground", "text"], Color::from_rgb8(224, 224, 224));
+    let text = ink_on_at(catalog_ink, canvas, 7.0);
     let primary = hex(&["primary"], Color::from_rgb8(1, 120, 212));
     Some(Tokens::from_aliases(
         canvas,
         hex(&["surface"], mix(text, canvas, 0.08)),
         hex(&["panel"], mix(text, canvas, 0.10)),
         text,
-        hex(&["muted", "secondary"], mix(text, canvas, 0.55)),
+        hex(&["muted", "secondary"], ink_on(catalog_ink, canvas)),
         primary,
         hex(&["accent"], Color::from_rgb8(254, 166, 43)),
         hex(&["success"], Color::from_rgb8(78, 191, 113)),
@@ -403,12 +409,16 @@ fn textual_tokens(name: &str) -> Tokens {
     let colors = catalog_colors(name).unwrap_or(Value::Null);
     let fallback_bg = Color::from_rgb8(18, 18, 20);
     let canvas = color_of(&colors, "background", fallback_bg);
-    let text = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
-    let muted = color_of(
+    let catalog_ink = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
+    // Textual ``foreground`` is often mid-gray (Solarized base0). Lift body
+    // ink to 7:1 so titles and hunks stay readable.
+    let text = ink_on_at(catalog_ink, canvas, 7.0);
+    let catalog_muted = color_of(
         &colors,
         "foreground-darken-2",
-        color_of(&colors, "foreground-muted", Color::from_rgb8(160, 160, 160)),
+        color_of(&colors, "foreground-muted", catalog_ink),
     );
+    let muted = ink_on(catalog_muted, canvas);
     let primary = color_of(&colors, "primary", Color::from_rgb8(1, 120, 212));
     let accent = color_of(&colors, "accent", Color::from_rgb8(254, 166, 43));
     let success = color_of(&colors, "success", Color::from_rgb8(78, 191, 113));
@@ -416,7 +426,8 @@ fn textual_tokens(name: &str) -> Tokens {
     let danger = color_of(&colors, "error", Color::from_rgb8(185, 60, 91));
     let surface = color_of(&colors, "surface", mix(text, canvas, 0.08));
     let panel = color_of(&colors, "panel", mix(text, canvas, 0.10));
-    let border = color_of(&colors, "border", mix(primary, canvas, 0.35));
+    // Catalog ``border`` is usually the TUI focus blue. Quiet outline for HUD.
+    let border = mix(text, canvas, 0.28);
     Tokens::from_aliases(
         canvas, surface, panel, text, muted, primary, accent, success, warning, danger, border,
     )
@@ -719,6 +730,21 @@ mod tests {
                 "{name} sel text"
             );
         }
+    }
+
+    #[test]
+    fn solarized_dark_body_ink_beats_catalog_foreground() {
+        let t = tokens("solarized-dark");
+        let catalog = Color::from_rgb8(0x83, 0x94, 0x96);
+        assert!(
+            contrast_ratio(t.text, t.canvas) >= 7.0,
+            "solarized body {} on {} is {:.2}",
+            t.text.r,
+            t.canvas.r,
+            contrast_ratio(t.text, t.canvas)
+        );
+        assert!(contrast_ratio(t.text, t.canvas) > contrast_ratio(catalog, t.canvas));
+        assert!(contrast_ratio(t.muted, t.canvas) >= 4.5);
     }
 
     #[test]
