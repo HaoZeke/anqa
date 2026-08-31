@@ -1,16 +1,17 @@
-# anqa identity 2.0
+# anqa identity 2.1
 
 Truck-art mark for the anqa name. The bird is the approved painting in
-`source/approved.jpg` — not a geometric redraw. The word is Fira Sans
-ExtraBold. Open **[guidelines.html](guidelines.html)** for colour, type,
-sizes, and use cases.
+`source/approved.jpg` — not a geometric redraw. Lilac wing, mango gold,
+cyan eye. The word is Fira Sans ExtraBold. Open
+**[guidelines.html](guidelines.html)** for colour, type, sizes, and use
+cases.
 
 ## Quick use
 
 | Job | File |
 |-----|------|
-| README / GitHub light | `png/anqa-mark.png` (colour, transparent) |
-| README / GitHub dark | `png/anqa-mark-on-dark.png` (cream bird, transparent) |
+| README / GitHub light | `png/anqa-lockup-stacked.png` (painted lockup) |
+| README / GitHub dark | `png/anqa-lockup-stacked-on-dark.png` (cream bird, cream type) |
 | HUD search chrome | `png/anqa-mark-64.png` / `png/anqa-mark-on-dark-64.png` |
 | Mark on cream / ink plate | `png/anqa-mark-plate.png` / `png/anqa-mark-reverse.png` |
 | Poster / merch | `png/anqa-lockup-stacked.png` (and `-on-dark`) |

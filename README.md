@@ -1,9 +1,7 @@
 <p align="center">
-  <img src="brand/png/anqa-mark.png#gh-light-mode-only" alt="anqa" height="128" />
-  <img src="brand/png/anqa-mark-on-dark.png#gh-dark-mode-only" alt="anqa" height="128" />
+  <img src="brand/png/anqa-lockup-stacked.png#gh-light-mode-only" alt="anqa" height="200" />
+  <img src="brand/png/anqa-lockup-stacked-on-dark.png#gh-dark-mode-only" alt="anqa" height="200" />
 </p>
-
-# anqa
 
 [![CI](https://github.com/indynull/anqa/actions/workflows/ci.yml/badge.svg)](https://github.com/indynull/anqa/actions/workflows/ci.yml)
 [![Codecov](https://codecov.io/gh/indynull/anqa/graph/badge.svg)](https://codecov.io/gh/indynull/anqa)

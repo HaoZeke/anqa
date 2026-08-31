@@ -111,11 +111,14 @@ def test_readme_has_no_html_heading_anchors() -> None:
 
 def test_readme_mark_switches_with_github_color_scheme() -> None:
     text = README.read_text(encoding="utf-8")
-    light = ROOT / "brand" / "png" / "anqa-mark.png"
-    dark = ROOT / "brand" / "png" / "anqa-mark-on-dark.png"
+    light = ROOT / "brand" / "png" / "anqa-lockup-stacked.png"
+    dark = ROOT / "brand" / "png" / "anqa-lockup-stacked-on-dark.png"
     assert light.is_file()
     assert dark.is_file()
-    assert "anqa-mark.png#gh-light-mode-only" in text
-    assert "anqa-mark-on-dark.png#gh-dark-mode-only" in text
+    assert "anqa-lockup-stacked.png#gh-light-mode-only" in text
+    assert "anqa-lockup-stacked-on-dark.png#gh-dark-mode-only" in text
+    assert 'alt="anqa"' in text
+    assert text.lstrip().startswith('<p align="center">')
+    assert not any(line.startswith("# anqa") for line in text.splitlines())
     assert "anqa-mark-reverse.png" not in text
     assert "anqa-lockup-horizontal.png" not in text
