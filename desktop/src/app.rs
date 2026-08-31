@@ -766,6 +766,16 @@ fn apply_clip_scroll(
     operation::scroll_to(id, iced::widget::scrollable::AbsoluteOffset { x: 0.0, y })
 }
 
+fn reissue_clip_scroll(id: Id, window: &icedtea::collection::VisibleWindow) -> Task<Message> {
+    operation::scroll_to(
+        id,
+        iced::widget::scrollable::AbsoluteOffset {
+            x: 0.0,
+            y: window.scroll,
+        },
+    )
+}
+
 fn place_clip_window(
     id: Id,
     window: &mut icedtea::collection::VisibleWindow,
@@ -1460,7 +1470,7 @@ impl Hud {
             }
             Message::TimelineScroll(win) => {
                 if !take_returned_clip(&mut self.tl_return_hold, &mut self.tl_window, win) {
-                    return Task::none();
+                    return reissue_clip_scroll(self.tl_scroll_id.clone(), &self.tl_window);
                 }
                 if let Some(dest) = list_focus_after_scroll(
                     self.timeline_focus_pos(),
@@ -1503,7 +1513,7 @@ impl Hud {
                     &mut self.turn_window,
                     win,
                 ) {
-                    return Task::none();
+                    return reissue_clip_scroll(self.turn_scroll_id.clone(), &self.turn_window);
                 }
                 Task::none()
             }
@@ -1517,7 +1527,10 @@ impl Hud {
                     &mut self.overview_window,
                     win,
                 ) {
-                    return Task::none();
+                    return reissue_clip_scroll(
+                        self.overview_scroll_id.clone(),
+                        &self.overview_window,
+                    );
                 }
                 Task::none()
             }
@@ -1539,7 +1552,7 @@ impl Hud {
                     &mut self.note_window,
                     win,
                 ) {
-                    return Task::none();
+                    return reissue_clip_scroll(self.note_scroll_id.clone(), &self.note_window);
                 }
                 Task::none()
             }
@@ -3333,13 +3346,50 @@ impl Hud {
         self.note_motion.values().any(|a| a.is_animating(now))
     }
 
+    fn list_return_pending(&self) -> bool {
+        self.tl_return_hold
+            || self.note_return_hold
+            || self.turn_return_hold
+            || self.overview_return_hold
+    }
+
     fn needs_motion_tick(&self) -> bool {
         let now = Instant::now();
         self.overlay.is_animating(now)
             || self.page.is_animating(now)
             || self.expanders_moving()
             || self.page_busy()
+            || self.list_return_pending()
             || (!self.visible && self.window_id.is_some() && !self.window_mode)
+    }
+
+    fn flush_list_returns(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        if self.tl_return_hold {
+            tasks.push(reissue_clip_scroll(
+                self.tl_scroll_id.clone(),
+                &self.tl_window,
+            ));
+        }
+        if self.note_return_hold {
+            tasks.push(reissue_clip_scroll(
+                self.note_scroll_id.clone(),
+                &self.note_window,
+            ));
+        }
+        if self.turn_return_hold {
+            tasks.push(reissue_clip_scroll(
+                self.turn_scroll_id.clone(),
+                &self.turn_window,
+            ));
+        }
+        if self.overview_return_hold {
+            tasks.push(reissue_clip_scroll(
+                self.overview_scroll_id.clone(),
+                &self.overview_window,
+            ));
+        }
+        Task::batch(tasks)
     }
 
     fn go_page(&mut self, role: MotionRole, layer: PageLayer, slide: icedtea::motion::Slide) {
@@ -5783,6 +5833,7 @@ impl Hud {
         }
         let mut cmds = Vec::new();
         cmds.push(self.finish_overlay_hide());
+        cmds.push(self.flush_list_returns());
         let notifies: Vec<(String, Value)> = if let Ok(mut g) = self.notify_q.lock() {
             g.drain(..).collect()
         } else {
@@ -7432,6 +7483,17 @@ mod tests {
             hud.tl_window.start,
             hud.tl_window.end
         );
+    }
+
+    #[test]
+    fn list_return_hold_keeps_the_motion_clock() {
+        let mut hud = Hud::default();
+        assert!(
+            !hud.list_return_pending(),
+            "fresh HUD must not hold a list return"
+        );
+        hud.tl_return_hold = true;
+        assert!(hud.needs_motion_tick());
     }
 
     #[test]

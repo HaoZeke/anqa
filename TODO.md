@@ -14,6 +14,11 @@ work ships.
   renders fences cleanly.
 - icedtea `widget::switch` is a full-width form row. Timeline Tail
   composes `meta` + `toggler` until icedtea has a compact toolbar switch.
+- icedtea `VirtualClip` first layout records `cover` and leaves scroll at 0.
+  A remounted Timeline / Notes list therefore paints the top until
+  `operation::scroll_to` lands. HUD keeps those lists mounted under
+  detail / compose (`cover_stack`) until icedtea applies cover on first
+  layout (or accepts an initial scroll).
 
 ## Always on (`just ci` / `just lint`)
 

@@ -726,16 +726,19 @@ fn page_body<'a>(
     hud: &Hud,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
-    if hud.page_layer() != PageLayer::Pane || !hud.page_moving() {
-        return container(child)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
-    }
+    // Always wrap so starting/ending a slide does not remount the list
+    // (VirtualClip state is scroll 0 on first layout).
+    let moving = hud.page_layer() == PageLayer::Pane && hud.page_moving();
+    let progress = if moving { hud.page_progress() } else { 1.0 };
+    let slide = if moving {
+        hud.page_slide()
+    } else {
+        icedtea::motion::Slide::None
+    };
     container(icedtea::motion::overlay(
         child,
-        hud.page_progress(),
-        hud.page_slide(),
+        progress,
+        slide,
         tea,
         A11y::new("page", Role::Group),
     ))
@@ -743,6 +746,28 @@ fn page_body<'a>(
     .height(Length::Fill)
     .clip(true)
     .into()
+}
+
+/// Keep `base` mounted when a full-pane cover is up so list clip state lives.
+fn cover_stack<'a>(
+    base: Element<'a, Message>,
+    cover: Option<Element<'a, Message>>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    let mut layers = stack![container(base).width(Length::Fill).height(Length::Fill)];
+    if let Some(top) = cover {
+        let paper = tea.scheme().surface;
+        layers = layers.push(
+            container(top)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(Background::Color(paper)),
+                    ..iced::widget::container::Style::default()
+                }),
+        );
+    }
+    layers.into()
 }
 
 /// Full-width session matches (Spotlight results). No permanent left rail.
@@ -2002,13 +2027,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     list
 }
 
-fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
-    if let Some(ix) = hud.timeline_open() {
-        return event_detail_pane(hud, ix);
-    }
-    if hud.workflow_inspect_id().is_some() {
-        return workflow_row_inspect_pane(hud);
-    }
+fn timeline_event_list(hud: &Hud) -> Element<'_, Message> {
     if hud.timeline_query().trim().is_empty()
         && hud.last_timeline().is_none()
         && hud.filtered_indices().is_empty()
@@ -2066,16 +2085,25 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         hud.timeline_at_live_end(),
         hud.timeline_loading(),
     );
-    let Some(caption) = more else {
-        return list;
+    let caption: Element<'_, Message> = match more {
+        Some(line) => text(line).size(tea.meta()).color(hud.tokens().muted).into(),
+        None => Space::new().height(0).into(),
     };
-    column![
-        list,
-        text(caption).size(tea.meta()).color(hud.tokens().muted),
-    ]
-    .spacing(8)
-    .height(Length::Fill)
-    .into()
+    column![list, caption]
+        .spacing(8)
+        .height(Length::Fill)
+        .into()
+}
+
+fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
+    let cover = if let Some(ix) = hud.timeline_open() {
+        Some(event_detail_pane(hud, ix))
+    } else if hud.workflow_inspect_id().is_some() {
+        Some(workflow_row_inspect_pane(hud))
+    } else {
+        None
+    };
+    cover_stack(timeline_event_list(hud), cover, hud.body_tokens())
 }
 
 /// Full-area event body (double-click / Enter a list row; Esc returns to the list).
@@ -2508,52 +2536,25 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     let notes = hud.notes_sorted();
     let n_notes = notes.len();
-    let mut col = column![].spacing(tea.density.space);
-    if hud.composing_note() {
-        let form = icedtea::widget::scroll(
-            container(notes_compose_form(hud))
-                .width(Length::Fill)
-                .padding(Padding {
-                    top: 0.0,
-                    right: icedtea::chrome::SCROLL_RAIL_WIDTH,
-                    bottom: 8.0,
-                    left: 0.0,
-                })
-                .into(),
-            tea,
-            A11y::new("Note form", Role::Group),
-            false,
-            None,
-            None::<fn(f32) -> Message>,
-        );
-        col = col.push(container(form).width(Length::Fill).height(Length::Fill));
-        return col.height(Length::Fill).into();
-    }
     let notes_label = if n_notes == 1 {
         "1 note".to_string()
     } else {
         format!("{n_notes} notes")
     };
-    col = col.push(
-        row![
-            icedtea::widget::meta(notes_label, tea, A11y::new("Notes count", Role::Status)),
-            note_add_btn(
-                Message::StartNote {
-                    turn: String::new(),
-                    event: String::new(),
-                },
-                tea,
-            ),
-        ]
-        .spacing(tea.density.gap())
-        .align_y(Alignment::Center),
-    );
-    if notes.is_empty() {
-        col = col.push(kit::status_empty(
-            "No notes",
-            "Add a note to keep what you found.",
+    let header = row![
+        icedtea::widget::meta(notes_label, tea, A11y::new("Notes count", Role::Status)),
+        note_add_btn(
+            Message::StartNote {
+                turn: String::new(),
+                event: String::new(),
+            },
             tea,
-        ));
+        ),
+    ]
+    .spacing(tea.density.gap())
+    .align_y(Alignment::Center);
+    let list: Element<'_, Message> = if notes.is_empty() {
+        kit::status_empty("No notes", "Add a note to keep what you found.", tea)
     } else {
         let list = icedtea::widget::virtual_column(
             hud.note_heights(),
@@ -2577,9 +2578,45 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             },
             A11y::new("Notes", Role::List),
         );
-        col = col.push(container(list).width(Length::Fill).height(Length::Fill));
-    }
-    col.height(Length::Fill).into()
+        container(list)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    };
+    let compose = if hud.composing_note() {
+        let form = icedtea::widget::scroll(
+            container(notes_compose_form(hud))
+                .width(Length::Fill)
+                .padding(Padding {
+                    top: 0.0,
+                    right: icedtea::chrome::SCROLL_RAIL_WIDTH,
+                    bottom: 8.0,
+                    left: 0.0,
+                })
+                .into(),
+            tea,
+            A11y::new("Note form", Role::Group),
+            false,
+            None,
+            None::<fn(f32) -> Message>,
+        );
+        Some(
+            container(form)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+        )
+    } else {
+        None
+    };
+    cover_stack(
+        column![header, list]
+            .spacing(tea.density.space)
+            .height(Length::Fill)
+            .into(),
+        compose,
+        hud.body_tokens(),
+    )
 }
 
 fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
@@ -4350,13 +4387,48 @@ mod tests {
             "row height already includes the hairline"
         );
         let timeline = prod
+            .split("fn timeline_event_list")
+            .nth(1)
+            .expect("timeline_event_list")
+            .split("fn timeline_tab")
+            .next()
+            .expect("timeline list body");
+        assert!(!timeline.contains("LIST_GAP"));
+    }
+
+    #[test]
+    fn timeline_tab_keeps_the_list_mounted_under_detail() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        let tab = prod
             .split("fn timeline_tab")
             .nth(1)
             .expect("timeline_tab")
-            .split("fn event_detail")
+            .split("fn event_detail_pane")
             .next()
-            .expect("timeline body");
-        assert!(!timeline.contains("LIST_GAP"));
+            .expect("timeline_tab body");
+        assert!(tab.contains("cover_stack"));
+        assert!(tab.contains("timeline_event_list"));
+        assert!(tab.contains("event_detail_pane"));
+        assert!(!tab.contains("return event_detail_pane"));
+        let notes = prod
+            .split("fn notes_tab")
+            .nth(1)
+            .expect("notes_tab")
+            .split("fn notes_compose_form")
+            .next()
+            .expect("notes_tab body");
+        assert!(notes.contains("cover_stack"));
+        assert!(notes.contains("virtual_column"));
+        let page = prod
+            .split("fn page_body")
+            .nth(1)
+            .expect("page_body")
+            .split("fn cover_stack")
+            .next()
+            .expect("page_body body");
+        assert!(page.contains("motion::overlay"));
+        assert!(!page.contains("return container(child)"));
     }
 
     #[test]
