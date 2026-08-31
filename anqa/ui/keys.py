@@ -1,6 +1,6 @@
 """Canonical keyboard-shortcut labels for footer, help, HUD, and docs.
 
-Same shape as VS Code / Chrome / GitHub: ``Ctrl+S``, ``Cmd+Shift+G``,
+Same shape as VS Code / Chrome / GitHub: ``Ctrl+S``, ``Cmd+Shift+A``,
 ``Ctrl+Enter / Ctrl+J``. No unicode glyphs (⌘⇧⌥) and no caret (``^s``).
 Binding strings stay Textual/wire form (``ctrl+s``); this module is display only.
 """

@@ -440,7 +440,7 @@ def launch_hud(
         env.update(extra_env)
 
     attach = bool(foreground) if foreground is not None else _truthy_env("ANQA_HUD_FOREGROUND")
-    chord_hint = env.get("ANQA_HUD_SHORTCUT", "").strip() or "Cmd+Shift+G / Ctrl+Shift+G"
+    chord_hint = env.get("ANQA_HUD_SHORTCUT", "").strip() or "Cmd+Shift+A / Ctrl+Shift+A"
     summon_hint = "anqa hud --toggle (Wayland/Sway); tray Show"
 
     if not restart and summon_socket_accepts():

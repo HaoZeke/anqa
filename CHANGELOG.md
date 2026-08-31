@@ -89,7 +89,7 @@ Cursor (`cursor`) are registered.
   Timeline, Diff, Notes).
 - It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`
   cargo-builds this checkout.
-- Default hotkey is Cmd+Shift+G (macOS) / Ctrl+Shift+G (Windows and
+- Default hotkey is Cmd+Shift+A (macOS) / Ctrl+Shift+A (Windows and
   X11). On Wayland bind `anqa hud --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.

@@ -39,7 +39,7 @@ Windows Start Menu). Re-run after moving the binary.
 
 ## Hotkey
 
-Default **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and X11
+Default **Cmd+Shift+A** (macOS) / **Ctrl+Shift+A** (Windows and X11
 Linux). Override with `hud.global_shortcut` in `~/.anqa/config.toml`
 or `ANQA_HUD_SHORTCUT`. On Wayland bind `anqa hud --toggle` (the
 compositor sends an activation token so you can type). Tray **Show**

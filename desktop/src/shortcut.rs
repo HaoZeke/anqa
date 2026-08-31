@@ -5,17 +5,17 @@ use std::env;
 
 pub fn default_hotkey() -> HotKey {
     if cfg!(target_os = "macos") {
-        HotKey::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyG)
+        HotKey::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyA)
     } else {
-        HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyG)
+        HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyA)
     }
 }
 
 pub fn default_shortcut_label() -> &'static str {
     if cfg!(target_os = "macos") {
-        "Cmd+Shift+G"
+        "Cmd+Shift+A"
     } else {
-        "Ctrl+Shift+G"
+        "Ctrl+Shift+A"
     }
 }
 
@@ -87,7 +87,7 @@ pub fn parse_shortcut(raw: &str) -> Result<(HotKey, String), String> {
     let key = key_token.ok_or_else(|| format!("no key in shortcut: {raw:?}"))?;
     let code = parse_key_code(key)?;
     if mods.is_empty() {
-        return Err("shortcut needs at least one modifier (e.g. Cmd+Shift+G)".into());
+        return Err("shortcut needs at least one modifier (e.g. Cmd+Shift+A)".into());
     }
     let label = format_label(mods, key);
     Ok((HotKey::new(Some(mods), code), label))
@@ -231,9 +231,9 @@ mod tests {
         let label = default_shortcut_label();
         assert!(label.is_ascii());
         if cfg!(target_os = "macos") {
-            assert_eq!(label, "Cmd+Shift+G");
+            assert_eq!(label, "Cmd+Shift+A");
         } else {
-            assert_eq!(label, "Ctrl+Shift+G");
+            assert_eq!(label, "Ctrl+Shift+A");
         }
     }
 

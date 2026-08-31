@@ -251,7 +251,7 @@ def cmd_hud(
     """Desktop session palette (control client).
 
     Starts in the background by default (macOS: no Dock, no Cmd+Tab). Summon with
-    Cmd+Shift+G on macOS / X11; on Wayland use ``--toggle``, tray Show, or a
+    Cmd+Shift+A on macOS / X11; on Wayland use ``--toggle``, tray Show, or a
     compositor bind. Runs the iced ``anqa-hud`` binary from ``ANQA_HUD_BIN``
     or ``PATH`` (``uv tool install``). From a checkout, ``--rebuild`` cargo-builds
     this tree; ``--debug`` is unoptimized; ``--dev`` is ``cargo run``.

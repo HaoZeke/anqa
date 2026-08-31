@@ -38,7 +38,7 @@ class HudPrefs(BaseModel):
     window_mode: bool = Field(default=False, description="Start the HUD as a normal window.")
     global_shortcut: str = Field(
         default="",
-        description="Summon chord (Cmd+Shift+G / Ctrl+Shift+G when empty).",
+        description="Summon chord (Cmd+Shift+A / Ctrl+Shift+A when empty).",
     )
     desktop_notifications: bool = Field(
         default=True,

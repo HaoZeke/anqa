@@ -469,7 +469,7 @@ read path: shared actions use the **same key** as the TUI (§6.10).
 | File | Role |
 |------|------|
 | [`ui/bindings.py`](anqa/ui/bindings.py) | TUI bindings |
-| [`ui/keys.py`](anqa/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+G``) |
+| [`ui/keys.py`](anqa/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+A``) |
 | [`ui/commands.py`](anqa/ui/commands.py) | Ctrl+P palette |
 | Fluent / ``ui/text`` / ``help.rich.txt`` | TUI labels and ``?`` help |
 | [`desktop/src/help.rs`](desktop/src/help.rs) | HUD footer + ``?`` cheatsheet |

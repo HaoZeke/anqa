@@ -50,7 +50,7 @@
         },
         "global_shortcut": {
           "default": "",
-          "description": "Summon chord (Cmd+Shift+G / Ctrl+Shift+G when empty).",
+          "description": "Summon chord (Cmd+Shift+A / Ctrl+Shift+A when empty).",
           "title": "Global Shortcut",
           "type": "string"
         },

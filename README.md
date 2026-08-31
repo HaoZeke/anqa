@@ -282,7 +282,7 @@ anqa hud --rebuild   # cargo-build this checkout, then launch
 checkout, `--rebuild` builds this tree; `--debug` is the unoptimized
 binary; `--dev` is `cargo run`.
 
-Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
+Default hotkey **Cmd+Shift+A** (macOS) / **Ctrl+Shift+A** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
 `~/.anqa/config.toml` or `ANQA_HUD_SHORTCUT`. On Wayland bind
 `anqa hud --toggle`: a compositor bind forwards an activation token so

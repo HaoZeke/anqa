@@ -65,7 +65,7 @@ pub fn wayland_summon_hint(chord_label: &str) -> String {
         "Wayland session — in-process global hotkey is X11-only \
          (skipped {chord_label}). Summon with tray Show, \
          `anqa hud --toggle`, or a compositor bind \
-         (bindsym $mod+Shift+g exec anqa hud --toggle). Float: \
+         (bindsym $mod+Shift+a exec anqa hud --toggle). Float: \
          include ~/.config/anqa/sway-hud.conf \
          (app_id {overlay})",
         overlay = crate::install_desktop::OVERLAY_APP_ID,
@@ -143,9 +143,9 @@ mod tests {
 
     #[test]
     fn summon_hint_names_app_id() {
-        let h = wayland_summon_hint("Ctrl+Shift+G");
+        let h = wayland_summon_hint("Ctrl+Shift+A");
         assert!(h.contains(crate::install_desktop::OVERLAY_APP_ID));
-        assert!(h.contains("Ctrl+Shift+G"));
+        assert!(h.contains("Ctrl+Shift+A"));
         assert!(h.contains("sway-hud.conf"));
         assert!(h.contains("anqa hud --toggle"));
     }
