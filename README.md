@@ -121,25 +121,27 @@ changes, and filter with `harness:<id>`.
 What you can *do* in a session (rewind, context meter) comes from files
 that store writes. An adapter never invents those.
 
-| Id | Product | Store | Catalog path |
-|----|---------|--------|--------------|
-| `grok` | [Grok Build](https://docs.x.ai/build/overview) | `~/.grok/sessions/<cwd>/<id>/` | directory |
-| `opencode` | OpenCode | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
-| `pi` | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
-| `claude` | Claude Code | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
-| `gemini` | Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
-| `antigravity` | Antigravity | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
-| `copilot` | GitHub Copilot | `~/.copilot/session-store.db` | `copilot:<id>` |
-| `codex` | Codex | `~/.codex/sessions/**/rollout-*.jsonl` | `codex:<id>` |
-| `cursor` | Cursor | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` | `cursor:<id>` |
+| Id | Product | Tested | Store | Catalog path |
+|----|---------|--------|--------|--------------|
+| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` | directory |
+| `opencode` | [OpenCode](https://opencode.ai) | 1.18.25 | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
+| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
+| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.54.4 | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
+| `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
+| `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` | `copilot:<id>` |
+| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` | `codex:<id>` |
+| `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` | `cursor:<id>` |
+
+Tested is the product version we last parsed. A session may carry a
+different `harnessVersion` from its own files.
 
 Notes for a host adapter session live under
 `~/.anqa/notes/<session_id>/`. A session directory you open with
 `-P` that is not an adapter store keeps notes in that tree. File
 or database locators use `~/.anqa/notes/<harness>/<session_id>/`.
 
-The home list and the session glance show the product name (OpenCode,
-Pi, Claude Code, Gemini CLI, Antigravity, Grok Build). Filter with
+The home list and the session glance show the product name. Filter with
 `harness:<id>`.
 
 The catalog lists every shipped adapter. `[catalog] ignore` drops a

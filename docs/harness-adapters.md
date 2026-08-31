@@ -77,15 +77,15 @@ cursor = "~/.cursor"
 
 | Id | Product | Supported version | Store | Catalog path |
 |----|---------|-------------------|--------|--------------|
-| `grok` | Grok Build | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` | directory |
-| `opencode` | OpenCode | 1.18.25 | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
-| `pi` | Pi | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
-| `claude` | Claude Code | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
-| `gemini` | Gemini CLI | 0.54.4 | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
-| `antigravity` | Antigravity | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
-| `copilot` | GitHub Copilot | 1.0.82 | `~/.copilot/session-store.db` | `copilot:<id>` |
-| `codex` | Codex | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` | `codex:<id>` |
-| `cursor` | Cursor | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` | `cursor:<id>` |
+| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` | directory |
+| `opencode` | [OpenCode](https://opencode.ai) | 1.18.25 | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
+| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
+| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.54.4 | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
+| `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
+| `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` | `copilot:<id>` |
+| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` | `codex:<id>` |
+| `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` | `cursor:<id>` |
 
 Supported version is the product we last parsed and tested. A session
 may carry a different `harnessVersion` from its own files.
