@@ -282,6 +282,26 @@ def test_prev_turn_from_all_opens_last() -> None:
     assert screen._turn_filter == "5"
 
 
+def test_control_timeline_window_uses_prompt_then_first_index() -> None:
+    """Turn pick asks the owner for that turn, not a local slice of page 1."""
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen._turn_filter = "all"
+    screen._turn_segments = []
+    assert screen._control_timeline_window() == (0, None)
+    screen._turn_segments = [
+        type("S", (), {"turn_index": 0, "prompt_index": 3, "first_index": 0})(),
+        type(
+            "S",
+            (),
+            {"turn_index": 4, "prompt_index": None, "first_index": 80},
+        )(),
+    ]
+    screen._turn_filter = "0"
+    assert screen._control_timeline_window() == (0, 3)
+    screen._turn_filter = "4"
+    assert screen._control_timeline_window() == (80, None)
+
+
 def test_rebuild_turn_select_uses_overview_when_timeline_is_first_page(
     tmp_path: Path,
 ) -> None:

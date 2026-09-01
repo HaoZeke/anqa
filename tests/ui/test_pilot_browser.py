@@ -1289,16 +1289,65 @@ async def test_browser_control_paints_first_page_before_remainder(
         )
         first_n = len(screen.timeline)
         assert first_n == 1
+        assert screen._timeline_events_complete is False
         gate.set()
+        screen._fill_control_timeline_job()
         await wait_until(
             pilot,
             lambda: len(screen.timeline) > first_n,
-            description="remaining timeline pages appended",
+            description="next timeline page appended on fill",
         )
         assert any(off > 0 for off in offsets)
-        full_indices = [e.index for e in screen.timeline]
-        drained = await wt.fetch_timeline_events(access, str(sess), page_limit=1)
-        assert full_indices == [e.index for e in drained]
+
+
+@pytest.mark.asyncio
+async def test_browser_control_turn_pick_refetches_that_turn(
+    tmp_path: Path,
+) -> None:
+    """Picking a later turn asks session/timeline for that turn, not page 1."""
+    from anqa.session.control_views import build_session_overview, build_session_timeline
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    asked: list[dict[str, object]] = []
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            return build_session_overview(sess)
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            asked.append(dict(kwargs))
+            return build_session_timeline(
+                sess,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 50),
+                prompt_index=kwargs.get("prompt_index")
+                if isinstance(kwargs.get("prompt_index"), int)
+                else None,
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    access = _Access()
+    app = _host_app(work, traces)
+    app.is_control_client = lambda: True  # type: ignore[method-assign]
+    app.session_access = lambda: access  # type: ignore[method-assign]
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        screen._stop_live_refresh()
+        from anqa.session.turns import TurnSegment
+
+        screen._turn_segments = list(screen._turn_segments or []) + [
+            TurnSegment(turn_index=9, turn_number=9, prompt_index=9)
+        ]
+        screen._turn_filter = "9"
+        screen._start_control_timeline_scope()
+        await wait_until(
+            pilot,
+            lambda: any(row.get("prompt_index") == 9 for row in asked),
+            description="turn pick fetched promptIndex 9",
+        )
 
 
 @pytest.mark.asyncio

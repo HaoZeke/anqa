@@ -124,12 +124,14 @@ async def fetch_timeline_page(
     offset: int = 0,
     page_limit: int = TIMELINE_RPC_LIMIT,
     content_chars: int = TIMELINE_RPC_CHARS,
+    prompt_index: int | None = None,
 ) -> tuple[list[TraceEvent], int]:
     """One ``session/timeline`` page and the owner's event total.
 
     :param access: Object with async ``session_timeline``.
     :param session_ref: Session id or path accepted by control.
     :param offset: First event index in the owner's list.
+    :param prompt_index: Restrict to one operator turn, same as the desktop palette.
     :returns: ``(events, total)``. ``total`` is 0 when the response is unusable.
     :raises TypeError: When *access* has no ``session_timeline``.
     """
@@ -143,6 +145,7 @@ async def fetch_timeline_page(
         offset=pos,
         limit=lim,
         content_chars=chars,
+        prompt_index=prompt_index,
     )
     return _events_from_timeline_page(page, offset=pos)
 

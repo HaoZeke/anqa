@@ -260,6 +260,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         # Cached live-timeline need (FS ticks hit this on the UI thread).
         self._needs_live_timeline: bool = False
         self._needs_live_timeline_valid: bool = False
+        self._turn_filter: str = "all"
         self._last_turn_segment_count: int = -1
         # (timeline_len, last_event_index) — skip re-segment only when tail unchanged.
         self._turn_rebuild_sig: tuple[int, int | None, int] | None = None
@@ -274,6 +275,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._subagent_runs: list[SubagentRun] = []
         self._session_jobs = SessionJobs(jobs=[], schedules=[])
         self._overview_payload: JsonObject | None = None
+        self._timeline_owner_total: int = 0
+        self._timeline_fill_busy: bool = False
 
         self._event_reader: bool = False
 
@@ -860,38 +863,142 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         loc = meta.session_dir
         if loc.is_dir() or loc.is_file():
             self.session_dir = loc
-        first, total = asyncio.run(fetch_timeline_page(access, ref, page_limit=TIMELINE_RPC_LIMIT))
+        off, prompt = self._control_timeline_window()
+        first, total = asyncio.run(
+            fetch_timeline_page(
+                access,
+                ref,
+                offset=off,
+                page_limit=TIMELINE_RPC_LIMIT,
+                prompt_index=prompt,
+            )
+        )
         self.meta = meta
         self.timeline = first
+        self._timeline_owner_total = int(total or len(first))
         if self.meta is not None:
-            self.meta.num_events = int(total or len(first))
-        return int(total or len(first))
+            self.meta.num_events = int(self._timeline_owner_total)
+        return int(self._timeline_owner_total)
+
+    def _control_timeline_window(self) -> tuple[int, int | None]:
+        """``(offset, prompt_index)`` for the current Turn filter.
+
+        All turns: offset 0. A turn with a store prompt index uses that
+        filter. Otherwise the owner page starts at the turn's first event.
+        """
+        tf = str(getattr(self, "_turn_filter", "all") or "all")
+        if tf in ("", "all"):
+            return 0, None
+        try:
+            ti = int(tf)
+        except (TypeError, ValueError):
+            return 0, None
+        for seg in getattr(self, "_turn_segments", None) or []:
+            if int(seg.turn_index) != ti:
+                continue
+            if seg.prompt_index is not None:
+                return 0, int(seg.prompt_index)
+            return int(seg.first_index or 0), None
+        return 0, None
 
     def _load_control_remainder(self, first_len: int, total: int) -> None:
-        """Fetch remaining timeline pages and paint them as an append."""
-        if total <= first_len:
+        """Fetch the next ``session/timeline`` page for the current Turn scope."""
+        _ = (first_len, total)
+        self._fill_control_timeline()
+
+    def _maybe_fill_control_timeline(self) -> None:
+        """Load the next page when the cursor is on the last loaded row."""
+        if not self._uses_control_data() or self._timeline_events_complete:
             return
+        if self._timeline_fill_busy:
+            return
+        self._fill_control_timeline_job()
+
+    @work(thread=True, exclusive=True, group="timeline-fill")
+    def _fill_control_timeline_job(self) -> None:
+        try:
+            self._fill_control_timeline()
+        except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
+            self._on_control_browser_error(exc, notify=False)
+
+    def _fill_control_timeline(self) -> None:
+        """Append the next owner page. Same as the desktop palette fill."""
+        if not self._uses_control_data() or self._timeline_events_complete:
+            return
+        if self._timeline_fill_busy:
+            return
+        held = len(self.timeline or [])
+        if self._timeline_owner_total and held >= self._timeline_owner_total:
+            self._timeline_events_complete = True
+            return
+        self._timeline_fill_busy = True
         import asyncio
 
-        from ...session.wire_timeline import TIMELINE_RPC_LIMIT, fetch_timeline_events
+        from ...session.wire_timeline import TIMELINE_RPC_LIMIT, fetch_timeline_page
 
         access = self._control_access()
         ref = self._session_control_ref()
-        rest = asyncio.run(
-            fetch_timeline_events(access, ref, offset=first_len, page_limit=TIMELINE_RPC_LIMIT)
-        )
-        if not rest:
-            return
-        self.timeline = list(self.timeline or []) + rest
-        if self.meta is not None:
-            self.meta.num_events = len(self.timeline)
-        self._rebuild_indices()
+        base, prompt = self._control_timeline_window()
+        pos = held if prompt is not None else base + held
         try:
-            self._diff_doc = load_workspace_diff_doc(
-                self.session_dir, timeline=self.timeline or None
+            page, total = asyncio.run(
+                fetch_timeline_page(
+                    access,
+                    ref,
+                    offset=pos,
+                    page_limit=TIMELINE_RPC_LIMIT,
+                    prompt_index=prompt,
+                )
             )
-        except Exception:
-            pass
+        finally:
+            self._timeline_fill_busy = False
+        self._timeline_owner_total = int(total or self._timeline_owner_total)
+        if not page:
+            self._timeline_events_complete = True
+            return
+        self.timeline = list(self.timeline or []) + page
+        self._timeline_events_complete = len(self.timeline) >= self._timeline_owner_total
+        if self.meta is not None:
+            self.meta.num_events = int(self._timeline_owner_total)
+        self._rebuild_indices()
+        if self.is_mounted:
+            call_ui(resolve_ui_app(self), self._apply_timeline_remainder)
+
+    @work(thread=True, exclusive=True, group="timeline-scope")
+    def _start_control_timeline_scope(self) -> None:
+        """Replace the timeline with the first page of the current Turn filter."""
+        try:
+            self._reload_control_timeline_scope()
+        except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
+            self._on_control_browser_error(exc, notify=False)
+
+    def _reload_control_timeline_scope(self) -> None:
+        """Replace the timeline with the first page of the current Turn filter."""
+        if not self._uses_control_data():
+            call_ui(resolve_ui_app(self), self._apply_timeline_filters)
+            return
+        import asyncio
+
+        from ...session.wire_timeline import TIMELINE_RPC_LIMIT, fetch_timeline_page
+
+        access = self._control_access()
+        ref = self._session_control_ref()
+        off, prompt = self._control_timeline_window()
+        page, total = asyncio.run(
+            fetch_timeline_page(
+                access,
+                ref,
+                offset=off,
+                page_limit=TIMELINE_RPC_LIMIT,
+                prompt_index=prompt,
+            )
+        )
+        self.timeline = page
+        self._timeline_owner_total = int(total or len(page))
+        self._timeline_events_complete = len(page) >= self._timeline_owner_total
+        if self.meta is not None:
+            self.meta.num_events = int(self._timeline_owner_total)
+        self._rebuild_indices()
         if self.is_mounted:
             call_ui(resolve_ui_app(self), self._apply_timeline_remainder)
 
@@ -1204,11 +1311,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 store.clear()
             import time
 
-            remainder = (0, 0)
             if self._uses_control_data():
                 total = self._load_control_first_page()
-                remainder = (len(self.timeline or []), total)
-                self._timeline_events_complete = remainder[1] <= remainder[0]
+                self._timeline_events_complete = len(self.timeline or []) >= int(total)
                 self._last_timeline_parse_at = time.monotonic()
                 self._last_trace_mtime = None
             else:
@@ -1216,11 +1321,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._timeline_events_complete = True
                 self._last_timeline_parse_at = time.monotonic()
             self._commit_loaded_session()
-            try:
-                if remainder[1] > remainder[0]:
-                    self._load_control_remainder(remainder[0], remainder[1])
-            finally:
-                self._timeline_events_complete = True
             if self._timeline_search:
                 self._start_timeline_search_worker()
         except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
@@ -2188,6 +2288,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Update selection; debounce detail paint while the operator scrolls."""
         ev = message.event
         self._current_event = ev
+        tl = self.timeline or []
+        if tl and ev.index == tl[-1].index:
+            self._maybe_fill_control_timeline()
         self.refresh_bindings()
         # Coalesce rapid RowHighlighted events (hold-down / wheel) so Rich/Textual
         # do not reflow the detail pane on every intermediate row.
@@ -2468,8 +2571,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _start_timeline_search_worker(self) -> None:
         """Copy table state on this thread, then match off it."""
         query = self._timeline_search or ""
-        if not self._timeline_events_complete:
-            return
         try:
             tl = self.query_one("#timeline-list", TimelineTable)
         except NoMatches:
@@ -2726,6 +2827,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if val is Select.BLANK or val is None:
             return
         self._turn_filter = str(val)
+        if self._uses_control_data():
+            self._start_control_timeline_scope()
+            return
         self._apply_timeline_filters()
 
     @property
@@ -2794,7 +2898,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if sel.display:
                 sel.value = value
         self._ensure_timeline_tab()
-        self._apply_timeline_filters()
+        if self._uses_control_data():
+            self._start_control_timeline_scope()
+        else:
+            self._apply_timeline_filters()
         self._land_after_turn_step(keep=keep)
 
     def _diff_view(self) -> DiffView | None:
