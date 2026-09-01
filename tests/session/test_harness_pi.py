@@ -45,6 +45,19 @@ def test_discover_and_meta() -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
+    path = _install_store()
+
+    def boom(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("list-meta must not read the full transcript")
+
+    monkeypatch.setattr("anqa.harness.pi.json_lines", boom)
+    meta = PiAdapter().load_meta(path)
+    assert meta.session_id == _SID
+    assert meta.title == "Reply with PI_PROBE_OK"
+    assert meta.list_status_label() == "complete"
+
+
 def test_catalog_lists_pi_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)
@@ -151,6 +164,72 @@ def test_ref_for_id_and_query() -> None:
     row = CatalogQueryRow(session_id=_SID, title="x", harness="pi")
     assert row_matches_query(row, "harness:pi")
     assert not row_matches_query(row, "harness:opencode")
+
+
+def _write_subagent_session(path: Path) -> Path:
+    """Shape copied from ``01a05d05-8035-78c7-acb5-fe1d31b380fd`` (Pi 0.84.4)."""
+    path.write_text(
+        '{"type":"session","version":3,"id":"01a05d05-8035-78c7-acb5-fe1d31b380fd",'
+        '"timestamp":"2026-09-01T12:50:36.725Z","cwd":"/mnt/dev/_git/aisandbox"}\n'
+        '{"type":"message","id":"u1","timestamp":"2026-09-01T12:50:37.000Z",'
+        '"message":{"role":"user","content":[{"type":"text",'
+        '"text":"launch 5 subagents and get them all to propose some interesting change"}]}}\n'
+        '{"type":"message","id":"a1","timestamp":"2026-09-01T12:51:00.000Z",'
+        '"message":{"role":"assistant","content":['
+        '{"type":"toolCall","id":"call-sub-1","name":"subagent","arguments":'
+        '{"agentScope":"user","tasks":['
+        '{"agent":"worker","task":"You are Proposal Agent A.","cwd":"/mnt/dev/_git/aisandbox"},'
+        '{"agent":"worker","task":"You are Proposal Agent B.","cwd":"/mnt/dev/_git/aisandbox"}'
+        "]}}]}}\n"
+        '{"type":"message","id":"t1","timestamp":"2026-09-01T12:54:00.000Z",'
+        '"message":{"role":"toolResult","toolCallId":"call-sub-1","toolName":"subagent",'
+        '"content":[{"type":"text","text":"Parallel: 2/2 succeeded"}],'
+        '"details":{"mode":"parallel","agentScope":"user","results":['
+        '{"agent":"worker","exitCode":0,"task":"You are Proposal Agent A.",'
+        '"messages":[{"role":"assistant","content":[{"type":"text",'
+        '"text":"## Proposal Title\\nThe Agent Lab Notebook"}]}]},'
+        '{"agent":"worker","exitCode":0,"task":"You are Proposal Agent B.",'
+        '"messages":[{"role":"assistant","content":[{"type":"text",'
+        '"text":"## Proposal Title\\nThe Prompt Lab Notebook"}]}]}'
+        ']},"isError":false}}\n'
+        '{"type":"message","id":"a2","timestamp":"2026-09-01T12:55:00.000Z",'
+        '"message":{"role":"assistant","content":['
+        '{"type":"toolCall","id":"call-w1","name":"write","arguments":'
+        '{"path":"/mnt/dev/_git/aisandbox/README.md","content":"# aisandbox\\n"}}'
+        "]}}\n"
+        '{"type":"message","id":"t2","timestamp":"2026-09-01T12:55:01.000Z",'
+        '"message":{"role":"toolResult","toolCallId":"call-w1","toolName":"write",'
+        '"content":[{"type":"text","text":"Successfully wrote 12 bytes"}],'
+        '"isError":false}}\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_subagent_tool_emits_spawn_and_finish_bookends(tmp_path: Path) -> None:
+    """Pi ``subagent`` tasks become Overview / Timeline Subagents rows."""
+    path = _write_subagent_session(tmp_path / "sess.jsonl")
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    events = require_adapter(ref).parse_timeline(ref)
+    types = [e.event_type for e in events]
+    assert types.count("subagent_spawned") == 2
+    assert types.count("subagent_finished") == 2
+    spawned = [e for e in events if e.event_type == "subagent_spawned"]
+    assert spawned[0].raw_input.as_str("subagent_type") == "worker"
+    assert "Proposal Agent A" in (spawned[0].raw_input.as_str("description") or "")
+    finished = [e for e in events if e.event_type == "subagent_finished"]
+    assert "Agent Lab Notebook" in finished[0].content
+    ov = session_overview(ref)
+    runs = ov["turns"]["subagentRuns"]
+    assert len(runs) == 2
+    assert runs[0]["subagentType"] == "worker"
+    assert runs[0]["status"] == "completed"
+    from anqa.harness.views import session_diff
+
+    diff = session_diff(ref)
+    paths = [str(f["path"]) for f in diff["points"][0]["files"]]
+    assert paths == ["/mnt/dev/_git/aisandbox/README.md"]
 
 
 def test_session_diff_empty_without_file_edits() -> None:

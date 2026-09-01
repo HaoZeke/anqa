@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from anqa.scan import (
     WALK_SKIP_DIRS,
+    find_files,
     find_sessions,
     looks_like_session_dir,
     scan_forced_off,
@@ -98,6 +99,17 @@ def test_looks_like_dangling_events_symlink(tmp_path: Path) -> None:
     sd.mkdir()
     (sd / "events.jsonl").symlink_to(tmp_path / "missing-target")
     assert looks_like_session_dir(sd) is False
+
+
+def test_find_files_skips_workspace_and_matches_suffix(tmp_path: Path) -> None:
+    root = tmp_path / "store"
+    (root / "keep").mkdir(parents=True)
+    (root / "workspace").mkdir()
+    (root / "keep" / "session-a.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "workspace" / "hidden.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "keep" / "other.txt").write_text("x", encoding="utf-8")
+    found = {p.name for p in find_files(root, suffix=".jsonl", name_prefix="session-")}
+    assert found == {"session-a.jsonl"}
 
 
 def test_find_sessions_skips_workspace_and_finds_sessions(tmp_path: Path) -> None:

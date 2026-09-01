@@ -81,9 +81,9 @@ def _row_session_id(row: JsonObject, path: Path) -> str:
 
 
 def _first_row(path: Path) -> JsonObject | None:
-    for row in json_lines(path):
-        return row
-    return None
+    from .jsonl_list import first_json_object
+
+    return first_json_object(path)
 
 
 def _looks_like_claude_file(path: Path) -> bool:
@@ -126,18 +126,15 @@ def _find_file(root: Path, session_id: str) -> Path | None:
     needle = f"{session_id}.jsonl"
     child_name = f"agent-{session_id}.jsonl"
     try:
-        for path in root.rglob("*.jsonl"):
+        from ..scan import find_files
+
+        for path in find_files(root, suffix=".jsonl"):
             if path.name == needle or path.name == child_name:
                 return path
-            if _session_id_from_name(path) == session_id:
-                return path
-            row = _first_row(path)
-            if row is None:
-                continue
-            if str(row.get("agentId") or "") == session_id:
-                return path
-            if not _is_child_file(path) and str(row.get("sessionId") or "") == session_id:
-                return path
+        for pattern in (f"*/subagents/{child_name}", f"*/*/subagents/{child_name}"):
+            for path in root.glob(pattern):
+                if path.is_file():
+                    return path
     except OSError:
         return None
     return None
@@ -152,10 +149,9 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
         if path.is_file() and path.suffix == ".jsonl":
             files = [path]
         elif path.is_dir():
-            try:
-                files = list(path.rglob("*.jsonl"))
-            except OSError:
-                files = []
+            from ..scan import find_files
+
+            files = find_files(path, suffix=".jsonl")
         for file in files:
             try:
                 key = str(file.resolve())
@@ -171,10 +167,13 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not _looks_like_claude_file(path):
         return None
-    row = _first_row(path) or {}
+    from .jsonl_list import first_json_objects
+
+    rows = first_json_objects(path)
+    row = rows[0] if rows else {}
     cwd = ""
     sid = _row_session_id(row, path)
-    for item in json_lines(path):
+    for item in rows:
         if not cwd:
             cwd = str(item.get("cwd") or "").strip()
         if not sid:
@@ -568,15 +567,15 @@ class ClaudeAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from .jsonl_list import list_window
+
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"claude session not found: {sid}")
-        rows = list(json_lines(path))
+        rows = list_window(path)
         if not rows:
             raise FileNotFoundError(f"claude session not found: {sid}")
-        meta = _meta_from_rows(rows, path, sid)
-        meta.num_events = len(rows)
-        return meta
+        return _meta_from_rows(rows, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, _sid = _jsonl_from_ref(ref, self.root())

@@ -40,6 +40,33 @@ def _is_native_store(root: Path) -> bool:
     return _resolved(root) == _resolved(default_sessions_root())
 
 
+def _ref_named(root: Path, session_id: str) -> SessionRef | None:
+    """Locate *session_id* under a host root without listing every session."""
+    from ..scan import looks_like_session_dir
+    from ..session.sources import is_encoded_cwd_name, is_host_skip_dir_name
+
+    base = Path(root).expanduser()
+    if not base.is_dir() or not session_id:
+        return None
+    try:
+        with os.scandir(base) as it:
+            tops = list(it)
+    except OSError:
+        return None
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False) or is_host_skip_dir_name(ent.name):
+            continue
+        child = Path(ent.path)
+        if child.name == session_id and looks_like_session_dir(child):
+            return _ref_for_dir(child)
+        if not is_encoded_cwd_name(ent.name):
+            continue
+        cand = child / session_id
+        if looks_like_session_dir(cand):
+            return _ref_for_dir(cand)
+    return None
+
+
 def _ref_for_dir(path: Path) -> SessionRef:
     loc = Path(path)
     try:
@@ -179,9 +206,10 @@ class GrokAdapter:
         sid = (session_id or "").strip()
         if not sid:
             return None
-        for ref in self.discover():
-            if ref.session_id == sid:
-                return ref
+        for root in self.default_host_roots():
+            hit = _ref_named(root, sid)
+            if hit is not None:
+                return hit
         return None
 
     def watch_hints(self) -> tuple[str, ...]:

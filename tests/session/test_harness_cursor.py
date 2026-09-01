@@ -50,6 +50,19 @@ def test_discover_and_meta() -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
+    path = _install_store()
+
+    def boom(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("list-meta must not read the full transcript")
+
+    monkeypatch.setattr("anqa.harness.cursor.json_lines", boom)
+    meta = CursorAdapter().load_meta(path)
+    assert meta.session_id == _SID
+    assert meta.title == "Reply with CURSOR_PROBE_OK"
+    assert meta.list_status_label() == "complete"
+
+
 def test_catalog_lists_cursor_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)

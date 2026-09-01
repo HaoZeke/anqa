@@ -147,6 +147,7 @@ store. `[catalog.roots]` overrides a store's default location.
 ## Catalog
 
 The list is every enabled adapter store. Filter with `harness:<id>`.
+List and resolve cost: [docs/catalog-performance.md](docs/catalog-performance.md).
 Every note has a `source`
 (who wrote it). Control `notes/upsert` accepts any field bag plus that
 source. A new note uses `~/.anqa/notes_schema.toml`. Editing a note

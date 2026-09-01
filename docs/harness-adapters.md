@@ -217,7 +217,9 @@ rows are `message` (roles `user`, `assistant`, `toolResult`) and
 `provider` / `modelId`. List Turn is `running` when the last row is
 `toolResult` or an assistant `stopReason` of tool use; otherwise
 the assistant stop reason. Diff is edit / write tools on the
-timeline.
+timeline. A ``subagent`` tool with ``tasks[]`` emits one spawn and
+one finish bookend per task from ``details.results`` (no child
+jsonl; runs are listed and not openable).
 
 ## How each store fills the surfaces
 
@@ -234,7 +236,7 @@ store did not write that product data).
 | `gemini` | `$set` / `session_metadata` jsonl | tool `status` / last user | write / replace tools | `kind=subagent` files (off the list) | Timeline bookends only |
 | `grok` | `updates.jsonl` | updates tail | `rewind_points.jsonl` or `search_replace` | `subagents/` + spawn bookends | Directory files + timeline (`terminal/`, `workflows/wf_*`, `goal/state.json`, `plan.json`, `signals.json`) |
 | `opencode` | `event` / `part` rows | last part `state.status` | `summary.diffs` or edit / write | `task` + `parentID` | Timeline bookends only |
-| `pi` | jsonl `message` | `stopReason` / last `toolResult` | edit / write tools | — | Timeline bookends only |
+| `pi` | jsonl `message` | `stopReason` / last `toolResult` | edit / write tools | `subagent` tasks + `details.results` | Timeline bookends only |
 
 ## Filter
 

@@ -68,6 +68,19 @@ def test_discover_and_meta() -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
+    _install_store()
+
+    def boom(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("list-meta must not read the full transcript")
+
+    monkeypatch.setattr("anqa.harness.antigravity.json_lines", boom)
+    meta = require_adapter(Path(f"antigravity:{_SID}")).load_meta(Path(f"antigravity:{_SID}"))
+    assert meta.session_id == _SID
+    assert meta.title == "Reply with AGY_PROBE_OK"
+    assert meta.list_status_label() == "complete"
+
+
 def test_load_meta_reads_model_from_conversation_db() -> None:
     path = _install_store()
     blob = b"\x00model_enum\x00gemini-3.7-flash\x00used_claude\x00"

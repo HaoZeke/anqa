@@ -54,7 +54,11 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
             continue
         if not path.is_dir():
             continue
-        out.extend(sorted(path.rglob("agent-transcripts/*/*.jsonl")))
+        from ..scan import find_files
+
+        out.extend(
+            sorted(p for p in find_files(path, suffix=".jsonl") if "agent-transcripts" in p.parts)
+        )
     return out
 
 
@@ -91,8 +95,6 @@ def _find_meta(root: Path, sid: str) -> JsonObject:
             return _load_json(path)
     if root.name == sid and (root / "meta.json").is_file():
         return _load_json(root / "meta.json")
-    for path in root.rglob(f"{sid}/meta.json"):
-        return _load_json(path)
     return {}
 
 
@@ -350,10 +352,12 @@ class CursorAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from .jsonl_list import list_window
+
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"cursor session not found: {sid}")
-        rows = list(json_lines(path))
+        rows = list_window(path)
         header = _find_meta(self.root(), sid)
         return _meta_from(rows, path, sid, header)
 

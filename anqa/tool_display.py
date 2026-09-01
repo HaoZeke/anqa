@@ -72,6 +72,7 @@ _TOOL_FAMILY_SHELL = frozenset(
 _TOOL_FAMILY_AGENT = frozenset(
     {
         "spawn_subagent",
+        "subagent",
         "ask_user_question",
         "enter_plan_mode",
         "exit_plan_mode",

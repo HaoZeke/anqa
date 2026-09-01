@@ -52,6 +52,19 @@ def test_discover_and_meta() -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
+    path = _install_store()
+
+    def boom(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("list-meta must not read the full transcript")
+
+    monkeypatch.setattr("anqa.harness.codex.json_lines", boom)
+    meta = CodexAdapter().load_meta(path)
+    assert meta.session_id == _SID
+    assert meta.title == "Reply with CODEX_PROBE_OK"
+    assert meta.list_status_label() == "complete"
+
+
 def test_session_diff_reads_exec_apply_patch(tmp_path: Path) -> None:
     path = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-000000000099.jsonl"
     payload = {

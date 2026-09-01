@@ -362,22 +362,30 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
             continue
         if not path.is_dir():
             continue
-        out.extend(sorted(path.rglob("rollout-*.jsonl")))
+        from ..scan import find_files
+
+        out.extend(sorted(find_files(path, suffix=".jsonl", name_prefix="rollout-")))
     return out
 
 
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not path.is_file():
         return None
-    rows = list(json_lines(path))
-    header = _meta_row(rows)
+    from .jsonl_list import first_json_objects
+
+    header = _meta_row(first_json_objects(path))
     sid = str(header.get("session_id") or header.get("id") or _session_id_from_name(path)).strip()
     if not sid:
         return None
+    loc = path
+    try:
+        loc = path.resolve()
+    except OSError:
+        pass
     return SessionRef(
         harness=CODEX_HARNESS_ID,
         session_id=sid,
-        locator=path,
+        locator=loc,
         cwd=str(header.get("cwd") or "").strip(),
     )
 
@@ -404,10 +412,7 @@ def _find_file(root: Path, session_id: str) -> Path | None:
         return None
     for path in _collect_jsonl([root]):
         if sid in path.name:
-            header = _meta_row(list(json_lines(path)))
-            hid = str(header.get("session_id") or header.get("id") or _session_id_from_name(path))
-            if hid == sid:
-                return path
+            return path
     return None
 
 
@@ -455,10 +460,12 @@ class CodexAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from .jsonl_list import list_window
+
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"codex session not found: {sid}")
-        rows = list(json_lines(path))
+        rows = list_window(path)
         if not rows:
             raise FileNotFoundError(f"codex session not found: {sid}")
         return _meta_from_rows(rows, path, sid)

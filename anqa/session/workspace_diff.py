@@ -721,3 +721,43 @@ def diff_payload(session_id: str, doc: WorkspaceDiff) -> JsonObject:
         "source": doc.source,
         "points": points,
     }
+
+
+def doc_from_payload(payload: JsonObject) -> WorkspaceDiff:
+    """Hydrate :class:`WorkspaceDiff` from a ``session/diff`` body."""
+    raw_points = payload.get("points")
+    if not isinstance(raw_points, list):
+        return WorkspaceDiff(())
+    points: list[DiffPoint] = []
+    for item in raw_points:
+        if not isinstance(item, dict):
+            continue
+        files: list[DiffHunk] = []
+        raw_files = item.get("files")
+        if isinstance(raw_files, list):
+            for hunk in raw_files:
+                if not isinstance(hunk, dict):
+                    continue
+                files.append(
+                    DiffHunk(
+                        path=str(hunk.get("path") or ""),
+                        kind=str(hunk.get("kind") or "edit"),
+                        added=json_as_int(hunk.get("added"), 0),
+                        removed=json_as_int(hunk.get("removed"), 0),
+                        unified=str(hunk.get("unified") or ""),
+                    )
+                )
+        pi = item.get("promptIndex")
+        prompt_index = int(pi) if isinstance(pi, int) else None
+        points.append(
+            DiffPoint(
+                key=str(item.get("key") or "edits"),
+                source=str(item.get("source") or ""),
+                prompt_index=prompt_index,
+                created_at=str(item.get("createdAt") or "") or None,
+                files=tuple(files),
+                prompt_text=str(item.get("prompt") or ""),
+                assistant_text=str(item.get("assistant") or ""),
+            )
+        )
+    return WorkspaceDiff(tuple(points))

@@ -10,6 +10,7 @@ from anqa.models import ToolInputBag, TraceEvent
 from anqa.session.workspace_diff import (
     _snap_map,
     _unified_diff,
+    doc_from_payload,
     format_diff_meta_line,
     load_workspace_diff,
     load_workspace_diff_doc,
@@ -546,3 +547,33 @@ def test_point_from_events_reads_apply_patch_grammar() -> None:
     assert "return 123" in by_path["path/update2.py"].unified
     assert "Environment ID" not in by_path["path/update2.py"].unified
     assert "End of File" not in by_path["path/update2.py"].unified
+
+
+def test_doc_from_payload_round_trips_session_diff_files() -> None:
+    from anqa.session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff, diff_payload
+
+    doc = WorkspaceDiff(
+        (
+            DiffPoint(
+                key="edits",
+                source="search_replace",
+                prompt_index=1,
+                created_at="2026-09-01T00:00:00Z",
+                files=(
+                    DiffHunk(
+                        path="/tmp/README.md",
+                        kind="added",
+                        added=2,
+                        removed=0,
+                        unified="--- /dev/null\n+++ b/README.md\n+# hi\n",
+                    ),
+                ),
+                prompt_text="write it",
+            ),
+        )
+    )
+    payload = diff_payload("sid", doc)
+    back = doc_from_payload(payload)
+    assert back.source == "search_replace"
+    assert back.points[0].files[0].path == "/tmp/README.md"
+    assert "# hi" in back.points[0].files[0].unified

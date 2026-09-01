@@ -50,13 +50,14 @@ def _text_of(content: object) -> str:
 def _looks_like_gemini_file(path: Path) -> bool:
     if not path.is_file() or path.suffix != ".jsonl":
         return False
-    for row in json_lines(path):
-        if not str(row.get("sessionId") or "").strip():
-            return False
-        if str(row.get("type") or "") == "session":
-            return False
-        return bool(row.get("projectHash") or row.get("kind") or row.get("startTime"))
-    return False
+    from .jsonl_list import first_json_object
+
+    row = first_json_object(path)
+    if row is None or not str(row.get("sessionId") or "").strip():
+        return False
+    if str(row.get("type") or "") == "session":
+        return False
+    return bool(row.get("projectHash") or row.get("kind") or row.get("startTime"))
 
 
 def _session_id_from_name(path: Path) -> str:
@@ -143,19 +144,57 @@ def _jsonl_from_ref(ref: SessionRef | Path | str, root: Path) -> tuple[Path, str
         return found, parsed[1]
     path = Path(text).expanduser()
     if path.is_file():
-        meta, _msgs = _load_conversation(path)
+        from .jsonl_list import first_json_object
+
+        meta = first_json_object(path) or {}
         sid = str(meta.get("sessionId") or _session_id_from_name(path)).strip()
         return path, sid
     return root, path.name
 
 
+def _header_and_messages(rows: Sequence[JsonObject]) -> tuple[JsonObject, list[JsonObject]]:
+    metadata: JsonObject = {}
+    messages: dict[str, JsonObject] = {}
+    for row in rows:
+        if str(row.get("sessionId") or "").strip() and "$set" not in row:
+            for key, val in row.items():
+                if key != "messages":
+                    metadata[str(key)] = val
+        patch = row.get("$set")
+        if isinstance(patch, dict):
+            raw = patch.get("messages")
+            if isinstance(raw, list):
+                messages = {
+                    str(item["id"]): as_json_object(item)
+                    for item in raw
+                    if isinstance(item, dict) and item.get("id")
+                }
+            for key, val in patch.items():
+                if key != "messages":
+                    metadata[str(key)] = val
+            continue
+        typ = str(row.get("type") or "")
+        mid = str(row.get("id") or "").strip()
+        if typ == "message_update" and mid and mid in messages:
+            kept = str(messages[mid].get("type") or typ)
+            merged = as_json_object({**messages[mid], **row})
+            merged["type"] = kept
+            messages[mid] = merged
+            continue
+        if mid and typ in {"user", "gemini", "error"}:
+            messages[mid] = row
+    return metadata, list(messages.values())
+
+
 def _find_file(root: Path, session_id: str) -> Path | None:
     if not root.is_dir() or not session_id:
         return None
+    from .jsonl_list import first_json_object
+
     try:
-        for path in root.rglob("session-*.jsonl"):
-            meta, _msgs = _load_conversation(path)
-            if str(meta.get("sessionId") or "").strip() == session_id:
+        for path in _collect_jsonl([root]):
+            header = first_json_object(path)
+            if str((header or {}).get("sessionId") or "").strip() == session_id:
                 return path
     except OSError:
         return None
@@ -172,7 +211,9 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
             files = [path]
         elif path.is_dir():
             try:
-                files = list(path.rglob("session-*.jsonl"))
+                from ..scan import find_files
+
+                files = find_files(path, suffix=".jsonl", name_prefix="session-")
             except OSError:
                 files = []
         for file in files:
@@ -202,7 +243,9 @@ def _project_root_cwd(path: Path) -> str:
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not _looks_like_gemini_file(path):
         return None
-    meta, _msgs = _load_conversation(path)
+    from .jsonl_list import first_json_object
+
+    meta = first_json_object(path) or {}
     sid = str(meta.get("sessionId") or "").strip()
     if not sid:
         return None
@@ -470,11 +513,14 @@ class GeminiAdapter:
         return [path] if path.is_dir() else []
 
     def discover(self, roots: Sequence[Path | str] | None = None) -> list[SessionRef]:
+        from .jsonl_list import first_json_objects
+
         scan = [self.root()] if roots is None else [Path(r) for r in roots]
         found: list[SessionRef] = []
         seen: set[str] = set()
         for file in _collect_jsonl(scan):
-            meta, messages = _load_conversation(file)
+            rows = first_json_objects(file, limit=4)
+            meta, messages = _header_and_messages(rows)
             if str(meta.get("kind") or "main") == "subagent":
                 continue
             if not any(_is_resumable(msg) for msg in messages):
@@ -503,15 +549,15 @@ class GeminiAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from .jsonl_list import list_window
+
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"gemini session not found: {sid}")
-        meta, messages = _load_conversation(path)
+        meta, messages = _header_and_messages(list_window(path))
         if not str(meta.get("sessionId") or sid).strip():
             raise FileNotFoundError(f"gemini session not found: {sid}")
-        out = _meta_from_conversation(meta, messages, path, sid)
-        out.num_events = len(messages)
-        return out
+        return _meta_from_conversation(meta, messages, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, _sid = _jsonl_from_ref(ref, self.root())

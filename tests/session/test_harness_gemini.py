@@ -51,6 +51,23 @@ def test_discover_and_meta() -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
+    path = _install_store()
+
+    def boom(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("list-meta must not read the full transcript")
+
+    monkeypatch.setattr("anqa.harness.gemini.json_lines", boom)
+    meta = GeminiAdapter().load_meta(path)
+    assert meta.session_id == _SID
+    assert meta.title == "Reply with GEMINI_PROBE_OK"
+    assert meta.list_status_label() == "complete"
+    refs = GeminiAdapter().discover()
+    assert _SID in {ref.session_id for ref in refs}
+    assert _CHILD_SID not in {ref.session_id for ref in refs}
+    assert _CONTEXT_SID not in {ref.session_id for ref in refs}
+
+
 def test_catalog_lists_gemini_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)

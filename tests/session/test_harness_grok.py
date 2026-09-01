@@ -236,6 +236,26 @@ def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
     assert adapter.ref_for_id("missing") is None
 
 
+def test_ref_for_id_does_not_discover_every_session(tmp_path: Path, monkeypatch) -> None:
+    """Opening one Grok id must not list the whole host tree."""
+    host = tmp_path / "sessions"
+    sess = _write_summary_session(host / "%2Fproj", "host-sid")
+    _write_summary_session(host / "%2Fother", "other-sid")
+    monkeypatch.setattr("anqa.harness.grok.default_sessions_root", lambda: host)
+    calls: list[int] = []
+    real = GrokAdapter.discover
+
+    def wrapped(self: GrokAdapter, roots: object = None) -> object:
+        calls.append(1)
+        return real(self, roots)  # type: ignore[misc]
+
+    monkeypatch.setattr(GrokAdapter, "discover", wrapped)
+    found = GrokAdapter().ref_for_id("host-sid")
+    assert found is not None
+    assert found.locator.resolve() == sess.resolve()
+    assert calls == []
+
+
 def test_importing_grok_adapter_does_not_import_ui() -> None:
     saved = {
         name: sys.modules[name]

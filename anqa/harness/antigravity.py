@@ -238,7 +238,9 @@ def _count_tools(rows: Sequence[JsonObject]) -> int:
 
 
 def _meta_for(root: Path, db: Path, session_id: str) -> SessionMeta:
-    rows = list(json_lines(_transcript_path(root, session_id)))
+    from .jsonl_list import list_window
+
+    rows = list_window(_transcript_path(root, session_id))
     summary = _load_summary(root, session_id)
     created = ""
     updated = Stamp.iso(summary.get("last_modified_time") or summary.get("last_user_input_time"))
@@ -483,9 +485,7 @@ class AntigravityAdapter:
         if not db.is_file():
             raise FileNotFoundError(f"antigravity session not found: {sid}")
         root = self._store_root_for(db)
-        meta = _meta_for(root, db, sid)
-        meta.num_events = len(list(json_lines(_transcript_path(root, sid))))
-        return meta
+        return _meta_for(root, db, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         db, sid = _paths_from_ref(ref, self.root())

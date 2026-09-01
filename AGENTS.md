@@ -200,9 +200,12 @@ update. Bump the major only after that version has shipped to clients
 that would otherwise keep a stale owner. Unpublished work stays on the
 current unpublished protocol version. ``just bump`` updates the product
 version only. Editor clients send this package's protocol string.
-Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). Do not reimplement
-catalog discovery for control outside ``session/catalog`` +
-``session/access`` + ``control.server`` / ``control.daemon``.
+Methods, list paging, and notifications: [`docs/control.md`](docs/control.md).
+List and resolve cost: [`docs/catalog-performance.md`](docs/catalog-performance.md).
+Do not reimplement catalog discovery for control outside ``session/catalog`` +
+``session/access`` + ``control.server`` / ``control.daemon``. When a socket
+is configured, the session browser loads overview, timeline, Diff, and
+notes through those methods — not ``require_adapter`` on a catalog id.
 
 ### 3.0 Path layout (product contract)
 

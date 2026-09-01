@@ -47,6 +47,24 @@ from .subagents import (
 logger = logging.getLogger(__name__)
 
 
+def locator_index_from_rows(rows: list[JsonObject]) -> dict[str, str]:
+    """Map session id, ``harness:id``, and locator strings to the locator."""
+    index: dict[str, str] = {}
+    for row in rows:
+        loc = str(row.get("locator") or "").strip()
+        if not loc:
+            continue
+        sid = str(row.get("sessionId") or "").strip()
+        path = str(row.get("path") or "").strip()
+        harness = str(row.get("harness") or "").strip()
+        for key in (loc, sid, path):
+            if key:
+                index[key] = loc
+        if harness and sid:
+            index[f"{harness}:{sid}"] = loc
+    return index
+
+
 def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) -> float:
     """Best-effort “latest activity” epoch for newest-first catalog order."""
     for key in ("sortEpoch", "updatedAt", "createdAt", "updated_at", "created_at"):
@@ -487,6 +505,7 @@ class SessionCatalogCache:
         self._ttl = max(1.0, float(ttl))
         self._lock = threading.Lock()
         self._rows: list[JsonObject] | None = None
+        self._locator_index: dict[str, str] = {}
         self._mono = 0.0
         self._host_key: bool | None = None
         self._fingerprint: tuple[tuple[str, int], ...] | None = None
@@ -576,10 +595,14 @@ class SessionCatalogCache:
                     upserted[sid] = row
             return list(upserted.values()), list(removed)
 
+    def _install_rows_locked(self, rows: list[JsonObject] | None) -> None:
+        self._rows = rows
+        self._locator_index = locator_index_from_rows(rows or [])
+
     def invalidate(self) -> None:
         """Drop cached rows so the next :meth:`get` rebuilds."""
         with self._lock:
-            self._rows = None
+            self._install_rows_locked(None)
             self._mono = 0.0
             self._fingerprint = None
             self._deltas.clear()
@@ -639,7 +662,7 @@ class SessionCatalogCache:
                     if self._rows is not None
                     else None
                 )
-                self._rows = rows
+                self._install_rows_locked(rows)
                 self._mono = self._time.monotonic()
                 self._host_key = host_key
                 self._fingerprint = fp
@@ -684,30 +707,20 @@ class SessionCatalogCache:
         if not ref:
             return None
         candidate = Path(ref).expanduser()
-        if candidate.is_dir():
+        if candidate.is_dir() or candidate.is_file():
             try:
                 return candidate.resolve()
             except OSError:
                 return candidate
         with self._lock:
-            rows = list(self._rows) if self._rows is not None else []
-        for row in rows:
-            sid = str(row.get("sessionId") or "").strip()
-            path_raw = str(row.get("path") or "").strip()
-            if not path_raw:
-                continue
-            loc_raw = str(row.get("locator") or "").strip()
-            if sid != ref and path_raw != ref and Path(loc_raw).name != ref:
-                continue
-            for raw in (loc_raw, path_raw):
-                if not raw:
-                    continue
-                path = Path(raw)
-                if path.is_dir() or path.is_file():
-                    try:
-                        return path.resolve()
-                    except OSError:
-                        return path
+            loc_raw = self._locator_index.get(ref, "")
+        if loc_raw:
+            path = Path(loc_raw)
+            if path.is_dir() or path.is_file():
+                try:
+                    return path.resolve()
+                except OSError:
+                    return path
         return None
 
     def refresh_rows(self, session_dirs: list[Path]) -> tuple[list[JsonObject], dict[str, bool]]:
@@ -781,7 +794,7 @@ class SessionCatalogCache:
         with self._lock:
             if self._building or self._revision != snap_rev:
                 return list(self._rows or rows), list_changed
-            self._rows = rows
+            self._install_rows_locked(rows)
             self._mono = self._time.monotonic()
             if upserts or removed_ids:
                 self._bump_locked(upserted=upserts, removed=removed_ids)
@@ -860,7 +873,7 @@ class SessionCatalogCache:
         with self._lock:
             if self._building or self._revision != snap_rev:
                 return list_changed
-            self._rows = rows
+            self._install_rows_locked(rows)
             self._mono = self._time.monotonic()
             if upserts or removed_ids:
                 self._bump_locked(upserted=upserts, removed=removed_ids)
@@ -903,7 +916,7 @@ class SessionCatalogCache:
         with self._lock:
             if self._building or self._revision != snap_rev:
                 return list(self._rows or rows)
-            self._rows = rows
+            self._install_rows_locked(rows)
             self._mono = self._time.monotonic()
             self._bump_locked(removed=removed_ids)
         return list(rows)

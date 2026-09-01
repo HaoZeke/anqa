@@ -90,7 +90,7 @@ from ...session.workflows import (
     workflow_event_index,
     workflow_for_event,
 )
-from ...session.workspace_diff import WorkspaceDiff, load_workspace_diff_doc
+from ...session.workspace_diff import WorkspaceDiff, doc_from_payload, load_workspace_diff_doc
 from ...utils import fmt_duration
 from .. import text as U
 from ..bindings import BROWSER, ChromeActions, focus_primary_list
@@ -1025,9 +1025,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._load_notes()
         self._rebuild_indices()
         try:
-            self._diff_doc = load_workspace_diff_doc(
-                self.session_dir, timeline=self.timeline or None
-            )
+            if self._uses_control_data():
+                self._diff_doc = self._load_control_diff()
+            else:
+                self._diff_doc = load_workspace_diff_doc(
+                    self.session_dir, timeline=self.timeline or None
+                )
         except Exception:
             self._diff_doc = WorkspaceDiff(())
         if not self.is_mounted:
@@ -1343,11 +1346,80 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 end(KIND_REFRESH, self.session_dir)
 
     def _load_notes(self) -> None:
-        """Load turn-linked operator notes for this session."""
-        # Disk is canonical; control notes/* also reads the same files.
-        # Keep direct load so open paints without an extra RPC round-trip.
+        """Load notes through control when attached, else the session overlay."""
+        if self._uses_control_data():
+            self._notes_doc = self._load_control_notes()
+            self._notes_loaded = True
+            return
         self._notes_doc = load_notes(self.session_dir)
         self._notes_loaded = True
+
+    def _load_control_notes(self) -> NotesDoc:
+        import asyncio
+
+        from ...notes import NoteEntry, NotesDoc
+
+        access = self._control_access()
+        ref = self._session_control_ref()
+        notes_list = getattr(access, "notes_list", None)
+        if not callable(notes_list):
+            return NotesDoc()
+
+        async def _nl() -> object:
+            return await notes_list(ref)
+
+        snap = asyncio.run(_nl())
+        if not isinstance(snap, dict):
+            return NotesDoc()
+        notes: list[NoteEntry] = []
+        raw = snap.get("notes")
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                nid = str(item.get("id") or "").strip()
+                ti = item.get("turnIndex")
+                if not nid or not isinstance(ti, int):
+                    continue
+                fields_raw = item.get("fields")
+                fields = (
+                    {str(k): str(v) for k, v in fields_raw.items() if v is not None}
+                    if isinstance(fields_raw, dict)
+                    else {}
+                )
+                evs: list[int] = []
+                for x in item.get("eventIndices") or []:
+                    if isinstance(x, int):
+                        evs.append(x)
+                notes.append(
+                    NoteEntry(
+                        id=nid,
+                        turn_index=ti,
+                        source=str(item.get("source") or ""),
+                        fields=fields,
+                        event_indices=evs,
+                        created_at=str(item.get("createdAt") or ""),
+                        updated_at=str(item.get("updatedAt") or ""),
+                    )
+                )
+        return NotesDoc(notes=notes)
+
+    def _load_control_diff(self) -> WorkspaceDiff:
+        import asyncio
+
+        access = self._control_access()
+        ref = self._session_control_ref()
+        session_diff = getattr(access, "session_diff", None)
+        if not callable(session_diff):
+            return WorkspaceDiff(())
+
+        async def _df() -> object:
+            return await session_diff(ref)
+
+        body = asyncio.run(_df())
+        if not isinstance(body, dict):
+            return WorkspaceDiff(())
+        return doc_from_payload(as_json_object(body))
 
     def _rebuild_indices(self) -> None:
         self._rebuild_subagent_runs()

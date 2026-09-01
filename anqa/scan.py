@@ -108,6 +108,42 @@ def looks_like_session_dir(path: Path | str) -> bool:
     return False
 
 
+def find_files_py(root: Path | str, *, suffix: str, name_prefix: str = "") -> list[Path]:
+    """Python twin of :func:`find_files`."""
+    found: list[Path] = []
+    start = Path(root)
+    if not start.exists():
+        return found
+    for dirpath, dirnames, filenames in os.walk(start, followlinks=False):
+        dirnames[:] = [d for d in dirnames if not skip_dir_name(d)]
+        path = Path(dirpath)
+        if "subagents" in path.parts:
+            dirnames.clear()
+            continue
+        for name in filenames:
+            if name.endswith(suffix) and name.startswith(name_prefix):
+                found.append(path / name)
+    return found
+
+
+def find_files(root: Path | str, *, suffix: str, name_prefix: str = "") -> list[Path]:
+    """Discover files under *root* whose name ends with *suffix*.
+
+    Optional *name_prefix* must also match. Skips the same junk directories
+    as :func:`find_sessions`. Uses ``anqa._scan`` when loaded.
+
+    :param root: Store tree.
+    :param suffix: Filename suffix (``".jsonl"``).
+    :param name_prefix: Optional filename prefix (``"session-"``).
+    :returns: Matching files (empty when *root* is missing).
+    """
+    ext = scan_module()
+    fn = getattr(ext, "find_files", None) if ext is not None else None
+    if callable(fn):
+        return [Path(p) for p in fn(str(root), suffix, name_prefix)]
+    return find_files_py(root, suffix=suffix, name_prefix=name_prefix)
+
+
 def find_sessions(root: Path | str) -> list[Path]:
     """Discover session directories under *root*.
 

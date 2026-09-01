@@ -51,6 +51,19 @@ def test_discover_and_meta() -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
+    _install_store()
+
+    def boom(*_a: object, **_k: object) -> list[object]:
+        raise AssertionError("list-meta must not read the full transcript")
+
+    monkeypatch.setattr("anqa.harness.copilot.json_lines", boom)
+    meta = CopilotAdapter().load_meta(Path(f"copilot:{_SID}"))
+    assert meta.session_id == _SID
+    assert meta.title == "Reply with COPILOT_PROBE_OK"
+    assert meta.list_status_label() == "complete"
+
+
 def test_catalog_lists_copilot_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)

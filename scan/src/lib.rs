@@ -4,7 +4,7 @@ mod scan;
 mod walk;
 
 pub use scan::{filter_updates, keep_updates_line};
-pub use walk::{find_sessions, looks_like_session_dir, skip_dir_name};
+pub use walk::{find_files, find_sessions, looks_like_session_dir, skip_dir_name};
 
 #[cfg(feature = "extension-module")]
 mod pybind {
@@ -38,12 +38,21 @@ mod pybind {
         walk::looks_like_session_dir(Path::new(path))
     }
 
+    #[pyfunction]
+    fn find_files(root: &str, suffix: &str, name_prefix: &str) -> Vec<String> {
+        walk::find_files(Path::new(root), suffix, name_prefix)
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect()
+    }
+
     #[pymodule]
     fn _scan(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(keep_updates_line, m)?)?;
         m.add_function(wrap_pyfunction!(filter_updates, m)?)?;
         m.add_function(wrap_pyfunction!(find_sessions, m)?)?;
         m.add_function(wrap_pyfunction!(looks_like_session_dir, m)?)?;
+        m.add_function(wrap_pyfunction!(find_files, m)?)?;
         Ok(())
     }
 }

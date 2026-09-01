@@ -345,7 +345,9 @@ class CopilotAdapter:
             row = _session_row(con, sid)
             if row is None:
                 raise FileNotFoundError(f"copilot session not found: {sid}")
-            events = list(json_lines(_events_path(db, sid)))
+            from .jsonl_list import list_window
+
+            events = list_window(_events_path(db, sid))
             return _meta_from_row(row, db, events)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
