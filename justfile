@@ -18,6 +18,10 @@ lint:
     uv run python scripts/check_typing_policy.py
     uv run python scripts/check_harness_adapters.py
 
+# Installed product versions vs supported_version, plus on-disk record types.
+harness-probe:
+    uv run python scripts/probe_harness_stores.py
+
 # Autofix ruff + format + mypy.
 lint-fix:
     uv run ruff check --select I --fix anqa tests

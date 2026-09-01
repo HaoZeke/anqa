@@ -29,6 +29,8 @@ _CHROME_TYPES = frozenset(
         "progress",
         "system",
         "mode",
+        "cost-state",
+        "permission-mode",
     }
 )
 _AGENT_TOOLS = frozenset({"Agent", "Task"})

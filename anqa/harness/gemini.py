@@ -1,7 +1,9 @@
 """Gemini CLI disk adapter (``~/.gemini/tmp/<project>/chats/session-*.jsonl``).
 
-One jsonl file is one conversation. Header plus ``$set`` patches rebuild
-the message list. ``kind=subagent`` files stay off the catalog list.
+One jsonl file is one conversation. Header (``sessionId`` / optional
+``type=session_metadata``) plus ``$set`` patches and ``message_update``
+rows rebuild the message list. ``kind=subagent`` files stay off the
+catalog list.
 """
 
 from __future__ import annotations
@@ -103,7 +105,18 @@ def _load_conversation(path: Path) -> tuple[JsonObject, list[JsonObject]]:
                 if key != "messages":
                     metadata[str(key)] = val
             continue
+        typ = str(row.get("type") or "")
         mid = str(row.get("id") or "").strip()
+        if typ == "message_update" and mid:
+            if mid in messages:
+                kept = str(messages[mid].get("type") or typ)
+                merged = as_json_object({**messages[mid], **row})
+                merged["type"] = kept
+                messages[mid] = merged
+            continue
+        if mid and typ in {"user", "gemini", "error"}:
+            messages[mid] = row
+            continue
         if mid and ("type" in row or "content" in row) and "sessionId" not in row:
             messages[mid] = row
             continue
@@ -446,7 +459,7 @@ class GeminiAdapter:
 
     id: str = GEMINI_HARNESS_ID
     product: str = "Gemini CLI"
-    supported_version: str = "0.54.4"
+    supported_version: str = "0.57.0"
 
     def root(self) -> Path:
         """Host project-temp tree."""

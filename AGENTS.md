@@ -322,6 +322,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 |--------|--------|
 | ``just install`` | ``uv sync --group test --group dev`` (lint/test venv). Product install: ``uv tool install --editable .`` |
 | ``just lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` + ``check_harness_adapters`` |
+| ``just harness-probe`` | Installed product versions vs adapter pins; on-disk record types (no session text) |
 | ``just lint-fix`` | ruff autofix + format + mypy |
 | ``just lint-complexity`` | Size-limit report only (not in ``just ci``); see §4.6 |
 | ``just test`` | pytest (no coverage flag) |

@@ -247,6 +247,9 @@ def _pairs_from_bag(bag: ToolInputBag) -> list[tuple[str, str]]:
 
 _PATCH_BEGIN = "*** Begin Patch"
 _PATCH_END = "*** End Patch"
+_PATCH_ENV = "*** Environment ID:"
+_PATCH_MOVE = "*** Move to:"
+_PATCH_EOF = "*** End of File"
 
 
 def _unescape_patch_text(text: str) -> str:
@@ -261,25 +264,7 @@ def _unescape_patch_text(text: str) -> str:
     return text
 
 
-def _hunk_from_patch_block(block: str) -> DiffHunk | None:
-    lines = block.splitlines()
-    path = ""
-    kind = "edit"
-    start = 0
-    for i, line in enumerate(lines):
-        raw = line.strip()
-        if raw.startswith("*** Add File:"):
-            path, kind, start = raw.split(":", 1)[1].strip(), "added", i + 1
-            break
-        if raw.startswith("*** Update File:"):
-            path, kind, start = raw.split(":", 1)[1].strip(), "edit", i + 1
-            break
-        if raw.startswith("*** Delete File:"):
-            path, kind, start = raw.split(":", 1)[1].strip(), "removed", i + 1
-            break
-    if not path:
-        return None
-    body = lines[start:]
+def _finish_patch_hunk(path: str, kind: str, body: list[str]) -> DiffHunk:
     if kind == "added":
         new = "\n".join(ln[1:] if ln.startswith("+") else ln for ln in body)
         unified, added, removed = _unified_diff(None, new, path)
@@ -294,6 +279,48 @@ def _hunk_from_patch_block(block: str) -> DiffHunk | None:
     return DiffHunk(path=path, kind=kind, added=added, removed=removed, unified=unified)
 
 
+def _hunks_from_patch_block(block: str) -> list[DiffHunk]:
+    """Every Add / Update / Delete File op in one Begin Patch document."""
+    out: list[DiffHunk] = []
+    path = ""
+    dest = ""
+    kind = "edit"
+    body: list[str] = []
+
+    def flush() -> None:
+        nonlocal path, dest, kind, body
+        use = dest or path
+        if use:
+            out.append(_finish_patch_hunk(use, kind, body))
+        path, dest, kind, body = "", "", "edit", []
+
+    for line in block.splitlines():
+        raw = line.strip()
+        if raw.startswith(_PATCH_ENV) or raw == _PATCH_EOF:
+            continue
+        if raw.startswith("*** Add File:"):
+            flush()
+            path, kind = raw.split(":", 1)[1].strip(), "added"
+            continue
+        if raw.startswith("*** Update File:"):
+            flush()
+            path, kind = raw.split(":", 1)[1].strip(), "edit"
+            continue
+        if raw.startswith("*** Delete File:"):
+            flush()
+            path = raw.split(":", 1)[1].strip()
+            kind = "removed"
+            flush()
+            continue
+        if raw.startswith(_PATCH_MOVE):
+            dest = raw.split(":", 1)[1].strip()
+            continue
+        if path:
+            body.append(line)
+    flush()
+    return out
+
+
 def _hunks_from_apply_patch(text: str) -> tuple[DiffHunk, ...]:
     text = _unescape_patch_text(text)
     out: list[DiffHunk] = []
@@ -305,9 +332,7 @@ def _hunks_from_apply_patch(text: str) -> tuple[DiffHunk, ...]:
         end = text.find(_PATCH_END, start)
         block = text[start + len(_PATCH_BEGIN) : end if end >= 0 else None]
         cursor = end + len(_PATCH_END) if end >= 0 else len(text)
-        hunk = _hunk_from_patch_block(block)
-        if hunk is not None:
-            out.append(hunk)
+        out.extend(_hunks_from_patch_block(block))
     return tuple(out)
 
 
@@ -378,6 +403,40 @@ def _point_from_grouped(
         prompt_index=None,
         created_at=None,
         files=_hunks_from_pairs(grouped),
+    )
+
+
+def point_from_file_diffs(rows: Sequence[Mapping[str, JsonValue]]) -> DiffPoint | None:
+    """Build one edits point from product FileDiff rows (file / patch / status).
+
+    :param rows: OpenCode ``summary.diffs`` (or the same keys).
+    :returns: One edits point, or ``None`` when no path is present.
+    """
+    files: list[DiffHunk] = []
+    for row in rows:
+        path = str(row.get("file") or row.get("path") or "").strip()
+        if not path:
+            continue
+        status = str(row.get("status") or "modified").strip().casefold()
+        kind = {"added": "added", "deleted": "removed", "removed": "removed"}.get(status, "edit")
+        patch = str(row.get("patch") or "")
+        files.append(
+            DiffHunk(
+                path=path,
+                kind=kind,
+                added=json_as_int(row.get("additions")),
+                removed=json_as_int(row.get("deletions")),
+                unified=patch,
+            )
+        )
+    if not files:
+        return None
+    return DiffPoint(
+        key="edits",
+        source="search_replace",
+        prompt_index=None,
+        created_at=None,
+        files=tuple(sorted(files, key=lambda item: item.path)),
     )
 
 

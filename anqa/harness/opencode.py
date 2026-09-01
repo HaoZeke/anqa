@@ -10,8 +10,8 @@ import json
 import sqlite3
 import tarfile
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
 
 from .. import event_types as et
 from ..models import (
@@ -97,57 +97,229 @@ def _is_child(row: sqlite3.Row) -> bool:
     return bool(parent) and str(parent).strip() not in {"", "None"}
 
 
-def _meta_from_row(row: sqlite3.Row, db: Path) -> SessionMeta:
-    sid = str(row["id"])
-    created = Stamp.iso(row["time_created"])
-    updated = Stamp.iso(row["time_updated"] or row["time_created"])
-    duration = 0.0
-    start = row["time_created"]
-    end = row["time_updated"] or row["time_created"]
-    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
-        duration = max(0.0, (float(end) - float(start)) / 1000.0)
-    cwd = str(row["directory"] or "").strip()
-    return SessionMeta(
-        session_id=sid,
-        session_dir=db,
-        model_id=_model_id(row["model"]),
-        title=str(row["title"] or "").strip(),
-        created_at=created,
-        updated_at=updated,
-        duration_seconds=duration,
-        run_dir=cwd,
-        turn_outcome="",
-        harness=OPENCODE_HARNESS_ID,
-        harness_version=str(row["version"] or "").strip() if "version" in row.keys() else "",
+def _table_exists(con: sqlite3.Connection, name: str) -> bool:
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (name,),
+    ).fetchone()
+    return row is not None
+
+
+@dataclass
+class _StoreRow:
+    id: str
+    time_created: JsonValue
+    data: JsonObject
+    message_id: str = ""
+
+
+@dataclass
+class _Payload:
+    info: JsonObject
+    messages: list[_StoreRow] = field(default_factory=list)
+    parts: list[_StoreRow] = field(default_factory=list)
+
+
+def _has_events(con: sqlite3.Connection, session_id: str) -> bool:
+    if not _table_exists(con, "event"):
+        return False
+    row = con.execute(
+        "SELECT 1 FROM event WHERE aggregate_id = ? LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _payload_from_tables(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) -> _Payload:
+    messages = [
+        _StoreRow(str(item["id"]), item["time_created"], json_mapping(item["data"]))
+        for item in con.execute(
+            "SELECT id, time_created, data FROM message WHERE session_id = ? "
+            "ORDER BY time_created ASC, id ASC",
+            (session_id,),
+        )
+    ]
+    parts = [
+        _StoreRow(
+            str(item["id"]),
+            item["time_created"],
+            json_mapping(item["data"]),
+            str(item["message_id"]),
+        )
+        for item in con.execute(
+            "SELECT id, message_id, time_created, data FROM part WHERE session_id = ? "
+            "ORDER BY time_created ASC, id ASC",
+            (session_id,),
+        )
+    ]
+    info = as_json_object(
+        {
+            "id": row["id"],
+            "parentID": row["parent_id"],
+            "directory": row["directory"],
+            "title": row["title"],
+            "model": row["model"],
+            "version": row["version"] if "version" in row.keys() else "",
+            "time": {"created": row["time_created"], "updated": row["time_updated"]},
+            "time_archived": row["time_archived"] if "time_archived" in row.keys() else None,
+        }
+    )
+    return _Payload(info=info, messages=messages, parts=parts)
+
+
+def _payload_from_events(con: sqlite3.Connection, session_id: str) -> _Payload:
+    info: JsonObject = {}
+    messages: dict[str, _StoreRow] = {}
+    msg_order: list[str] = []
+    parts: dict[str, _StoreRow] = {}
+    part_order: list[str] = []
+    for typ, raw in con.execute(
+        "SELECT type, data FROM event WHERE aggregate_id = ? ORDER BY seq ASC, id ASC",
+        (session_id,),
+    ):
+        payload = json_mapping(raw)
+        kind = str(typ or "")
+        if kind.startswith("session."):
+            extra = payload.get("info")
+            if isinstance(extra, dict):
+                info = as_json_object(extra)
+            continue
+        if "part" in kind:
+            part = payload.get("part")
+            if not isinstance(part, dict) or not part.get("id"):
+                continue
+            pid = str(part["id"])
+            if pid not in parts:
+                part_order.append(pid)
+            times = json_mapping(part.get("time"))
+            parts[pid] = _StoreRow(
+                pid,
+                times.get("created"),
+                as_json_object(part),
+                str(part.get("messageID") or ""),
+            )
+            continue
+        if kind.startswith("message."):
+            extra = payload.get("info")
+            if not isinstance(extra, dict) or not extra.get("id"):
+                continue
+            mid = str(extra["id"])
+            if mid not in messages:
+                msg_order.append(mid)
+            times = json_mapping(extra.get("time"))
+            messages[mid] = _StoreRow(mid, times.get("created"), as_json_object(extra))
+    if not info.get("id"):
+        info["id"] = session_id
+    return _Payload(
+        info=info,
+        messages=[messages[key] for key in msg_order],
+        parts=[parts[key] for key in part_order],
     )
 
 
-def _part_live_token(con: sqlite3.Connection, session_id: str) -> str:
-    last_part = con.execute(
-        "SELECT data FROM part WHERE session_id = ? ORDER BY time_created DESC, id DESC LIMIT 1",
-        (session_id,),
-    ).fetchone()
-    if last_part is None:
+def _load_payload(con: sqlite3.Connection, session_id: str) -> _Payload | None:
+    if _has_events(con, session_id):
+        return _payload_from_events(con, session_id)
+    if not _table_exists(con, "session"):
+        return None
+    row = _session_row(con, session_id)
+    if row is None:
+        return None
+    return _payload_from_tables(con, session_id, row)
+
+
+def _discover_event_refs(con: sqlite3.Connection, db: Path) -> list[SessionRef]:
+    if not _table_exists(con, "event"):
+        return []
+    found: list[SessionRef] = []
+    seen: set[str] = set()
+    for (raw,) in con.execute("SELECT data FROM event WHERE type LIKE 'session.created%'"):
+        info = json_mapping(json_mapping(raw).get("info"))
+        sid = str(info.get("id") or "").strip()
+        if not sid or sid in seen:
+            continue
+        if str(info.get("parentID") or "").strip() not in {"", "None"}:
+            continue
+        seen.add(sid)
+        found.append(
+            SessionRef(
+                harness=OPENCODE_HARNESS_ID,
+                session_id=sid,
+                locator=db,
+                cwd=str(info.get("directory") or "").strip(),
+            )
+        )
+    return found
+
+
+def _child_ids(con: sqlite3.Connection, session_id: str) -> list[str]:
+    found: list[str] = []
+    if _table_exists(con, "session"):
+        found.extend(
+            str(row[0])
+            for row in con.execute("SELECT id FROM session WHERE parent_id = ?", (session_id,))
+        )
+    if _table_exists(con, "event"):
+        for (raw,) in con.execute("SELECT data FROM event WHERE type LIKE 'session.created%'"):
+            info = json_mapping(json_mapping(raw).get("info"))
+            if str(info.get("parentID") or "").strip() == session_id:
+                child = str(info.get("id") or "").strip()
+                if child:
+                    found.append(child)
+    return list(dict.fromkeys(found))
+
+
+def _file_diffs(payload: _Payload) -> list[JsonObject]:
+    last: list[JsonObject] = []
+    for msg in payload.messages:
+        if str(msg.data.get("role") or "") != "user":
+            continue
+        diffs = json_mapping(msg.data.get("summary")).get("diffs")
+        if not isinstance(diffs, list):
+            continue
+        rows = [as_json_object(item) for item in diffs if isinstance(item, dict)]
+        if rows:
+            last = rows
+    return last
+
+
+def file_diffs_for(ref: SessionRef | Path | str) -> list[JsonObject]:
+    """OpenCode ``summary.diffs`` for *ref*, or empty when the store has none."""
+    adapter = OpenCodeAdapter()
+    db, sid = _db_from_ref(ref, adapter.db())
+    if not sid:
+        return []
+    try:
+        db = _assert_readable(db)
+    except FileNotFoundError:
+        return []
+    with _connect(db) as con:
+        payload = _load_payload(con, sid)
+    if payload is None:
+        return []
+    return _file_diffs(payload)
+
+
+def _part_live_token(payload: _Payload) -> str:
+    if not payload.parts:
         return ""
-    pdata = json_mapping(last_part["data"])
+    pdata = payload.parts[-1].data
     return from_last(str(json_mapping(pdata.get("state")).get("status") or "").strip())
 
 
-def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) -> str:
+def _turn_outcome_payload(payload: _Payload) -> str:
     """List status from the last store-written part status or finished assistant."""
-    archived = row["time_archived"] if "time_archived" in row.keys() else None
+    archived = payload.info.get("time_archived")
+    if archived in (None, 0, ""):
+        archived = json_mapping(payload.info.get("time")).get("archived")
     if archived not in (None, 0, ""):
         return from_last("complete")
-    live = _part_live_token(con, session_id)
+    live = _part_live_token(payload)
     if live:
         return live
-    last_msg = con.execute(
-        "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC, id DESC LIMIT 1",
-        (session_id,),
-    ).fetchone()
-    if last_msg is None:
+    if not payload.messages:
         return ""
-    data = json_mapping(last_msg["data"])
+    data = payload.messages[-1].data
     role = str(data.get("role") or "")
     if role == "assistant" and json_mapping(data.get("time")).get("completed") not in (
         None,
@@ -158,24 +330,36 @@ def _turn_outcome(con: sqlite3.Connection, session_id: str, row: sqlite3.Row) ->
     return from_last(role)
 
 
-def _count_parts(con: sqlite3.Connection, session_id: str) -> int:
-    raw = con.execute(
-        "SELECT COUNT(*) FROM part WHERE session_id = ?",
-        (session_id,),
-    ).fetchone()
-    return int(raw[0]) if raw is not None else 0
-
-
-def _count_tools(con: sqlite3.Connection, session_id: str) -> int:
-    raw = con.execute(
-        "SELECT COUNT(*) FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool'",
-        (session_id,),
-    ).fetchone()
-    return int(raw[0]) if raw is not None else 0
-
-
-def _row_mapping(row: sqlite3.Row) -> JsonObject:
-    return as_json_object({str(key): cast(JsonValue, row[key]) for key in row.keys()})
+def _meta_from_payload(payload: _Payload, db: Path, child_count: int) -> SessionMeta:
+    info = payload.info
+    sid = str(info.get("id") or "")
+    times = json_mapping(info.get("time"))
+    created = Stamp.iso(times.get("created"))
+    updated = Stamp.iso(times.get("updated") or times.get("created"))
+    duration = 0.0
+    start = Stamp.epoch(times.get("created"))
+    end = Stamp.epoch(times.get("updated") or times.get("created"))
+    if start is not None and end is not None:
+        duration = float(max(0, end - start))
+    cwd = str(info.get("directory") or "").strip()
+    tools = sum(1 for part in payload.parts if str(part.data.get("type") or "") == "tool")
+    return SessionMeta(
+        session_id=sid,
+        session_dir=db,
+        model_id=_model_id(info.get("model")),
+        title=str(info.get("title") or "").strip(),
+        created_at=created,
+        updated_at=updated,
+        duration_seconds=duration,
+        run_dir=cwd,
+        turn_outcome=_turn_outcome_payload(payload),
+        harness=OPENCODE_HARNESS_ID,
+        harness_version=str(info.get("version") or "").strip(),
+        num_events=len(payload.parts) or len(payload.messages),
+        tool_call_count=tools,
+        subagent_count=child_count,
+        has_subagents=child_count > 0,
+    )
 
 
 class OpenCodeAdapter:
@@ -227,21 +411,10 @@ class OpenCodeAdapter:
             raise FileNotFoundError("opencode session id is required")
         db = _assert_readable(db)
         with _connect(db) as con:
-            row = _session_row(con, sid)
-            if row is None:
+            payload = _load_payload(con, sid)
+            if payload is None:
                 raise FileNotFoundError(f"opencode session not found: {sid}")
-            meta = _meta_from_row(row, db)
-            meta.turn_outcome = _turn_outcome(con, sid, row)
-            meta.num_events = _count_parts(con, sid)
-            meta.tool_call_count = _count_tools(con, sid)
-            kids = con.execute(
-                "SELECT COUNT(*) FROM session WHERE parent_id = ?",
-                (sid,),
-            ).fetchone()
-            n_kids = int(kids[0]) if kids is not None else 0
-            meta.subagent_count = n_kids
-            meta.has_subagents = n_kids > 0
-            return meta
+            return _meta_from_payload(payload, db, len(_child_ids(con, sid)))
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         db, sid = _db_from_ref(ref, self.db())
@@ -249,7 +422,10 @@ class OpenCodeAdapter:
             return []
         db = _assert_readable(db)
         with _connect(db) as con:
-            return _timeline_for(con, sid)
+            payload = _load_payload(con, sid)
+            if payload is None:
+                return []
+            return _timeline_from_payload(payload)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()
@@ -260,16 +436,16 @@ class OpenCodeAdapter:
             return None
         try:
             with _connect(db) as con:
-                row = _session_row(con, sid)
+                payload = _load_payload(con, sid)
         except sqlite3.Error:
             return None
-        if row is None:
+        if payload is None:
             return None
         return SessionRef(
             harness=OPENCODE_HARNESS_ID,
             session_id=sid,
             locator=db,
-            cwd=str(row["directory"] or "").strip(),
+            cwd=str(payload.info.get("directory") or "").strip(),
         )
 
     def watch_hints(self) -> tuple[str, ...]:
@@ -348,17 +524,19 @@ class OpenCodeAdapter:
         db = _assert_readable(db)
         con = sqlite3.connect(str(db))
         try:
-            kids = [
-                str(row[0])
-                for row in con.execute("SELECT id FROM session WHERE parent_id = ?", (sid,))
-            ]
-            for child in kids:
-                con.execute("DELETE FROM part WHERE session_id = ?", (child,))
-                con.execute("DELETE FROM message WHERE session_id = ?", (child,))
-                con.execute("DELETE FROM session WHERE id = ?", (child,))
-            con.execute("DELETE FROM part WHERE session_id = ?", (sid,))
-            con.execute("DELETE FROM message WHERE session_id = ?", (sid,))
-            con.execute("DELETE FROM session WHERE id = ?", (sid,))
+            kids = _child_ids(con, sid)
+            targets = [*kids, sid]
+            for item in targets:
+                if _table_exists(con, "event"):
+                    con.execute("DELETE FROM event WHERE aggregate_id = ?", (item,))
+                if _table_exists(con, "event_sequence"):
+                    con.execute("DELETE FROM event_sequence WHERE aggregate_id = ?", (item,))
+                if _table_exists(con, "part"):
+                    con.execute("DELETE FROM part WHERE session_id = ?", (item,))
+                if _table_exists(con, "message"):
+                    con.execute("DELETE FROM message WHERE session_id = ?", (item,))
+                if _table_exists(con, "session"):
+                    con.execute("DELETE FROM session WHERE id = ?", (item,))
             con.commit()
         finally:
             con.close()
@@ -381,22 +559,28 @@ class OpenCodeAdapter:
     def _discover_db(self, db: Path) -> list[SessionRef]:
         try:
             with _connect(db) as con:
-                rows = _list_session_rows(con)
+                rows = _list_session_rows(con) if _table_exists(con, "session") else []
+                found: list[SessionRef] = []
+                seen: set[str] = set()
+                for row in rows:
+                    if _is_child(row):
+                        continue
+                    sid = str(row["id"])
+                    seen.add(sid)
+                    found.append(
+                        SessionRef(
+                            harness=OPENCODE_HARNESS_ID,
+                            session_id=sid,
+                            locator=db,
+                            cwd=str(row["directory"] or "").strip(),
+                        )
+                    )
+                for ref in _discover_event_refs(con, db):
+                    if ref.session_id not in seen:
+                        found.append(ref)
+                return found
         except sqlite3.Error:
             return []
-        found: list[SessionRef] = []
-        for row in rows:
-            if _is_child(row):
-                continue
-            found.append(
-                SessionRef(
-                    harness=OPENCODE_HARNESS_ID,
-                    session_id=str(row["id"]),
-                    locator=db,
-                    cwd=str(row["directory"] or "").strip(),
-                )
-            )
-        return found
 
 
 def _session_import(db: Path, payload_path: Path) -> None:
@@ -490,58 +674,60 @@ def _session_import(db: Path, payload_path: Path) -> None:
 
 def _session_export(db: Path, session_id: str) -> JsonObject:
     with _connect(db) as con:
-        row = _session_row(con, session_id)
-        if row is None:
+        payload = _load_payload(con, session_id)
+        if payload is None:
             raise FileNotFoundError(f"opencode session not found: {session_id}")
+        times = json_mapping(payload.info.get("time"))
+        session = as_json_object(
+            {
+                "id": payload.info.get("id"),
+                "parent_id": payload.info.get("parentID"),
+                "directory": payload.info.get("directory"),
+                "title": payload.info.get("title"),
+                "model": payload.info.get("model"),
+                "version": payload.info.get("version"),
+                "time_created": times.get("created"),
+                "time_updated": times.get("updated"),
+                "time_archived": payload.info.get("time_archived"),
+            }
+        )
         messages = [
-            _row_mapping(item)
-            for item in con.execute(
-                "SELECT id, session_id, time_created, time_updated, data "
-                "FROM message WHERE session_id = ? ORDER BY time_created ASC, id ASC",
-                (session_id,),
+            as_json_object(
+                {
+                    "id": item.id,
+                    "session_id": session_id,
+                    "time_created": item.time_created,
+                    "time_updated": item.time_created,
+                    "data": item.data,
+                }
             )
+            for item in payload.messages
         ]
         parts = [
-            _row_mapping(item)
-            for item in con.execute(
-                "SELECT id, message_id, session_id, time_created, time_updated, data "
-                "FROM part WHERE session_id = ? ORDER BY time_created ASC, id ASC",
-                (session_id,),
+            as_json_object(
+                {
+                    "id": item.id,
+                    "message_id": item.message_id,
+                    "session_id": session_id,
+                    "time_created": item.time_created,
+                    "time_updated": item.time_created,
+                    "data": item.data,
+                }
             )
+            for item in payload.parts
         ]
-    return as_json_object(
-        {
-            "session": _row_mapping(row),
-            "messages": messages,
-            "parts": parts,
-        }
-    )
+    return as_json_object({"session": session, "messages": messages, "parts": parts})
 
 
-def _timeline_for(con: sqlite3.Connection, session_id: str) -> list[TraceEvent]:
-    messages = list(
-        con.execute(
-            "SELECT id, time_created, data FROM message WHERE session_id = ? "
-            "ORDER BY time_created ASC, id ASC",
-            (session_id,),
-        )
-    )
-    parts = list(
-        con.execute(
-            "SELECT id, message_id, time_created, data FROM part WHERE session_id = ? "
-            "ORDER BY time_created ASC, id ASC",
-            (session_id,),
-        )
-    )
-    by_msg: dict[str, list[sqlite3.Row]] = {}
-    for part in parts:
-        by_msg.setdefault(str(part["message_id"]), []).append(part)
+def _timeline_from_payload(payload: _Payload) -> list[TraceEvent]:
+    by_msg: dict[str, list[_StoreRow]] = {}
+    for part in payload.parts:
+        by_msg.setdefault(part.message_id, []).append(part)
     events: list[TraceEvent] = []
     turn = 0
-    for msg in messages:
-        _append_message(events, msg, by_msg.get(str(msg["id"]), []), turn)
-        data = json_mapping(msg["data"])
-        if str(data.get("role") or "") == "user":
+    for msg in payload.messages:
+        _append_message(events, msg, by_msg.get(msg.id, []), turn)
+        if str(msg.data.get("role") or "") == "user":
             turn += 1
     for i, ev in enumerate(events):
         ev.index = i
@@ -550,13 +736,13 @@ def _timeline_for(con: sqlite3.Connection, session_id: str) -> list[TraceEvent]:
 
 def _append_message(
     events: list[TraceEvent],
-    msg: sqlite3.Row,
-    parts: list[sqlite3.Row],
+    msg: _StoreRow,
+    parts: list[_StoreRow],
     turn: int,
 ) -> None:
-    data = json_mapping(msg["data"])
+    data = msg.data
     role = str(data.get("role") or "")
-    ts = Stamp.epoch(msg["time_created"])
+    ts = Stamp.epoch(msg.time_created)
     if role == "user":
         events.append(
             TraceEvent(
@@ -580,10 +766,10 @@ def _append_message(
         _append_part(events, part)
 
 
-def _parts_text(parts: list[sqlite3.Row]) -> str:
+def _parts_text(parts: list[_StoreRow]) -> str:
     bits: list[str] = []
     for part in parts:
-        data = json_mapping(part["data"])
+        data = part.data
         if str(data.get("type") or "") != "text":
             continue
         text = str(data.get("text") or "").strip()
@@ -592,10 +778,10 @@ def _parts_text(parts: list[sqlite3.Row]) -> str:
     return "\n".join(bits)
 
 
-def _append_part(events: list[TraceEvent], part: sqlite3.Row) -> None:
-    data = json_mapping(part["data"])
+def _append_part(events: list[TraceEvent], part: _StoreRow) -> None:
+    data = part.data
     kind = str(data.get("type") or "")
-    ts = Stamp.epoch(part["time_created"])
+    ts = Stamp.epoch(part.time_created)
     if kind == "text":
         events.append(
             TraceEvent(
@@ -730,4 +916,5 @@ __all__ = [
     "OPENCODE_HARNESS_ID",
     "OpenCodeAdapter",
     "default_db_path",
+    "file_diffs_for",
 ]

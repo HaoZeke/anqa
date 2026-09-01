@@ -76,15 +76,19 @@ Fix gaps before the next adapter.
 ## When a shipped product version moved
 
 1. Install/run the new CLI. Note the version string.
-2. Re-read one real session (keys only in notes; no secret/session text
-   in fixtures).
-3. If the disk shape is the same, bump `supported_version` on the
+2. Run `just harness-probe`. It prints installed vs `supported_version`
+   and on-disk record types (no session text).
+3. Re-read the **published** parser or grammar for that product
+   (`docs/harness-adapters.md` “Keeping adapters current”) **and** one
+   real session (keys only in notes; no secret/session text in fixtures).
+   Disk keys and the published grammar must both match what we parse.
+4. If the disk shape is the same, bump `supported_version` on the
    adapter and the docs table. Add a fixture row only for new keys
    you now parse.
-4. If the shape changed, extend `parse_timeline` / `load_meta` in the
+5. If the shape changed, extend `parse_timeline` / `load_meta` in the
    **same** commit as the version bump. Keep one path; do not add a
    fallback parser “just in case.”
-5. Re-run the gate above.
+6. Re-run the gate above.
 
 ## Do not
 

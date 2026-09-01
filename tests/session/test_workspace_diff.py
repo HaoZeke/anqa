@@ -516,3 +516,33 @@ def test_point_from_events_groups_edits_by_path() -> None:
     assert point is not None
     assert [h.path for h in point.files] == ["a.py", "b.py"]
     assert point.files[0].unified.count("@@") >= 2
+
+
+def test_point_from_events_reads_apply_patch_grammar() -> None:
+    """Official Codex apply_patch Lark grammar: every file op in one patch."""
+    raw = (
+        "*** Begin Patch\n"
+        "*** Environment ID: env_1\n"
+        "*** Add File: path/add.py\n"
+        "+abc\n"
+        "+def\n"
+        "*** Delete File: path/delete.py\n"
+        "*** Update File: path/update.py\n"
+        "*** Move to: path/update2.py\n"
+        "@@ def f():\n"
+        "-    pass\n"
+        "+    return 123\n"
+        "*** End of File\n"
+        "*** End Patch"
+    )
+    point = point_from_events([_call("exec", {"command": raw})])
+    assert point is not None
+    by_path = {h.path: h for h in point.files}
+    assert set(by_path) == {"path/add.py", "path/delete.py", "path/update2.py"}
+    assert by_path["path/add.py"].kind == "added"
+    assert "abc" in by_path["path/add.py"].unified
+    assert by_path["path/delete.py"].kind == "removed"
+    assert by_path["path/update2.py"].kind == "edit"
+    assert "return 123" in by_path["path/update2.py"].unified
+    assert "Environment ID" not in by_path["path/update2.py"].unified
+    assert "End of File" not in by_path["path/update2.py"].unified

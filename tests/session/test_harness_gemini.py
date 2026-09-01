@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tarfile
 from pathlib import Path
@@ -220,3 +221,59 @@ def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
     with tarfile.open(inner, "r:gz") as tf:
         members = tf.getnames()
     assert f"{_SID}/{_FIXTURE_FILE.name}" in members
+
+
+def test_session_metadata_and_message_update(tmp_path: Path) -> None:
+    """Gemini CLI 0.57 jsonl: session_metadata header plus message_update merge."""
+    sid = "ffffffff-6666-4666-8666-000000000006"
+    path = tmp_path / f"session-2026-08-31T12-00-{sid}.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "type": "session_metadata",
+                "sessionId": sid,
+                "projectHash": "abc",
+                "kind": "main",
+                "startTime": "2026-08-31T12:00:00.000Z",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "user",
+                "id": "u1",
+                "content": [{"text": "Reply with GEMINI_META_OK"}],
+                "timestamp": "2026-08-31T12:00:01.000Z",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "gemini",
+                "id": "g1",
+                "model": "gemini-2.5-pro",
+                "content": [{"text": "ok"}],
+                "timestamp": "2026-08-31T12:00:02.000Z",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "message_update",
+                "id": "g1",
+                "tokens": {"input": 10, "output": 5},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    adapter = GeminiAdapter()
+    ref = adapter.bind_locator(path)
+    assert ref is not None
+    assert ref.session_id == sid
+    meta = adapter.load_meta(ref)
+    assert meta.title == "Reply with GEMINI_META_OK"
+    assert meta.model_id == "gemini-2.5-pro"
+    events = adapter.parse_timeline(ref)
+    texts = [e.content for e in events if e.event_type == "agent_message_chunk"]
+    assert texts == ["ok"]

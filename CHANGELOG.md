@@ -49,7 +49,10 @@ Cursor (`cursor`) are registered.
   the published control schema. Search applies after 0.28s idle.
 - Diff uses rewind snapshots when the store wrote them. Otherwise it
   rebuilds per-path patches from write and edit tool calls on the
-  timeline (every shipped adapter).
+  timeline (every shipped adapter). OpenCode also uses
+  ``summary.diffs`` when the event store wrote them. Codex
+  ``apply_patch`` follows the published Begin Patch grammar (add,
+  update, delete, move).
 - List Turn is `running` when a turn is in progress, `—` when the store
   wrote no list status (last user row or bookend).
 - Session delete (`x`) removes every store locator: directory, file, or

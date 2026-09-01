@@ -262,3 +262,187 @@ def test_wal_event_adds_new_opencode_session(tmp_path: Path) -> None:
     assert cache._rows is not None
     ids = {str(row["sessionId"]) for row in cache._rows}
     assert "ses_new" in ids
+
+
+def _event_store(path: Path) -> Path:
+    """Minimal 1.18 event-sourced opencode.db (session/message/part empty)."""
+    con = sqlite3.connect(path)
+    try:
+        con.execute(
+            "CREATE TABLE event ("
+            "id INTEGER PRIMARY KEY, aggregate_id TEXT, seq INTEGER, type TEXT, data TEXT)"
+        )
+        con.execute(
+            "CREATE TABLE event_sequence (aggregate_id TEXT PRIMARY KEY, seq INTEGER, owner_id TEXT)"
+        )
+        parent = "ses_evt_parent"
+        child = "ses_evt_child"
+        rows: list[tuple[str, int, str, str]] = [
+            (
+                parent,
+                0,
+                "session.created.1",
+                json.dumps(
+                    {
+                        "sessionID": parent,
+                        "info": {
+                            "id": parent,
+                            "title": "Reply with EVENT_OK",
+                            "directory": "/tmp/probe-ws",
+                            "version": "1.18.25",
+                            "model": {"id": "probe-model", "providerID": "opencode"},
+                            "time": {"created": 1_700_000_100_000, "updated": 1_700_000_100_500},
+                        },
+                    }
+                ),
+            ),
+            (
+                parent,
+                1,
+                "message.updated.1",
+                json.dumps(
+                    {
+                        "sessionID": parent,
+                        "info": {
+                            "id": "msg_u1",
+                            "role": "user",
+                            "sessionID": parent,
+                            "time": {"created": 1_700_000_100_000},
+                            "summary": {
+                                "diffs": [
+                                    {
+                                        "file": "NOTE.txt",
+                                        "status": "added",
+                                        "additions": 1,
+                                        "deletions": 0,
+                                        "patch": "+++ b/NOTE.txt\n+EVENT_OK\n",
+                                    }
+                                ]
+                            },
+                        },
+                    }
+                ),
+            ),
+            (
+                parent,
+                2,
+                "message.part.updated.1",
+                json.dumps(
+                    {
+                        "sessionID": parent,
+                        "part": {
+                            "id": "prt_t1",
+                            "messageID": "msg_u1",
+                            "sessionID": parent,
+                            "type": "text",
+                            "text": "write EVENT_OK",
+                        },
+                    }
+                ),
+            ),
+            (
+                parent,
+                3,
+                "message.updated.1",
+                json.dumps(
+                    {
+                        "sessionID": parent,
+                        "info": {
+                            "id": "msg_a1",
+                            "role": "assistant",
+                            "sessionID": parent,
+                            "time": {"created": 1_700_000_100_100, "completed": 1_700_000_100_400},
+                        },
+                    }
+                ),
+            ),
+            (
+                parent,
+                4,
+                "message.part.updated.1",
+                json.dumps(
+                    {
+                        "sessionID": parent,
+                        "part": {
+                            "id": "prt_w1",
+                            "messageID": "msg_a1",
+                            "sessionID": parent,
+                            "type": "tool",
+                            "tool": "write",
+                            "callID": "c1",
+                            "state": {
+                                "status": "completed",
+                                "input": {"filePath": "NOTE.txt", "content": "EVENT_OK\n"},
+                                "output": "wrote NOTE.txt",
+                            },
+                        },
+                    }
+                ),
+            ),
+            (
+                child,
+                0,
+                "session.created.1",
+                json.dumps(
+                    {
+                        "sessionID": child,
+                        "info": {
+                            "id": child,
+                            "parentID": parent,
+                            "title": "child",
+                            "directory": "/tmp/probe-ws",
+                            "time": {"created": 1_700_000_100_200, "updated": 1_700_000_100_200},
+                        },
+                    }
+                ),
+            ),
+        ]
+        for i, (aid, seq, typ, data) in enumerate(rows, start=1):
+            con.execute(
+                "INSERT INTO event (id, aggregate_id, seq, type, data) VALUES (?,?,?,?,?)",
+                (i, aid, seq, typ, data),
+            )
+        con.execute(
+            "INSERT INTO event_sequence (aggregate_id, seq, owner_id) VALUES (?,?,?)",
+            (parent, 4, ""),
+        )
+        con.execute(
+            "INSERT INTO event_sequence (aggregate_id, seq, owner_id) VALUES (?,?,?)",
+            (child, 0, ""),
+        )
+        con.commit()
+    finally:
+        con.close()
+    return path
+
+
+def test_event_store_discover_meta_timeline_and_diff(tmp_path: Path) -> None:
+    """OpenCode 1.18 writes session.created / message.* events, not session rows."""
+    from anqa.harness.views import session_diff
+
+    db = _event_store(tmp_path / "opencode.db")
+    adapter = OpenCodeAdapter()
+    refs = adapter.discover(roots=[db])
+    assert [r.session_id for r in refs] == ["ses_evt_parent"]
+    ref = refs[0]
+    assert ref.cwd == "/tmp/probe-ws"
+    meta = adapter.load_meta(ref)
+    assert meta.title == "Reply with EVENT_OK"
+    assert meta.model_id == "opencode/probe-model"
+    assert meta.harness_version == "1.18.25"
+    assert meta.has_subagents
+    assert meta.subagent_count == 1
+    assert meta.list_status_label() == "complete"
+    events = adapter.parse_timeline(ref)
+    types = [e.event_type for e in events]
+    assert types[0] == "turn_started"
+    assert "user_message_chunk" in types
+    assert "tool_call" in types
+    write = next(e for e in events if e.event_type == "tool_call")
+    assert write.tool_name == "write"
+    assert write.raw_input.as_str("filePath") == "NOTE.txt"
+    doc = session_diff(ref)
+    assert doc["points"]
+    paths = [str(f["path"]) for f in doc["points"][0]["files"]]
+    assert paths == ["NOTE.txt"]
+    assert "EVENT_OK" in str(doc["points"][0]["files"][0]["unified"])

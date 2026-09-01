@@ -43,6 +43,8 @@ A shipped adapter does all of this:
 11. **Diff** is rewind snapshots when that store writes them, else
    write and edit tool calls on the timeline (`edit`, `write`,
    `search_replace`, `Edit`, `StrReplace`, and the same family).
+   OpenCode also reads `summary.diffs` (`file` / `patch` / `status`).
+   Codex `apply_patch` is the published Begin Patch grammar.
 
 Next prompt, end session, rewind, and the context meter appear when
 that store writes the files those actions read. Missing product data
@@ -50,6 +52,29 @@ stays unset.
 
 Adding an adapter: `.grok/skills/harness-adapter-qa/SKILL.md`.
 `just lint` runs `scripts/check_harness_adapters.py`.
+`just harness-probe` compares each installed product version to
+`supported_version` and samples on-disk record types (no session text).
+
+## Keeping adapters current
+
+A shipped adapter tracks the product we last parsed. When that product
+moves, re-read **both** the live store on this machine and the published
+parser or grammar, then bump `supported_version` in the same change.
+
+| Id | Product command | Published source |
+|----|-----------------|------------------|
+| `grok` | `grok --version` | This repo (`docs/harness-adapters.md`) |
+| `opencode` | `opencode --version` | [OpenCode server](https://opencode.ai/docs/server/) (`GET /session/:id/diff`, `summary.diffs`). Live 1.18 writes `event` rows (`session.created.1`, `message.updated.1`, `message.part.updated.1`); `session` / `message` / `part` stay the archive shape. |
+| `pi` | `pi --version` | On-disk `~/.pi/agent/sessions/**/*.jsonl` |
+| `claude` | `claude --version` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) jsonl types |
+| `gemini` | `gemini --version` | [chatRecordingService.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts) (`$set`, `$rewindTo`, `session_metadata`, `message_update`) |
+| `antigravity` | product about string | On-disk `~/.gemini/antigravity-cli/conversations/*.db` |
+| `copilot` | `copilot --version` | On-disk `~/.copilot/session-store.db` |
+| `codex` | `codex --version` | [apply-patch parser.rs](https://github.com/openai/codex/blob/main/codex-rs/apply-patch/src/parser.rs) (`*** Begin Patch` grammar) |
+| `cursor` | `cursor-agent --version` | On-disk `~/.cursor/projects/*/agent-transcripts` |
+
+Probe first: `just harness-probe`. Then extend `parse_timeline` / `load_meta`
+for any new key in the same commit as the version bump.
 
 ## Config
 
@@ -84,7 +109,7 @@ cursor = "~/.cursor"
 | `opencode` | [OpenCode](https://opencode.ai) | 1.18.25 | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
 | `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
 | `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
-| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.54.4 | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
 | `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
 | `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` | `copilot:<id>` |
 | `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` | `codex:<id>` |
