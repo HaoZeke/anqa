@@ -178,6 +178,48 @@ def test_watch_hints_include_updates_jsonl() -> None:
     assert "updates.jsonl" in watch_hints()
 
 
+def _write_abort_session(root: Path, name: str, trigger: str) -> Path:
+    sd = _write_summary_session(root, name)
+    (sd / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0, "ts": 1})
+        + "\n"
+        + json.dumps(
+            {
+                "type": "turn_ended",
+                "outcome": "cancelled",
+                "cancellation_category": "mid_turn_abort",
+                "cancellation_context": {"trigger": trigger},
+                "ts": 2,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        _session_update("user_message_chunk") + _session_update("agent_message_chunk"),
+        encoding="utf-8",
+    )
+    return sd
+
+
+def test_send_now_mid_turn_abort_is_interjected_not_cancelled(tmp_path: Path) -> None:
+    """User send-now is an interjection. Esc stays cancelled."""
+    from anqa.session.turns import segment_timeline_turns
+
+    send = _write_abort_session(tmp_path, "send-now", "send_now")
+    esc = _write_abort_session(tmp_path, "esc", "esc")
+    send_segs = segment_timeline_turns(parse_timeline(send))
+    esc_segs = segment_timeline_turns(parse_timeline(esc))
+    assert send_segs[0].outcome == "interjected"
+    assert send_segs[0].label == "turn 0 (interjected)"
+    assert esc_segs[0].outcome == "cancelled"
+    assert esc_segs[0].label == "turn 0 (cancelled)"
+    send_end = next(e for e in parse_timeline(send) if e.event_type == "turn_ended")
+    esc_end = next(e for e in parse_timeline(esc) if e.event_type == "turn_ended")
+    assert send_end.is_error is False
+    assert esc_end.is_error is True
+
+
 def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = _write_summary_session(host / "%2Fproj", "host-sid")

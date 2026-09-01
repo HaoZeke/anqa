@@ -32,6 +32,8 @@ def _outcome_kind(outcome: str) -> str:
         return "ok"
     if oc in ("error", "failed", "failure", "cancelled", "canceled", "timeout"):
         return "bad"
+    if oc == "interjected":
+        return "unknown"
     if oc in ("ending", "finishing") or oc.startswith("ending_"):
         return "ending"
     if oc in ("running", "in_progress", "pending") or oc.startswith("agent_running"):

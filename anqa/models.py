@@ -656,6 +656,7 @@ class SessionMeta:
             "awaiting_follow_up",
             "ending",
             "finishing",
+            "interjected",
         ):
             return False
         return True

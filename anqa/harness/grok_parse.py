@@ -268,7 +268,7 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
                     )
 
                 elif et == "turn_ended":
-                    outcome = str(ev.get("outcome") or ev.get("status") or "unknown")
+                    outcome = _turn_end_display_outcome(ev)
                     turn_outcome = outcome
                     is_err = outcome.lower() not in (
                         "",
@@ -276,6 +276,7 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
                         "ok",
                         "completed",
                         "complete",
+                        "interjected",
                     )
                     extra = []
                     for k in ("error", "message", "reason", "detail"):
@@ -327,6 +328,23 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
     return markers, turn_outcome, loop_count
 
 
+def _turn_end_display_outcome(ev: JsonObject) -> str:
+    """Store close word for one ``turn_ended`` row.
+
+    Grok writes ``outcome=cancelled`` + ``mid_turn_abort`` / ``send_now`` when
+    the operator interjects. That is not a cancelled session.
+    """
+    outcome = str(ev.get("outcome") or ev.get("status") or "unknown")
+    category = str(ev.get("cancellation_category") or "").strip()
+    ctx = ev.get("cancellation_context")
+    trigger = ""
+    if isinstance(ctx, dict):
+        trigger = str(ctx.get("trigger") or "").strip()
+    if category == "mid_turn_abort" and trigger == "send_now":
+        return "interjected"
+    return outcome
+
+
 def _line_may_be_list_marker(line: str) -> bool:
     """True when *line* might be a turn/loop/error marker (skip fat tool JSON)."""
     return any(needle in line for needle in _LIST_MARKER_NEEDLES)
@@ -345,7 +363,7 @@ def _apply_list_runtime_event(
         return turn_outcome, loop_count, open_starts + 1, ended
     if et == "turn_ended":
         return (
-            str(ev.get("outcome") or ev.get("status") or "unknown"),
+            _turn_end_display_outcome(ev),
             loop_count,
             max(0, open_starts - 1),
             ended + 1,
