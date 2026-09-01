@@ -734,8 +734,8 @@ class SessionCatalogCache:
         if current is None:
             return self.get(force=True), {}
         known_paths = {str(row.get("path") or "").strip() for row in current}
-        catalog_paths = [Path(p) for p in known_paths if p and not p.startswith("harness:")]
-        child_ids = nested_child_ids([*catalog_paths, *dirs])
+        locators = [Path(raw) for row in current if (raw := str(row.get("locator") or "").strip())]
+        child_ids = nested_child_ids([*locators, *dirs])
         drop: set[str] = set()
         replacements: dict[str, JsonObject] = {}
         appended: list[JsonObject] = []
@@ -747,11 +747,13 @@ class SessionCatalogCache:
             if _watch_session_hidden(session_dir, child_ids):
                 drop.add(resolved)
                 drop.add(str(session_dir))
+                drop.add(session_dir.name)
                 continue
             row = session_catalog_row(session_dir)
             if row is None:
                 drop.add(resolved)
                 drop.add(str(session_dir))
+                drop.add(session_dir.name)
                 continue
             path_key = str(row.get("path") or resolved).strip()
             if path_key in known_paths:
@@ -766,6 +768,8 @@ class SessionCatalogCache:
             replacements.get(str(row.get("path") or "").strip(), row)
             for row in current
             if str(row.get("path") or "").strip() not in drop
+            and str(row.get("locator") or "").strip() not in drop
+            and str(row.get("sessionId") or "").strip() not in drop
         ]
         rows.extend(appended)
         rows.sort(
@@ -875,16 +879,27 @@ class SessionCatalogCache:
                 return list(self._rows or [])
             current = list(self._rows)
             snap_rev = self._revision
-        paths = [Path(p) for row in current if (p := str(row.get("path") or "").strip())]
-        kept = {str(path) for path in drop_subagent_sessions(paths)}
-        rows = [row for row in current if str(row.get("path") or "").strip() in kept]
+        locators = [
+            Path(raw)
+            for row in current
+            if (raw := str(row.get("locator") or row.get("path") or "").strip())
+            and Path(raw).exists()
+        ]
+        kept = {str(path.resolve()) for path in drop_subagent_sessions(locators)}
+
+        def _kept(row: JsonObject) -> bool:
+            raw = str(row.get("locator") or "").strip()
+            if not raw:
+                return True
+            try:
+                return str(Path(raw).resolve()) in kept
+            except OSError:
+                return raw in kept
+
+        rows = [row for row in current if _kept(row)]
         if len(rows) == len(current):
             return rows
-        removed_ids = [
-            str(row.get("sessionId") or "").strip()
-            for row in current
-            if str(row.get("path") or "").strip() not in kept
-        ]
+        removed_ids = [str(row.get("sessionId") or "").strip() for row in current if not _kept(row)]
         with self._lock:
             if self._building or self._revision != snap_rev:
                 return list(self._rows or rows)
@@ -978,10 +993,16 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     :meth:`~anqa.models.SessionMeta.list_status_label` stays consistent.
     """
     path_raw = str(row.get("path") or "").strip()
+    loc_raw = str(row.get("locator") or "").strip()
     sid = str(row.get("sessionId") or "").strip()
-    if not path_raw and not sid:
+    if not path_raw and not loc_raw and not sid:
         return None
-    session_dir = Path(path_raw) if path_raw else Path(sid)
+    if loc_raw:
+        session_dir = Path(loc_raw)
+    elif path_raw and Path(path_raw).exists():
+        session_dir = Path(path_raw)
+    else:
+        session_dir = Path(sid)
     harness = str(row.get("harness") or "").strip()
     meta = SessionMeta(
         session_id=sid or session_dir.name,

@@ -76,7 +76,7 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
         ids = {row["sessionId"] for row in listed["sessions"]}
         assert "session-daemon-1" in ids
         paths = {row["path"] for row in listed["sessions"]}
-        assert str(session_dir.resolve()) in paths
+        assert f"grok:{session_dir.name}" in paths
 
         rendered = await client.session_render(session_dir.name, format="markdown")
         assert rendered["format"] == "markdown"

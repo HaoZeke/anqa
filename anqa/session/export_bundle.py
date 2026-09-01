@@ -202,8 +202,13 @@ def _staging_member_paths(staging: Path, *, skip: frozenset[str] | set[str]) -> 
 
 def _collect_operator_notes(session_dir: Path | str | SessionRef, staging: Path) -> None:
     """Embed turn-linked operator notes under ``notes/``."""
+    from ..notes import NOTES_FILENAME
+
     ref = _export_ref(session_dir)
-    collect_notes_for_export(ref.overlay_dir(), staging / "notes")
+    dest = staging / "notes"
+    collect_notes_for_export(ref.overlay_dir(), dest)
+    if ref.locator.is_dir() and not (dest / NOTES_FILENAME).is_file():
+        collect_notes_for_export(ref.locator, dest)
 
 
 def _gather_session_summary_data(session_dir: Path | str | SessionRef) -> SessionSummaryData:
