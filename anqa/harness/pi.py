@@ -41,9 +41,9 @@ def _text_of(content: object) -> str:
 
 
 def _header(path: Path) -> JsonObject | None:
-    from .jsonl_list import first_json_object
+    from .jsonl_list import JsonlFile
 
-    row = first_json_object(path)
+    row = JsonlFile(path).first_object()
     if row is None:
         return None
     if str(row.get("type") or "") == "session":
@@ -192,10 +192,11 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
 
 def _list_meta(path: Path, session_id: str) -> SessionMeta:
     """Header + tail only. Catalog must not read the full jsonl."""
-    from .jsonl_list import file_list_meta, first_json_object, last_json_objects
+    from .jsonl_list import JsonlFile
     from .status import from_last
 
-    header = first_json_object(path) or {}
+    transcript = JsonlFile(path)
+    header = transcript.first_object() or {}
     sid = str(header.get("id") or session_id or _session_id_from_name(path)).strip()
     created = Stamp.iso(header.get("timestamp"))
     cwd = str(header.get("cwd") or "").strip()
@@ -209,7 +210,7 @@ def _list_meta(path: Path, session_id: str) -> SessionMeta:
         msg = json_mapping(header.get("message"))
         if str(msg.get("role") or "") == "user":
             title = _text_of(msg.get("content")).splitlines()[0][:80]
-    for row in last_json_objects(path):
+    for row in transcript.last_objects():
         if str(row.get("type") or "") == "model_change":
             mid = str(row.get("modelId") or "").strip()
             if mid:
@@ -242,8 +243,7 @@ def _list_meta(path: Path, session_id: str) -> SessionMeta:
                                 sub_n += len(raw)
         if role == "toolResult":
             outcome = from_last("running")
-    return file_list_meta(
-        path,
+    return transcript.list_meta(
         session_id=sid,
         harness=PI_HARNESS_ID,
         title=title,

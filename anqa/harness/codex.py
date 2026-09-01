@@ -371,9 +371,9 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not path.is_file():
         return None
-    from .jsonl_list import first_json_objects
+    from .jsonl_list import JsonlFile
 
-    header = _meta_row(first_json_objects(path))
+    header = _meta_row(JsonlFile(path).first_objects())
     sid = str(header.get("session_id") or header.get("id") or _session_id_from_name(path)).strip()
     if not sid:
         return None
@@ -460,12 +460,12 @@ class CodexAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import list_window
+        from .jsonl_list import JsonlFile
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"codex session not found: {sid}")
-        rows = list_window(path)
+        rows = JsonlFile(path).window()
         if not rows:
             raise FileNotFoundError(f"codex session not found: {sid}")
         return _meta_from_rows(rows, path, sid)

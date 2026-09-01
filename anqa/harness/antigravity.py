@@ -238,9 +238,9 @@ def _count_tools(rows: Sequence[JsonObject]) -> int:
 
 
 def _meta_for(root: Path, db: Path, session_id: str) -> SessionMeta:
-    from .jsonl_list import list_window
+    from .jsonl_list import JsonlFile
 
-    rows = list_window(_transcript_path(root, session_id))
+    rows = JsonlFile(_transcript_path(root, session_id)).window()
     summary = _load_summary(root, session_id)
     created = ""
     updated = Stamp.iso(summary.get("last_modified_time") or summary.get("last_user_input_time"))

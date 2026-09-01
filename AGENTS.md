@@ -443,9 +443,27 @@ exceeds a limit, split or simplify that unit in the same change — no blanket
 
 Domain-shaped, coredis-style: verb+object publics; one idea, one ordinary
 word. Shared behaviour goes on the type that owns the data
-(``WorkflowRun.from_directory``, ``TraceTreeWatch.path_relevant``). Do not
-add a new module-level ``def _…`` pile next to that type. Tests:
+(``WorkflowRun.from_directory``, ``TraceTreeWatch.path_relevant``). Tests:
 ``test_<behaviour>`` under the matching domain folder.
+
+### 4.8a Types own behaviour
+
+Work belongs on the type that owns the data
+(``JsonlFile.window``, ``CatalogQuery.matches``, ``SessionDir.presence``).
+A module-level ``def _…`` utility next to that type is forbidden.
+
+Public module functions are fine when they are a related group of pure
+functions (the ``os`` package).
+
+A private method exists only when two or more public methods on that
+type share the implementation. Protected hooks are almost never used;
+give the subclass a clear abstract method instead.
+
+``Protocol`` is for a shape we do not fully control (another package
+plus our own implementation). Abstract bases are fine for types we own.
+
+Reusable constants live in one shared place. A constant used only
+inside its package does not need a leading underscore.
 
 ---
 

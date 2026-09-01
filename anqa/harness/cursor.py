@@ -354,12 +354,12 @@ class CursorAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import list_window
+        from .jsonl_list import JsonlFile
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"cursor session not found: {sid}")
-        rows = list_window(path)
+        rows = JsonlFile(path).window()
         header = _find_meta(self.root(), sid)
         return _meta_from(rows, path, sid, header)
 

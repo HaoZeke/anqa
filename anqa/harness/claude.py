@@ -81,9 +81,9 @@ def _row_session_id(row: JsonObject, path: Path) -> str:
 
 
 def _first_row(path: Path) -> JsonObject | None:
-    from .jsonl_list import first_json_object
+    from .jsonl_list import JsonlFile
 
-    return first_json_object(path)
+    return JsonlFile(path).first_object()
 
 
 def _looks_like_claude_file(path: Path) -> bool:
@@ -167,9 +167,9 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not _looks_like_claude_file(path):
         return None
-    from .jsonl_list import first_json_objects
+    from .jsonl_list import JsonlFile
 
-    rows = first_json_objects(path)
+    rows = JsonlFile(path).first_objects()
     row = rows[0] if rows else {}
     cwd = ""
     sid = _row_session_id(row, path)
@@ -567,12 +567,12 @@ class ClaudeAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import list_window
+        from .jsonl_list import JsonlFile
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"claude session not found: {sid}")
-        rows = list_window(path)
+        rows = JsonlFile(path).window()
         if not rows:
             raise FileNotFoundError(f"claude session not found: {sid}")
         return _meta_from_rows(rows, path, sid)

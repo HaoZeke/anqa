@@ -50,9 +50,9 @@ def _text_of(content: object) -> str:
 def _looks_like_gemini_file(path: Path) -> bool:
     if not path.is_file() or path.suffix != ".jsonl":
         return False
-    from .jsonl_list import first_json_object
+    from .jsonl_list import JsonlFile
 
-    row = first_json_object(path)
+    row = JsonlFile(path).first_object()
     if row is None or not str(row.get("sessionId") or "").strip():
         return False
     if str(row.get("type") or "") == "session":
@@ -144,9 +144,9 @@ def _jsonl_from_ref(ref: SessionRef | Path | str, root: Path) -> tuple[Path, str
         return found, parsed[1]
     path = Path(text).expanduser()
     if path.is_file():
-        from .jsonl_list import first_json_object
+        from .jsonl_list import JsonlFile
 
-        meta = first_json_object(path) or {}
+        meta = JsonlFile(path).first_object() or {}
         sid = str(meta.get("sessionId") or _session_id_from_name(path)).strip()
         return path, sid
     return root, path.name
@@ -189,11 +189,11 @@ def _header_and_messages(rows: Sequence[JsonObject]) -> tuple[JsonObject, list[J
 def _find_file(root: Path, session_id: str) -> Path | None:
     if not root.is_dir() or not session_id:
         return None
-    from .jsonl_list import first_json_object
+    from .jsonl_list import JsonlFile
 
     try:
         for path in _collect_jsonl([root]):
-            header = first_json_object(path)
+            header = JsonlFile(path).first_object()
             if str((header or {}).get("sessionId") or "").strip() == session_id:
                 return path
     except OSError:
@@ -243,9 +243,9 @@ def _project_root_cwd(path: Path) -> str:
 def _ref_for_file(path: Path) -> SessionRef | None:
     if not _looks_like_gemini_file(path):
         return None
-    from .jsonl_list import first_json_object
+    from .jsonl_list import JsonlFile
 
-    meta = first_json_object(path) or {}
+    meta = JsonlFile(path).first_object() or {}
     sid = str(meta.get("sessionId") or "").strip()
     if not sid:
         return None
@@ -513,13 +513,13 @@ class GeminiAdapter:
         return [path] if path.is_dir() else []
 
     def discover(self, roots: Sequence[Path | str] | None = None) -> list[SessionRef]:
-        from .jsonl_list import first_json_objects
+        from .jsonl_list import JsonlFile
 
         scan = [self.root()] if roots is None else [Path(r) for r in roots]
         found: list[SessionRef] = []
         seen: set[str] = set()
         for file in _collect_jsonl(scan):
-            rows = first_json_objects(file, limit=4)
+            rows = JsonlFile(file).first_objects(limit=4)
             meta, messages = _header_and_messages(rows)
             if str(meta.get("kind") or "main") == "subagent":
                 continue
@@ -549,12 +549,12 @@ class GeminiAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import list_window
+        from .jsonl_list import JsonlFile
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"gemini session not found: {sid}")
-        meta, messages = _header_and_messages(list_window(path))
+        meta, messages = _header_and_messages(JsonlFile(path).window())
         if not str(meta.get("sessionId") or sid).strip():
             raise FileNotFoundError(f"gemini session not found: {sid}")
         return _meta_from_conversation(meta, messages, path, sid)
