@@ -47,6 +47,9 @@ Cursor (`cursor`) are registered.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
+- Diff uses rewind snapshots when the store wrote them. Otherwise it
+  rebuilds per-path patches from write and edit tool calls on the
+  timeline (every shipped adapter).
 - List Turn is `running` when a turn is in progress, `—` when the store
   wrote no list status (last user row or bookend).
 - Session delete (`x`) removes every store locator: directory, file, or

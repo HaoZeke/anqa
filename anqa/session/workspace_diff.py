@@ -2,19 +2,21 @@
 
 Reads every ``rewind_points.jsonl`` record (``prompt_index``, before/after
 snapshots). When that file is missing or empty, reconstructs approximate
-per-path patches from ``search_replace`` tool calls in ``updates.jsonl``.
+per-path patches from write and edit tool calls on the timeline, or from
+``search_replace`` rows in ``updates.jsonl``.
 """
 
 from __future__ import annotations
 
 import difflib
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import event_types as et
 from ..json_lines import json_lines
-from ..models import JsonObject, JsonValue, TraceEvent, json_as_int
+from ..models import JsonObject, JsonValue, ToolInputBag, TraceEvent, as_json_object, json_as_int
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +201,126 @@ def _rewind_points(session_dir: Path) -> tuple[DiffPoint, ...]:
     return tuple(out)
 
 
+_PATH_KEYS = ("file_path", "target_file", "path")
+_OLD_KEYS = ("old_string", "oldText", "old_text", "old")
+_NEW_KEYS = ("new_string", "newText", "new_text", "new")
+_CONTENT_KEYS = ("content", "contents", "file_text", "fileText")
+_EDIT_TOOLS = frozenset(
+    {"search_replace", "str_replace", "strreplace", "edit", "replace", "multiedit"}
+)
+_WRITE_TOOLS = frozenset(
+    {"write", "write_file", "writefile", "create", "create_file", "createfile"}
+)
+
+
+def _tool_key(name: str) -> str:
+    return name.strip().casefold().replace("-", "_")
+
+
+def _first_str(data: Mapping[str, JsonValue], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        raw = data.get(key)
+        if isinstance(raw, str) and raw:
+            return raw
+    return ""
+
+
+def _pairs_from_mapping(data: Mapping[str, JsonValue]) -> list[tuple[str, str]]:
+    old = _first_str(data, _OLD_KEYS)
+    new = _first_str(data, _NEW_KEYS)
+    if old or new:
+        return [(old, new)]
+    return []
+
+
+def _pairs_from_bag(bag: ToolInputBag) -> list[tuple[str, str]]:
+    raw = bag.get("edits")
+    if isinstance(raw, list):
+        out: list[tuple[str, str]] = []
+        for item in raw:
+            if isinstance(item, dict):
+                out.extend(_pairs_from_mapping(item))
+        if out:
+            return out
+    return _pairs_from_mapping(bag.raw())
+
+
+def _edit_from_event(ev: TraceEvent) -> tuple[str, list[tuple[str, str]], str] | None:
+    if ev.event_type != et.TOOL_CALL:
+        return None
+    bag = ev.raw_input if isinstance(ev.raw_input, ToolInputBag) else ToolInputBag()
+    path = _first_str(bag.raw(), _PATH_KEYS)
+    if not path:
+        return None
+    key = _tool_key(ev.tool_name)
+    if key in _EDIT_TOOLS:
+        pairs = _pairs_from_bag(bag)
+        if pairs:
+            return path, pairs, "edit"
+    if key in _WRITE_TOOLS:
+        content = _first_str(bag.raw(), _CONTENT_KEYS)
+        if content or any(bag.has(k) for k in _CONTENT_KEYS):
+            return path, [("", content)], "added"
+    return None
+
+
+def _hunks_from_pairs(
+    grouped: Mapping[str, Sequence[tuple[str, str, str]]],
+) -> tuple[DiffHunk, ...]:
+    files: list[DiffHunk] = []
+    for path in sorted(grouped):
+        parts: list[str] = []
+        add_n = 0
+        del_n = 0
+        kinds = {kind for _old, _new, kind in grouped[path]}
+        for old_s, new_s, _kind in grouped[path]:
+            text, a, r = _unified_diff(old_s if old_s else None, new_s, path)
+            parts.append(text)
+            add_n += a
+            del_n += r
+        files.append(
+            DiffHunk(
+                path=path,
+                kind="added" if kinds == {"added"} else "edit",
+                added=add_n,
+                removed=del_n,
+                unified="\n".join(parts),
+            )
+        )
+    return tuple(files)
+
+
+def _point_from_grouped(
+    grouped: Mapping[str, Sequence[tuple[str, str, str]]],
+) -> DiffPoint | None:
+    if not grouped:
+        return None
+    return DiffPoint(
+        key="edits",
+        source="search_replace",
+        prompt_index=None,
+        created_at=None,
+        files=_hunks_from_pairs(grouped),
+    )
+
+
+def point_from_events(events: Sequence[TraceEvent]) -> DiffPoint | None:
+    """Approximate per-path patches from write and edit tool calls.
+
+    :param events: Timeline events (any adapter).
+    :returns: One edits point, or ``None`` when no reconstructable writes exist.
+    """
+    grouped: dict[str, list[tuple[str, str, str]]] = {}
+    for ev in events:
+        parsed = _edit_from_event(ev)
+        if parsed is None:
+            continue
+        path, pairs, kind = parsed
+        for old_s, new_s in pairs:
+            grouped.setdefault(path, []).append((old_s, new_s, kind))
+    return _point_from_grouped(grouped)
+
+
 def _search_replace_raw(upd: Mapping[str, JsonValue]) -> tuple[str, str, str] | None:
     if upd.get("sessionUpdate") != "tool_call" or (upd.get("title") or "") != "search_replace":
         return None
@@ -214,7 +336,7 @@ def _search_replace_raw(upd: Mapping[str, JsonValue]) -> tuple[str, str, str] | 
 
 
 def _search_replace_point(session_dir: Path) -> DiffPoint | None:
-    grouped: dict[str, list[tuple[str, str]]] = {}
+    grouped: dict[str, list[tuple[str, str, str]]] = {}
     for ev in _iter_updates(session_dir):
         params = ev.get("params")
         if not isinstance(params, dict):
@@ -226,35 +348,8 @@ def _search_replace_point(session_dir: Path) -> DiffPoint | None:
         if parsed is None:
             continue
         path, old_s, new_s = parsed
-        grouped.setdefault(path, []).append((old_s, new_s))
-    if not grouped:
-        return None
-    files: list[DiffHunk] = []
-    for path in sorted(grouped):
-        parts: list[str] = []
-        add_n = 0
-        del_n = 0
-        for old_s, new_s in grouped[path]:
-            text, a, r = _unified_diff(old_s, new_s, path)
-            parts.append(text)
-            add_n += a
-            del_n += r
-        files.append(
-            DiffHunk(
-                path=path,
-                kind="edit",
-                added=add_n,
-                removed=del_n,
-                unified="\n".join(parts),
-            )
-        )
-    return DiffPoint(
-        key="edits",
-        source="search_replace",
-        prompt_index=None,
-        created_at=None,
-        files=tuple(files),
-    )
+        grouped.setdefault(path, []).append((old_s, new_s, "edit"))
+    return _point_from_grouped(grouped)
 
 
 def _point_markdown(point: DiffPoint) -> str:
@@ -361,6 +456,17 @@ def load_workspace_diff_doc(
     edits = _search_replace_point(session_dir)
     if edits is not None:
         return WorkspaceDiff((edits,))
+    events = timeline
+    if events is None:
+        try:
+            from ..harness.registry import require_adapter
+
+            events = require_adapter(session_dir).parse_timeline(session_dir)
+        except (OSError, ValueError, TypeError, FileNotFoundError):
+            events = []
+    point = point_from_events(events)
+    if point is not None:
+        return WorkspaceDiff((point,))
     return WorkspaceDiff(())
 
 
@@ -394,3 +500,42 @@ def format_diff_meta_line(meta: JsonObject) -> str:
             f"+{json_as_int(meta.get('lines_added'), 0)}/-{json_as_int(meta.get('lines_removed'), 0)}"
         )
     return "no diff data"
+
+
+def diff_payload(session_id: str, doc: WorkspaceDiff) -> JsonObject:
+    """Control ``session/diff`` body for *doc*."""
+    points: list[JsonValue] = []
+    for point in doc.points:
+        files: list[JsonValue] = [
+            as_json_object(
+                {
+                    "path": hunk.path,
+                    "kind": hunk.kind,
+                    "added": hunk.added,
+                    "removed": hunk.removed,
+                    "unified": hunk.unified,
+                }
+            )
+            for hunk in point.files
+        ]
+        points.append(
+            as_json_object(
+                {
+                    "key": point.key,
+                    "source": point.source,
+                    "promptIndex": point.prompt_index,
+                    "createdAt": point.created_at,
+                    "prompt": point.prompt_text,
+                    "assistant": point.assistant_text,
+                    "filesChanged": point.files_changed,
+                    "linesAdded": point.lines_added,
+                    "linesRemoved": point.lines_removed,
+                    "files": files,
+                }
+            )
+        )
+    return {
+        "sessionId": session_id,
+        "source": doc.source,
+        "points": points,
+    }

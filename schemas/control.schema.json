@@ -685,7 +685,7 @@
           ]
         },
         "session/diff": {
-          "description": "Rewind snapshots or approximate `search_replace` edits (files + hunks + prompt/assistant text)",
+          "description": "Rewind snapshots or approximate file edits (files + hunks + prompt/assistant text)",
           "type": "object",
           "additionalProperties": false,
           "properties": {

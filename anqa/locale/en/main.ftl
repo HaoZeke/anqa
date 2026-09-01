@@ -717,7 +717,7 @@ diff-point-edits = Approximate edits
 
 diff-empty-files = No file changes in this snapshot
 
-diff-empty-session = No rewind snapshots or search_replace edits
+diff-empty-session = No rewind snapshots or file edits
 
 diff-search-placeholder = Search files and hunks
 

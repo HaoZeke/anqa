@@ -63,7 +63,7 @@ The owner accepts either and replies in the same frame the client used.
 | `session/overview` | Meta + turns + notes + event/tool counts (`stats`). Turns include `subagentRuns`. Also `backgroundJobs`, `schedules`, and `workflows` (no log or script bodies). |
 | `session/timeline` | Paged events (`offset`, `limit`, `type`, `kind`, `query`, `promptIndex`, `aroundIndex`, `atIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats. |
 | `session/turns` | Turn segments plus `subagentRuns` (turn-scoped child runs; `openable` + `childPath`). |
-| `session/diff` | Rewind snapshots or approximate `search_replace` edits (files + hunks + prompt/assistant text) |
+| `session/diff` | Rewind snapshots or approximate file edits (files + hunks + prompt/assistant text) |
 | `session/open` | Resolve a session and notify `session/selected` |
 | `session/import` | Open a harness archive or anqa export and add it to the catalog |
 | `session/render` | Project a document (`format`: below) |

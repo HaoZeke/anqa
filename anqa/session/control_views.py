@@ -788,45 +788,10 @@ def _turn_segment_matches(seg: TurnSegment, runs: list[SubagentRun], query: str)
 
 def build_session_diff(session_dir: Path) -> JsonObject:
     """Rewind snapshots or approximate edits for ``session/diff``."""
-    from .workspace_diff import load_workspace_diff_doc
+    from .workspace_diff import diff_payload, load_workspace_diff_doc
 
     sd = Path(session_dir)
-    doc = load_workspace_diff_doc(sd)
-    points: list[JsonValue] = []
-    for point in doc.points:
-        files: list[JsonValue] = [
-            as_json_object(
-                {
-                    "path": hunk.path,
-                    "kind": hunk.kind,
-                    "added": hunk.added,
-                    "removed": hunk.removed,
-                    "unified": hunk.unified,
-                }
-            )
-            for hunk in point.files
-        ]
-        points.append(
-            as_json_object(
-                {
-                    "key": point.key,
-                    "source": point.source,
-                    "promptIndex": point.prompt_index,
-                    "createdAt": point.created_at,
-                    "prompt": point.prompt_text,
-                    "assistant": point.assistant_text,
-                    "filesChanged": point.files_changed,
-                    "linesAdded": point.lines_added,
-                    "linesRemoved": point.lines_removed,
-                    "files": files,
-                }
-            )
-        )
-    return {
-        "sessionId": sd.name,
-        "source": doc.source,
-        "points": points,
-    }
+    return diff_payload(sd.name, load_workspace_diff_doc(sd))
 
 
 def warm_timeline_search(session_dir: Path) -> None:

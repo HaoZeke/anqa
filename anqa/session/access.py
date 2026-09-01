@@ -281,7 +281,7 @@ class LocalSessionAccess:
         return harness_views.session_turns(ref, query=query)
 
     def session_diff(self, session: str) -> JsonObject:
-        """Rewind snapshots or approximate ``search_replace`` edits."""
+        """Rewind snapshots or approximate write/edit tool patches."""
         ref = self.require_ref(session)
         if self._directory_session(ref):
             return build_session_diff(ref.locator)

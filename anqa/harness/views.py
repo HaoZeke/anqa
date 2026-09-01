@@ -238,8 +238,16 @@ def session_turns(ref: SessionRef, *, query: str = "") -> JsonObject:
 
 
 def session_diff(ref: SessionRef) -> JsonObject:
-    """No rewind store — empty diff."""
-    return {"sessionId": ref.session_id, "source": "", "points": []}
+    """Approximate write/edit patches from the session timeline."""
+    from ..session.workspace_diff import WorkspaceDiff, diff_payload, point_from_events
+
+    impl = adapter_for(ref)
+    events: list[TraceEvent] = []
+    if impl is not None:
+        events = impl.parse_timeline(ref)
+    point = point_from_events(events)
+    doc = WorkspaceDiff((point,) if point is not None else ())
+    return diff_payload(ref.session_id, doc)
 
 
 __all__ = [

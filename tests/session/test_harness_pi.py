@@ -145,6 +145,54 @@ def test_ref_for_id_and_query() -> None:
     assert not row_matches_query(row, "harness:opencode")
 
 
+def test_session_diff_empty_without_file_edits() -> None:
+    """Pi probe session only ran bash, so Diff has no points."""
+    from anqa.harness.views import session_diff
+
+    _install_store()
+    ref = PiAdapter().ref_for_id(_SID)
+    assert ref is not None
+    payload = session_diff(ref)
+    assert payload["sessionId"] == _SID
+    assert payload["points"] == []
+
+
+def test_session_diff_uses_edit_and_write_tools(tmp_path: Path) -> None:
+    """Diff pane for a Pi locator is built from edit/write tool calls."""
+    from anqa.harness.views import session_diff
+
+    path = tmp_path / "2026-08-09T12-00-00-000Z_019fe000-0000-7000-8000-00000000ed01.jsonl"
+    path.write_text(
+        '{"type":"session","version":3,"id":"019fe000-0000-7000-8000-00000000ed01",'
+        '"timestamp":"2026-08-09T12:00:00.000Z","cwd":"/tmp/probe-ws"}\n'
+        '{"type":"message","id":"u1","timestamp":"2026-08-09T12:00:01.000Z",'
+        '"message":{"role":"user","content":[{"type":"text","text":"edit the file"}]}}\n'
+        '{"type":"message","id":"a1","timestamp":"2026-08-09T12:00:02.000Z",'
+        '"message":{"role":"assistant","content":['
+        '{"type":"toolCall","id":"c1","name":"edit","arguments":'
+        '{"path":"/tmp/probe-ws/hello.py","edits":[{"oldText":"return 1","newText":"return 2"}]}}'
+        "]}}\n"
+        '{"type":"message","id":"a2","timestamp":"2026-08-09T12:00:03.000Z",'
+        '"message":{"role":"assistant","content":['
+        '{"type":"toolCall","id":"c2","name":"write","arguments":'
+        '{"path":"/tmp/probe-ws/NOTE.txt","content":"WS1\\n"}}'
+        "]}}\n",
+        encoding="utf-8",
+    )
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    payload = session_diff(ref)
+    assert payload["sessionId"] == "019fe000-0000-7000-8000-00000000ed01"
+    assert payload["source"] == "search_replace"
+    points = payload["points"]
+    assert len(points) == 1
+    paths = [str(f["path"]) for f in points[0]["files"]]
+    assert paths == ["/tmp/probe-ws/NOTE.txt", "/tmp/probe-ws/hello.py"]
+    unified = "\n".join(str(f["unified"]) for f in points[0]["files"])
+    assert "return 2" in unified
+    assert "WS1" in unified
+
+
 def test_jsonl_write_is_a_list_rebuild_path() -> None:
     from anqa.control.daemon import CatalogWatchApply
 

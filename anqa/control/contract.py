@@ -549,8 +549,7 @@ METHODS: tuple[MethodSpec, ...] = (
     ),
     MethodSpec(
         name="session/diff",
-        role="Rewind snapshots or approximate `search_replace` edits "
-        "(files + hunks + prompt/assistant text)",
+        role="Rewind snapshots or approximate file edits (files + hunks + prompt/assistant text)",
         params=(_SESSION,),
     ),
     MethodSpec(

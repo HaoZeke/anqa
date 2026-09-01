@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+from anqa.models import ToolInputBag, TraceEvent
 from anqa.session.workspace_diff import (
     _snap_map,
     _unified_diff,
     format_diff_meta_line,
     load_workspace_diff,
     load_workspace_diff_doc,
+    point_from_events,
 )
 
 # ── _snap_map ────────────────────────────────────────────────────────────
@@ -374,3 +377,100 @@ class TestUnifiedDiffBothSides:
         assert "+++ b/f.py" in diff_text
         assert added == 1
         assert removed == 1
+
+
+def _call(name: str, raw: dict[str, object]) -> TraceEvent:
+    return TraceEvent(
+        index=0,
+        event_type="tool_call",
+        tool_name=name,
+        raw_input=ToolInputBag(raw),
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "raw", "path", "old", "new"),
+    [
+        (
+            "search_replace",
+            {"file_path": "main.py", "old_string": "foo", "new_string": "bar"},
+            "main.py",
+            "foo",
+            "bar",
+        ),
+        (
+            "edit",
+            {"path": "hello.py", "edits": [{"oldText": "return 1", "newText": "return 2"}]},
+            "hello.py",
+            "return 1",
+            "return 2",
+        ),
+        (
+            "Edit",
+            {"file_path": "doc.rst", "old_string": "alpha", "new_string": "beta"},
+            "doc.rst",
+            "alpha",
+            "beta",
+        ),
+        (
+            "StrReplace",
+            {"path": "app.ts", "old_string": "a", "new_string": "b"},
+            "app.ts",
+            "a",
+            "b",
+        ),
+    ],
+)
+def test_point_from_events_reads_replace_tools(
+    name: str, raw: dict[str, object], path: str, old: str, new: str
+) -> None:
+    point = point_from_events([_call(name, raw)])
+    assert point is not None
+    assert point.source == "search_replace"
+    assert [h.path for h in point.files] == [path]
+    assert old in point.files[0].unified
+    assert new in point.files[0].unified
+
+
+@pytest.mark.parametrize(
+    ("name", "raw", "path", "body"),
+    [
+        ("write", {"path": "NOTE.txt", "content": "WS1\n"}, "NOTE.txt", "WS1"),
+        ("Write", {"file_path": "new.md", "content": "hello"}, "new.md", "hello"),
+        (
+            "create",
+            {"path": "AUTOMEDON_TOOL.txt", "file_text": "TOOL_OK"},
+            "AUTOMEDON_TOOL.txt",
+            "TOOL_OK",
+        ),
+    ],
+)
+def test_point_from_events_reads_write_tools(
+    name: str, raw: dict[str, object], path: str, body: str
+) -> None:
+    point = point_from_events([_call(name, raw)])
+    assert point is not None
+    assert [h.path for h in point.files] == [path]
+    assert point.files[0].kind == "added"
+    assert body in point.files[0].unified
+
+
+def test_point_from_events_ignores_read_and_shell() -> None:
+    events = [
+        _call("bash", {"command": "echo hi"}),
+        _call("read", {"path": "x.py"}),
+        _call("Read", {"file_path": "y.py"}),
+    ]
+    assert point_from_events(events) is None
+
+
+def test_point_from_events_groups_edits_by_path() -> None:
+    events = [
+        _call("edit", {"path": "a.py", "edits": [{"oldText": "1", "newText": "2"}]}),
+        _call("write", {"path": "b.py", "content": "new\n"}),
+        _call("edit", {"path": "a.py", "edits": [{"oldText": "2", "newText": "3"}]}),
+    ]
+    point = point_from_events(events)
+    assert point is not None
+    assert [h.path for h in point.files] == ["a.py", "b.py"]
+    assert point.files[0].unified.count("@@") >= 2

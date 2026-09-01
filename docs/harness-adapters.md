@@ -40,6 +40,9 @@ A shipped adapter does all of this:
    the native locator (directory, transcript file, or database row).
 10. **Scheduler blocks** (`scheduler_state`, `reported_completion_ids`)
    when the store has durable schedules.
+11. **Diff** is rewind snapshots when that store writes them, else
+   write and edit tool calls on the timeline (`edit`, `write`,
+   `search_replace`, `Edit`, `StrReplace`, and the same family).
 
 Next prompt, end session, rewind, and the context meter appear when
 that store writes the files those actions read. Missing product data
