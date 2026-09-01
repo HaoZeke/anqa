@@ -356,8 +356,12 @@ impl Store for Grok {
         events
     }
 
-    fn stamp(&self, locator: &Path) -> crate::event::FileStamp {
-        jsonl::file_stamp(&locator.join("updates.jsonl"))
+    fn stamp(&self, locator: &Path, session_id: &str) -> crate::event::FileStamp {
+        let _ = session_id;
+        jsonl::pair_stamp(
+            &locator.join("updates.jsonl"),
+            &locator.join("events.jsonl"),
+        )
     }
 }
 

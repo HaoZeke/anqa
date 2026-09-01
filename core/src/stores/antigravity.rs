@@ -22,6 +22,10 @@ fn transcript_path(root: &Path, sid: &str) -> PathBuf {
     brain.join("transcript.jsonl")
 }
 
+fn conversation_db(root: &Path, sid: &str) -> PathBuf {
+    root.join("conversations").join(format!("{sid}.db"))
+}
+
 fn tag_body(raw: &str, tag: &str) -> String {
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
@@ -180,5 +184,15 @@ impl Store for Antigravity {
 
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         timeline_rows(records)
+    }
+
+    fn stamp(&self, locator: &Path, session_id: &str) -> crate::event::FileStamp {
+        if locator.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+            return jsonl::file_stamp(locator);
+        }
+        jsonl::pair_stamp(
+            &transcript_path(locator, session_id),
+            &conversation_db(locator, session_id),
+        )
     }
 }

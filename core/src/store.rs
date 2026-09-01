@@ -23,7 +23,8 @@ pub trait Store: Send + Sync {
         Ok(ListMeta::for_session(self.id(), locator, session_id))
     }
 
-    fn stamp(&self, locator: &Path) -> FileStamp {
+    fn stamp(&self, locator: &Path, session_id: &str) -> FileStamp {
+        let _ = session_id;
         crate::jsonl::file_stamp(locator)
     }
 

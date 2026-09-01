@@ -123,7 +123,7 @@ pub fn first_object(path: &Path) -> Option<JsonlRow> {
 
 /// File stamp used as a timeline cache key.
 #[must_use]
-pub fn file_stamp(path: &Path) -> (f64, u64, u64, u64) {
+pub fn file_stamp(path: &Path) -> crate::event::FileStamp {
     match path.metadata() {
         Ok(m) => {
             let mtime = m
@@ -136,4 +136,12 @@ pub fn file_stamp(path: &Path) -> (f64, u64, u64, u64) {
         }
         Err(_) => (0.0, 0, 0, 0),
     }
+}
+
+/// First file mtime/size in slots 0-1, second file mtime/size in slots 2-3.
+#[must_use]
+pub fn pair_stamp(first: &Path, second: &Path) -> crate::event::FileStamp {
+    let (mtime, size, _, _) = file_stamp(first);
+    let (other_mtime, other_size, _, _) = file_stamp(second);
+    (mtime, size, other_mtime as u64, other_size)
 }

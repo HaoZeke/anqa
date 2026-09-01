@@ -158,4 +158,13 @@ impl Store for Copilot {
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         records.iter().filter_map(from_row).collect()
     }
+
+    fn stamp(&self, locator: &Path, session_id: &str) -> crate::event::FileStamp {
+        let path = if locator.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+            locator.to_path_buf()
+        } else {
+            events_path(locator, session_id)
+        };
+        jsonl::file_stamp(&path)
+    }
 }
