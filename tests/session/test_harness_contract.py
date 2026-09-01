@@ -157,6 +157,20 @@ def test_session_surfaces_on_committed_fixture(hid: str, tmp_path: Path) -> None
     assert overview["meta"]["harness"] == hid
     assert overview["meta"]["title"] == want["title"]
     assert overview["turns"]["total"] >= 1
+    runs = overview["turns"]["subagentRuns"]
+    assert isinstance(runs, list)
+    if hid == "claude":
+        assert len(runs) == 1
+        assert runs[0]["childSessionId"] == "explore-fixture"
+        assert runs[0]["openable"] is True
+    elif hid == "codex":
+        assert len(runs) == 1
+        assert runs[0]["subagentId"] == "child-1"
+        assert runs[0]["status"] == "completed"
+    elif hid == "copilot":
+        assert len(runs) == 1
+    elif hid == "opencode":
+        assert len(runs) >= 1
     stat_tools = [row["id"] for row in overview["stats"]["tools"]]
     assert want["tool"] in stat_tools
     assert overview["backgroundJobs"] == []

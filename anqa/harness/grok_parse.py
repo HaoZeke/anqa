@@ -2166,12 +2166,6 @@ def load_session_meta_list(session_dir: Path) -> SessionMeta:
     _apply_list_flags_from_signals(meta)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
-    if not meta.num_events:
-        try:
-            meta.num_events = len(parse_timeline(session_dir))
-        except Exception:
-            logger.debug("list timeline count for %s", session_dir, exc_info=True)
-            meta.num_events = 0
     _apply_list_turn_outcome(meta, session_dir)
     if meta.turn_failed and not meta.error_count:
         meta.error_count = max(meta.error_count, 1)

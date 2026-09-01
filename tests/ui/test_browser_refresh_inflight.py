@@ -59,6 +59,75 @@ class _RefreshAdapter:
         return self._parse_timeline
 
 
+def test_control_first_page_keeps_owner_total_and_skips_adapter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Attached open uses control only; paged length is not the event total."""
+    from anqa.ui.screens import browser as browser_mod
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    screen = _screen(sd)
+    screen._uses_control_data = lambda: True  # type: ignore[method-assign]
+    screen._session_control_ref = lambda: "grok:s"  # type: ignore[method-assign]
+    adapter_calls: list[str] = []
+
+    def boom(ref: object) -> object:
+        adapter_calls.append(str(ref))
+        raise AssertionError(f"require_adapter on catalog id: {ref}")
+
+    monkeypatch.setattr("anqa.harness.registry.require_adapter", boom)
+    monkeypatch.setattr("anqa.session.control_views.require_adapter", boom)
+    monkeypatch.setattr(browser_mod, "require_adapter", boom)
+    monkeypatch.setattr(
+        "anqa.session.control_views.overview_input_stamp",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("disk stamp on client")),
+    )
+
+    events = [{"index": i, "type": "user_message_chunk", "content": f"e{i}"} for i in range(200)]
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            return {
+                "sessionId": "s",
+                "meta": {
+                    "sessionId": "s",
+                    "path": "grok:s",
+                    "harness": "grok",
+                    "status": "complete",
+                    "numEvents": 250,
+                },
+                "timeline": {"total": 250, "lazy": True},
+                "notes": {"revision": "r1", "notes": []},
+            }
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            return {"events": events, "total": 250}
+
+        async def session_diff(self, _ref: str) -> object:
+            return {"sessionId": "s", "points": []}
+
+        async def notes_list(self, _ref: str) -> object:
+            return {"notes": []}
+
+    class _App:
+        def session_access(self) -> _Access:
+            return _Access()
+
+        def is_control_client(self) -> bool:
+            return True
+
+    monkeypatch.setattr(browser_mod, "resolve_ui_app", lambda _s: _App())
+    monkeypatch.setattr(browser_mod, "call_ui", lambda _app, cb, *a, **k: None)
+    total = screen._load_control_first_page()
+    assert total == 250
+    screen._commit_loaded_session()
+    assert adapter_calls == []
+    assert screen.meta is not None
+    assert screen.meta.num_events == 250
+    assert len(screen.timeline) == 200
+
+
 def test_live_refresh_skips_second_enqueue(tmp_path: Path) -> None:
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -309,83 +378,36 @@ def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypat
     assert is_inflight(KIND_REFRESH, sd) is False
 
 
-def test_load_data_light_control_skips_overview_when_stamp_unchanged(
+def test_load_data_light_control_skips_timeline_when_overview_unchanged(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Attached light refresh does not RPC session/overview when the stamp is still."""
+    """Attached light refresh always asks the owner; it does not refetch the page."""
     from anqa.models import SessionMeta
-    from anqa.session.control_views import overview_input_stamp
     from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
-    (sd / "summary.json").write_text("{}", encoding="utf-8")
-    (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
-    (sd / "updates.jsonl").write_text("", encoding="utf-8")
     screen = _screen(sd)
     screen._uses_control_data = lambda: True  # type: ignore[method-assign]
-    screen._session_control_ref = lambda: "s"  # type: ignore[method-assign]
-    screen.meta = SessionMeta(session_id="s", session_dir=sd)
+    screen._session_control_ref = lambda: "grok:s"  # type: ignore[method-assign]
+    screen.meta = SessionMeta(session_id="s", session_dir=sd, num_events=1)
     screen.timeline = [_held_event()]
-    screen._last_overview_stamp = overview_input_stamp(sd)
+    screen._timeline_owner_total = 1
+    screen._last_overview_stamp = (1, "complete", "", "")
     calls: list[str] = []
 
     class _Access:
         async def session_overview(self, _ref: str) -> object:
             calls.append("overview")
-            return {"sessionId": "s", "timeline": {"total": 1}}
+            return {
+                "sessionId": "s",
+                "meta": {"sessionId": "s", "status": "complete", "numEvents": 1},
+                "timeline": {"total": 1},
+                "notes": {"revision": ""},
+            }
 
         async def session_timeline(self, _ref: str, **kwargs: object) -> object:
-            return {"events": [], "total": 1}
-
-    class _App:
-        def session_access(self) -> _Access:
-            return _Access()
-
-    monkeypatch.setattr(browser_mod, "resolve_ui_app", lambda _s: _App())
-    monkeypatch.setattr(
-        browser_mod,
-        "call_ui",
-        lambda _app, cb, *a, **k: (
-            cb(*a, **k) if getattr(cb, "__name__", "") == "_live_refresh_worker_done" else None
-        ),
-    )
-    assert try_begin(KIND_REFRESH, sd) is True
-    screen._live_refresh_busy = True
-    screen._load_data_light_job()
-    assert calls == []
-    assert is_inflight(KIND_REFRESH, sd) is False
-
-
-def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """After overview returns, keep the pre-RPC stamp so a mid-RPC append is fetched next."""
-    from anqa.models import SessionMeta
-    from anqa.session.control_views import overview_input_stamp
-    from anqa.ui.screens import browser as browser_mod
-
-    sd = tmp_path / "019f-sess"
-    sd.mkdir()
-    (sd / "summary.json").write_text("{}", encoding="utf-8")
-    (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
-    (sd / "updates.jsonl").write_text("", encoding="utf-8")
-    screen = _screen(sd)
-    screen._uses_control_data = lambda: True  # type: ignore[method-assign]
-    screen._session_control_ref = lambda: "s"  # type: ignore[method-assign]
-    screen.meta = SessionMeta(session_id="s", session_dir=sd)
-    screen.timeline = [_held_event()]
-    screen._overview_payload = None
-    calls: list[str] = []
-    before = overview_input_stamp(sd)
-
-    class _Access:
-        async def session_overview(self, _ref: str) -> object:
-            calls.append("overview")
-            (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
-            return {"sessionId": "s", "timeline": {"total": 1}}
-
-        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            calls.append("timeline")
             return {"events": [], "total": 1}
 
     class _App:
@@ -404,12 +426,68 @@ def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
     screen._live_refresh_busy = True
     screen._load_data_light_job()
     assert calls == ["overview"]
-    assert screen._last_overview_stamp == before
-    assert overview_input_stamp(sd) != before
+    assert is_inflight(KIND_REFRESH, sd) is False
+
+
+def test_load_data_light_control_refetches_when_owner_total_grows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A larger owner total fetches growth through control, not disk."""
+    from anqa.models import SessionMeta
+    from anqa.ui.screens import browser as browser_mod
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    screen = _screen(sd)
+    screen._uses_control_data = lambda: True  # type: ignore[method-assign]
+    screen._session_control_ref = lambda: "grok:s"  # type: ignore[method-assign]
+    screen.meta = SessionMeta(session_id="s", session_dir=sd, num_events=1)
+    screen.timeline = [_held_event()]
+    screen._timeline_owner_total = 1
+    screen._last_overview_stamp = (1, "running", "", "")
+    calls: list[str] = []
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            calls.append("overview")
+            return {
+                "sessionId": "s",
+                "meta": {"sessionId": "s", "status": "running", "numEvents": 2},
+                "timeline": {"total": 2},
+                "notes": {"revision": ""},
+            }
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            calls.append("timeline")
+            return {
+                "events": [
+                    {"index": 0, "type": "user_message_chunk", "content": "hi"},
+                    {"index": 1, "type": "agent_message_chunk", "content": "ok"},
+                ],
+                "total": 2,
+            }
+
+        async def session_timeline_event(self, _ref: str, **kwargs: object) -> object:
+            return {"index": 0, "type": "user_message_chunk", "content": "hi"}
+
+    class _App:
+        def session_access(self) -> _Access:
+            return _Access()
+
+    monkeypatch.setattr(browser_mod, "resolve_ui_app", lambda _s: _App())
+    monkeypatch.setattr(
+        browser_mod,
+        "call_ui",
+        lambda _app, cb, *a, **k: (
+            cb(*a, **k) if getattr(cb, "__name__", "") == "_live_refresh_worker_done" else None
+        ),
+    )
     assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_busy = True
     screen._load_data_light_job()
-    assert calls == ["overview", "overview"]
+    assert "overview" in calls
+    assert screen.meta is not None
+    assert screen.meta.num_events == 2
     assert is_inflight(KIND_REFRESH, sd) is False
 
 

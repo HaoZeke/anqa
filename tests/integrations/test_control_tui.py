@@ -307,9 +307,15 @@ async def test_browser_loads_timeline_via_control_when_attached(
         )
         async with app.run_test(size=(120, 40)) as pilot:
             await _wait_until(pilot, app.is_control_client, description="attach")
-            with patch(
-                "anqa.ui.screens.browser.require_adapter",
-                side_effect=AssertionError("disk parse forbidden when attached"),
+            with (
+                patch(
+                    "anqa.ui.screens.browser.require_adapter",
+                    side_effect=AssertionError("disk parse forbidden when attached"),
+                ),
+                patch(
+                    "anqa.session.control_views.overview_input_stamp",
+                    side_effect=AssertionError("client must not stamp disk"),
+                ),
             ):
                 app.open_session_path(session_dir)
                 await _wait_until(
@@ -327,6 +333,20 @@ async def test_browser_loads_timeline_via_control_when_attached(
                 "open here" in (e.content or "") or "opened" in (e.content or "")
                 for e in (screen.timeline or [])
             )
+            with (
+                patch(
+                    "anqa.ui.screens.browser.require_adapter",
+                    side_effect=AssertionError("disk parse forbidden when attached"),
+                ),
+                patch(
+                    "anqa.ui.screens.browser.load_workspace_diff_doc",
+                    side_effect=AssertionError("disk diff forbidden when attached"),
+                ),
+            ):
+                notes = screen._load_control_notes()
+                diff = screen._load_control_diff()
+            assert notes is not None
+            assert diff is not None
             app._prepare_clean_exit()
             await pilot.pause()
     finally:

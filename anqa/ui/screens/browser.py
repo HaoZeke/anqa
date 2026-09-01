@@ -852,13 +852,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         async def _ov() -> object:
             return await session_overview(ref)
 
-        from ...session.control_views import overview_input_stamp
-
-        overview_stamp = overview_input_stamp(self.session_dir)
         overview = asyncio.run(_ov())
-        self._last_overview_stamp = overview_stamp
         ov = as_json_object(overview) if isinstance(overview, dict) else {}
         self._overview_payload = ov
+        self._last_overview_stamp = self._overview_client_stamp(ov)
         meta = session_meta_from_overview(ov, fallback_dir=Path(self.session_dir))
         loc = meta.session_dir
         if loc.is_dir() or loc.is_file():
@@ -876,8 +873,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self.meta = meta
         self.timeline = first
         self._timeline_owner_total = int(total or len(first))
-        if self.meta is not None:
-            self.meta.num_events = int(self._timeline_owner_total)
+        self._apply_owner_event_total()
         return int(self._timeline_owner_total)
 
     def _control_timeline_window(self) -> tuple[int, int | None]:
@@ -1017,10 +1013,42 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._last_trace_mtime = None
         self._last_signals_mtime = self._signals_mtime()
 
+    def _overview_client_stamp(self, overview: JsonObject) -> tuple[int, str, str, str]:
+        """Owner-facing identity for attached light refresh. No disk read."""
+        meta = overview.get("meta")
+        row = as_json_object(meta) if isinstance(meta, dict) else {}
+        tl = overview.get("timeline")
+        total_raw = tl.get("total") if isinstance(tl, dict) else row.get("numEvents")
+        total = 0
+        if isinstance(total_raw, bool):
+            total = 0
+        elif isinstance(total_raw, (int, float)):
+            total = int(total_raw)
+        elif isinstance(total_raw, str) and total_raw.strip().lstrip("-").isdigit():
+            total = int(total_raw)
+        notes = overview.get("notes")
+        rev = ""
+        if isinstance(notes, dict):
+            rev = str(notes.get("revision") or "")
+        return (
+            total,
+            str(row.get("status") or ""),
+            str(row.get("outcome") or ""),
+            rev,
+        )
+
+    def _apply_owner_event_total(self) -> None:
+        """Keep the owner event count when the timeline is paged."""
+        if self.meta is None:
+            return
+        if self._uses_control_data():
+            self.meta.num_events = int(self._timeline_owner_total or 0)
+            return
+        self.meta.num_events = len(self.timeline or [])
+
     def _commit_loaded_session(self) -> None:
         """Notes, Diff, then first Timeline paint."""
-        if self.meta is not None:
-            self.meta.num_events = len(self.timeline or [])
+        self._apply_owner_event_total()
         self._record_context_sample()
         self._load_notes()
         self._rebuild_indices()
@@ -1067,16 +1095,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 prev_n = len(self.timeline or [])
                 prev_status = self.meta.list_status_label() if self.meta is not None else ""
                 prev_jobs = self._jobs_status_key()
-                from ...session.control_views import overview_input_stamp
-
-                overview_stamp = overview_input_stamp(self.session_dir)
                 prev_stamp = getattr(self, "_last_overview_stamp", None)
-                if (
-                    prev_stamp is not None
-                    and prev_stamp == overview_stamp
-                    and self.meta is not None
-                ):
-                    return
                 app = resolve_ui_app(self)
                 access = getattr(app, "session_access", lambda: None)()
                 if access is None:
@@ -1089,11 +1108,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     return await access.session_overview(ref)
 
                 overview = asyncio.run(_ov())
-                self._last_overview_stamp = overview_stamp
                 from ...session.wire_timeline import session_meta_from_overview
 
                 ov = as_json_object(overview) if isinstance(overview, dict) else {}
                 self._overview_payload = ov
+                overview_stamp = self._overview_client_stamp(ov)
+                self._last_overview_stamp = overview_stamp
                 meta = session_meta_from_overview(
                     ov,
                     fallback_dir=Path(self.session_dir),
@@ -1101,16 +1121,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self.meta = meta
                 self._rebuild_session_jobs()
                 self._rebuild_subagent_runs()
-                new_n = int(meta.num_events or 0)
+                new_n = int(overview_stamp[0] or meta.num_events or 0)
+                self._timeline_owner_total = new_n
+                self._apply_owner_event_total()
                 new_status = meta.list_status_label()
                 timeline_updated = False
-                prev_tl = prev_stamp[0] if isinstance(prev_stamp, tuple) and prev_stamp else None
-                new_tl = (
-                    overview_stamp[0]
-                    if isinstance(overview_stamp, tuple) and overview_stamp
-                    else None
+                unchanged = (
+                    prev_stamp is not None and prev_stamp == overview_stamp and bool(self.timeline)
                 )
-                if new_n != prev_n or not self.timeline or new_tl != prev_tl:
+                if not unchanged and (new_n != prev_n or not self.timeline):
                     from ...session.wire_timeline import fetch_timeline_growth
 
                     self.timeline = asyncio.run(
@@ -1121,8 +1140,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             new_total=new_n,
                         )
                     )
-                    if self.meta is not None:
-                        self.meta.num_events = len(self.timeline or [])
+                    self._apply_owner_event_total()
                     self._last_timeline_parse_at = time.monotonic()
                     self._rebuild_indices()
                     timeline_updated = True
@@ -1941,6 +1959,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return _clip_chrome_label(self.session_dir.name)
 
     def _chrome_parent_label(self) -> str:
+        if self._uses_control_data():
+            ov = getattr(self, "_overview_payload", None) or {}
+            parent = ov.get("parent")
+            if isinstance(parent, dict):
+                title = str(parent.get("title") or parent.get("label") or "").strip()
+                if title:
+                    return _clip_chrome_label(title)
+            return ""
         parent = parent_session_dir(self.session_dir)
         if parent is None:
             return ""
