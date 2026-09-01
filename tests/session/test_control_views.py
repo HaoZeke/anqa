@@ -6,6 +6,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import pytest
 from anqa.session.control_views import (
     build_session_diff,
     build_session_overview,
@@ -86,6 +87,23 @@ def test_build_session_overview_meta(tmp_path: Path) -> None:
     assert got["meta"]["path"]
     assert "notes" in got
     assert "turns" in got
+
+
+def test_unfiltered_timeline_does_not_parse_full_timeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unfiltered page must not inflate every TraceEvent in Python."""
+    sd = _write_session(tmp_path, "sess-page-only")
+
+    def boom(self: object, ref: object) -> list[object]:
+        del self, ref
+        raise AssertionError("parse_timeline must not run for an unfiltered page")
+
+    monkeypatch.setattr("anqa.harness.grok.GrokAdapter.parse_timeline", boom)
+    page = build_session_timeline(sd, offset=0, limit=1)
+    assert len(page["events"]) == 1
+    assert page["total"] >= 1
+    assert page["events"][0]["turnIndex"] == 0
 
 
 def test_build_session_timeline_pages(tmp_path: Path) -> None:
@@ -577,7 +595,7 @@ def test_event_raw_json_is_pretty_timeline_row() -> None:
 
 
 def test_build_session_timeline_reuses_turn_view_on_warm_pages(tmp_path: Path) -> None:
-    """Second paged timeline call does not re-run full segment/map work."""
+    """Unfiltered pages skip turn segmentation; a kind filter segments once."""
     from unittest.mock import patch
 
     import anqa.session.control_views as cv
@@ -607,11 +625,15 @@ def test_build_session_timeline_reuses_turn_view_on_warm_pages(tmp_path: Path) -
     ):
         page0 = build_session_timeline(sd, offset=0, limit=1)
         page1 = build_session_timeline(sd, offset=1, limit=1)
+        assert segment_calls == 0
+        assert map_calls == 0
+        tools0 = build_session_timeline(sd, offset=0, limit=1, kind="tools")
+        tools1 = build_session_timeline(sd, offset=0, limit=1, kind="tools")
     assert page0["events"]
     assert page1["total"] == page0["total"]
+    assert tools1["total"] == tools0["total"]
     assert segment_calls == 1
     assert map_calls == 1
-    # Cache entry present for this session.
     assert any(sd.name in k or str(sd) in k for k in cv.SessionOverview._turn_cache)
 
 

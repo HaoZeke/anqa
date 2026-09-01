@@ -129,6 +129,9 @@ def event_from_native(row: object) -> TraceEvent:
         is_error=bool(data_in.get("is_error")),
         update_index=_as_int(data_in.get("update_index")),
         prompt_index=int(prompt) if isinstance(prompt, (int, float)) else None,
+        turn_number=_as_int(data_in.get("turn_number"))
+        if data_in.get("turn_number") is not None
+        else None,
         raw=raw,
     )
     return ev

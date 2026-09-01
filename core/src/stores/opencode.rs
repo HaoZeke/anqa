@@ -1,6 +1,6 @@
 //! OpenCode sqlite session store.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, SessionLocator};
 use crate::store::Store;
 use crate::text;
 use rusqlite::Connection;
@@ -51,11 +51,11 @@ fn timeline_from_events(con: &Connection, session_id: &str) -> Result<Vec<Event>
         let msg_parts = parts.get(&mid).cloned().unwrap_or_default();
         let raw = serde_json::to_string(&data).unwrap_or_default();
         if role == "user" {
-            events.push(
-                Event::new(EventType::TurnStarted)
-                    .with_content(format!("turn_number={turn}"))
-                    .with_raw(&raw),
-            );
+            let mut start = Event::new(EventType::TurnStarted)
+                .with_content(format!("turn_number={turn}"))
+                .with_raw(&raw);
+            start.turn_number = Some(turn);
+            events.push(start);
             let mut text_body = String::new();
             for part in &msg_parts {
                 if text::field_str(part, "type") == "text" {
@@ -84,7 +84,6 @@ fn timeline_from_events(con: &Connection, session_id: &str) -> Result<Vec<Event>
             }
         }
     }
-    text::index_events(&mut events);
     Ok(events)
 }
 
@@ -234,21 +233,29 @@ impl Store for OpenCode {
         out
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            harness: "opencode".into(),
-            model_id: "unknown".into(),
-            ..ListMeta::default()
-        })
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
+        if !locator.is_file() {
+            return Err(format!("opencode session not found: {session_id}"));
+        }
+        Ok(Vec::new())
+    }
+
+    fn events(&self, _records: &[crate::store::Record]) -> Vec<Event> {
+        Vec::new()
     }
 
     fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
         let con = open_ro(locator)?;
         let mut events = Vec::new();
         if table_exists(&con, "event") && !table_exists(&con, "message") {
-            return timeline_from_events(&con, session_id);
+            let mut events = timeline_from_events(&con, session_id)?;
+            Event::carry_turn_numbers(&mut events);
+            text::index_events(&mut events);
+            return Ok(events);
         }
         if table_exists(&con, "message") {
             let mut stmt = con
@@ -289,11 +296,11 @@ impl Store for OpenCode {
                 let role = text::field_str(&data, "role");
                 let msg_parts = parts.get(&row.0).cloned().unwrap_or_default();
                 if role == "user" {
-                    events.push(
-                        Event::new(EventType::TurnStarted)
-                            .with_content(format!("turn_number={turn}"))
-                            .with_raw(&row.1),
-                    );
+                    let mut start = Event::new(EventType::TurnStarted)
+                        .with_content(format!("turn_number={turn}"))
+                        .with_raw(&row.1);
+                    start.turn_number = Some(turn);
+                    events.push(start);
                     let mut text_body = String::new();
                     for part in &msg_parts {
                         if text::field_str(part, "type") == "text" {
@@ -335,6 +342,7 @@ impl Store for OpenCode {
                 }
             }
         }
+        Event::carry_turn_numbers(&mut events);
         text::index_events(&mut events);
         Ok(events)
     }

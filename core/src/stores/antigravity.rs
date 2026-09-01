@@ -1,6 +1,6 @@
 //! Antigravity conversation db + transcript jsonl.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, SessionLocator};
 use crate::jsonl;
 use crate::store::Store;
 use crate::text;
@@ -46,12 +46,12 @@ fn timeline_rows(rows: &[crate::jsonl::JsonlRow]) -> Vec<Event> {
             let raw = text::field_str(&row.value, "content");
             let request = tag_body(&raw, "USER_REQUEST");
             if !request.is_empty() {
-                events.push(
-                    Event::new(EventType::TurnStarted)
-                        .with_ts(ts)
-                        .with_content(format!("turn_number={turn}"))
-                        .with_raw(&row.raw),
-                );
+                let mut start = Event::new(EventType::TurnStarted)
+                    .with_ts(ts)
+                    .with_content(format!("turn_number={turn}"))
+                    .with_raw(&row.raw);
+                start.turn_number = Some(turn);
+                events.push(start);
                 events.push(
                     Event::new(EventType::UserMessageChunk)
                         .with_ts(ts)
@@ -125,7 +125,6 @@ fn timeline_rows(rows: &[crate::jsonl::JsonlRow]) -> Vec<Event> {
             }
         }
     }
-    text::index_events(&mut events);
     events
 }
 
@@ -163,17 +162,11 @@ impl Store for Antigravity {
         out
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            harness: "antigravity".into(),
-            model_id: "unknown".into(),
-            ..ListMeta::default()
-        })
-    }
-
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
         let path = if locator.extension().and_then(|s| s.to_str()) == Some("jsonl") {
             locator.to_path_buf()
         } else {
@@ -182,6 +175,10 @@ impl Store for Antigravity {
         if !path.is_file() {
             return Ok(Vec::new());
         }
-        Ok(timeline_rows(&jsonl::read_objects(&path)))
+        Ok(jsonl::read_objects(&path))
+    }
+
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        timeline_rows(records)
     }
 }

@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
-static TIMELINE: LazyLock<Mutex<HashMap<String, (FileStamp, Vec<Event>)>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+type TimelineCache = HashMap<String, (FileStamp, Vec<Event>)>;
+
+static TIMELINE: LazyLock<Mutex<TimelineCache>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn cache_key(harness: &str, locator: &Path, session_id: &str) -> String {
     format!("{harness}\0{}\0{session_id}", locator.display())
@@ -30,22 +31,39 @@ pub fn list_meta(harness: &str, locator: &Path, session_id: &str) -> Result<List
     store.list_meta(locator, session_id)
 }
 
-pub fn timeline(harness: &str, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
+fn cached_timeline(
+    harness: &str,
+    locator: &Path,
+    session_id: &str,
+) -> Result<(FileStamp, Vec<Event>), String> {
     let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
     let stamp = store.stamp(locator);
     let key = cache_key(harness, locator, session_id);
     if let Ok(guard) = TIMELINE.lock() {
         if let Some((got, evs)) = guard.get(&key) {
             if *got == stamp {
-                return Ok(evs.clone());
+                return Ok((stamp, evs.clone()));
             }
         }
     }
-    let evs = store.timeline(locator, session_id)?;
+    let mut evs = store.timeline(locator, session_id)?;
+    Event::carry_turn_numbers(&mut evs);
     if let Ok(mut guard) = TIMELINE.lock() {
         guard.insert(key, (stamp, evs.clone()));
     }
-    Ok(evs)
+    Ok((stamp, evs))
+}
+
+fn page_slice(events: &[Event], offset: usize, limit: usize) -> Vec<Event> {
+    if offset >= events.len() || limit == 0 {
+        return Vec::new();
+    }
+    let end = (offset + limit).min(events.len());
+    events[offset..end].to_vec()
+}
+
+pub fn timeline(harness: &str, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
+    Ok(cached_timeline(harness, locator, session_id)?.1)
 }
 
 pub fn timeline_page(
@@ -55,14 +73,23 @@ pub fn timeline_page(
     offset: usize,
     limit: usize,
 ) -> Result<(Vec<Event>, usize), String> {
-    let all = timeline(harness, locator, session_id)?;
-    let total = all.len();
-    let end = (offset + limit).min(total);
-    let page = if offset >= total {
-        Vec::new()
-    } else {
-        all[offset..end].to_vec()
-    };
+    let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
+    let stamp = store.stamp(locator);
+    let key = cache_key(harness, locator, session_id);
+    if let Ok(guard) = TIMELINE.lock() {
+        if let Some((got, evs)) = guard.get(&key) {
+            if *got == stamp {
+                return Ok((page_slice(evs, offset, limit), evs.len()));
+            }
+        }
+    }
+    let mut evs = store.timeline(locator, session_id)?;
+    Event::carry_turn_numbers(&mut evs);
+    let page = page_slice(&evs, offset, limit);
+    let total = evs.len();
+    if let Ok(mut guard) = TIMELINE.lock() {
+        guard.insert(key, (stamp, evs));
+    }
     Ok((page, total))
 }
 
@@ -89,6 +116,7 @@ mod pybind {
         d.set_item("is_error", ev.is_error)?;
         d.set_item("update_index", ev.update_index)?;
         d.set_item("prompt_index", ev.prompt_index)?;
+        d.set_item("turn_number", ev.turn_number)?;
         d.set_item("child_session_id", ev.child_session_id.as_str())?;
         d.set_item("subagent_type", ev.subagent_type.as_str())?;
         d.set_item("description", ev.description.as_str())?;

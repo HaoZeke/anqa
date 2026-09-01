@@ -89,6 +89,9 @@ class TimelineTable(DataTable):
             super().__init__()
             self.event = event
 
+    class NeedMore(Message):
+        """The last painted row is in view; the owner may have another page."""
+
     def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self.events: list[TraceEvent] = []
@@ -303,12 +306,35 @@ class TimelineTable(DataTable):
             return False
         return True
 
+    def at_visible_end(self) -> bool:
+        """True when the cursor or viewport is on the last painted row."""
+        vis = self.visible_events()
+        if not vis:
+            return bool(self.events)
+        key = cursor_row_key(self)
+        if key is not None and key.isdigit() and int(key) == int(vis[-1].index):
+            return True
+        max_y = float(getattr(self, "max_scroll_y", 0) or 0)
+        if max_y <= 0:
+            return False
+        return float(getattr(self, "scroll_y", 0) or 0) >= max_y - 1
+
+    def emit_need_more_if_at_end(self) -> None:
+        """Post :class:`NeedMore` when the last painted row is in view."""
+        if self.at_visible_end():
+            self.post_message(self.NeedMore())
+
+    def watch_scroll_y(self, old: float, new: float) -> None:
+        super().watch_scroll_y(old, new)
+        self.emit_need_more_if_at_end()
+
     def scroll_to_end(self) -> None:
         """Put the cursor on the last row and scroll it into view."""
         if self.row_count <= 0:
             return
         with suppress(Exception):
             self.move_cursor(row=self.row_count - 1, animate=False, scroll=True)
+            self.emit_need_more_if_at_end()
 
     def _append_live_rows(self, new_events: list[TraceEvent], *, follow_tail: bool) -> None:
         """Append rows; keep highlight/scroll still unless Tail is on."""
@@ -705,3 +731,4 @@ class TimelineTable(DataTable):
         matching = [e for e in self.events if e.index == idx]
         if matching:
             self.post_message(self.EventSelected(matching[0]))
+        self.emit_need_more_if_at_end()

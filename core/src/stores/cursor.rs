@@ -1,7 +1,7 @@
 //! Cursor agent-transcript jsonl.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
-use crate::jsonl::{self, JsonlRow};
+use crate::event::{Event, EventType, SessionLocator};
+use crate::jsonl::JsonlRow;
 use crate::store::Store;
 use crate::text;
 use serde_json::Value;
@@ -133,28 +133,15 @@ impl Store for Cursor {
             .collect()
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-        if !locator.is_file() {
-            return Err(format!("cursor session not found: {session_id}"));
-        }
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            harness: "cursor".into(),
-            model_id: "unknown".into(),
-            ..ListMeta::default()
-        })
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
+        crate::store::jsonl_records(locator, self.id(), session_id)
     }
 
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
-        if !locator.is_file() {
-            return Err(format!("cursor session not found: {session_id}"));
-        }
-        let mut events = Vec::new();
-        for row in jsonl::read_objects(locator) {
-            events.extend(from_row(&row));
-        }
-        text::index_events(&mut events);
-        Ok(events)
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        records.iter().flat_map(from_row).collect()
     }
 }

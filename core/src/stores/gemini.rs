@@ -1,6 +1,6 @@
 //! Gemini CLI jsonl conversation.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, SessionLocator};
 use crate::jsonl;
 use crate::store::Store;
 use crate::text;
@@ -125,12 +125,12 @@ fn timeline_of(messages: &[Value]) -> Vec<Event> {
             if body.trim().is_empty() || is_chrome(&body) {
                 continue;
             }
-            events.push(
-                Event::new(EventType::TurnStarted)
-                    .with_ts(ts)
-                    .with_content(format!("turn_number={turn}"))
-                    .with_raw(&raw),
-            );
+            let mut start = Event::new(EventType::TurnStarted)
+                .with_ts(ts)
+                .with_content(format!("turn_number={turn}"))
+                .with_raw(&raw);
+            start.turn_number = Some(turn);
+            events.push(start);
             events.push(
                 Event::new(EventType::UserMessageChunk)
                     .with_ts(ts)
@@ -215,7 +215,6 @@ fn timeline_of(messages: &[Value]) -> Vec<Event> {
             }
         }
     }
-    text::index_events(&mut events);
     events
 }
 
@@ -243,24 +242,26 @@ impl Store for Gemini {
             .collect()
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-        if !locator.is_file() {
-            return Err(format!("gemini session not found: {session_id}"));
-        }
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            harness: "gemini".into(),
-            model_id: "unknown".into(),
-            ..ListMeta::default()
-        })
-    }
-
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
         if !locator.is_file() {
             return Err(format!("gemini session not found: {session_id}"));
         }
         let (_meta, messages) = load_conversation(locator);
-        Ok(timeline_of(&messages))
+        Ok(messages
+            .into_iter()
+            .map(|value| crate::store::Record {
+                raw: serde_json::to_string(&value).unwrap_or_default(),
+                value,
+            })
+            .collect())
+    }
+
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        let messages: Vec<Value> = records.iter().map(|r| r.value.clone()).collect();
+        timeline_of(&messages)
     }
 }

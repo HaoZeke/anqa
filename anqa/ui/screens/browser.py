@@ -2092,6 +2092,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._rebuild_turn_select()
         self._update_diff_tab()
         self._paint_visible_secondary_panes()
+        try:
+            self.query_one("#timeline-list", TimelineTable).emit_need_more_if_at_end()
+        except Exception:
+            pass
 
     @staticmethod
     def _fmt_dur(seconds: float) -> str:
@@ -2381,14 +2385,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
         self._open_subagent_run(self._run_for_bookend_event(ev))
 
+    @on(TimelineTable.NeedMore)
+    def _on_timeline_need_more(self) -> None:
+        """Last painted row is in view — fetch the next owner page."""
+        self._maybe_fill_control_timeline()
+
     @on(TimelineTable.EventSelected)
     def _on_event_selected(self, message: TimelineTable.EventSelected) -> None:
         """Update selection; debounce detail paint while the operator scrolls."""
         ev = message.event
         self._current_event = ev
-        tl = self.timeline or []
-        if tl and ev.index == tl[-1].index:
-            self._maybe_fill_control_timeline()
         self.refresh_bindings()
         # Coalesce rapid RowHighlighted events (hold-down / wheel) so Rich/Textual
         # do not reflow the detail pane on every intermediate row.

@@ -170,6 +170,8 @@ def _is_turn_ended(ev: TraceEvent) -> bool:
 
 
 def _turn_number_from_event(ev: TraceEvent) -> int | None:
+    if ev.turn_number is not None:
+        return int(ev.turn_number)
     m = _TURN_NUM_RE.search(ev.content or "")
     if not m:
         return None

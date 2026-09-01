@@ -1,7 +1,7 @@
 //! Claude Code jsonl store.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
-use crate::jsonl::{self, JsonlRow};
+use crate::event::{Event, EventType, SessionLocator};
+use crate::jsonl::JsonlRow;
 use crate::store::Store;
 use crate::text;
 use serde_json::Value;
@@ -109,12 +109,12 @@ fn timeline_rows(rows: &[JsonlRow]) -> Vec<Event> {
             } else {
                 let text_body = text::text_of(msg.get("content").unwrap_or(&Value::Null));
                 if !text_body.trim().is_empty() {
-                    events.push(
-                        Event::new(EventType::TurnStarted)
-                            .with_ts(ts)
-                            .with_content(format!("turn_number={turn}"))
-                            .with_raw(&row.raw),
-                    );
+                    let mut start = Event::new(EventType::TurnStarted)
+                        .with_ts(ts)
+                        .with_content(format!("turn_number={turn}"))
+                        .with_raw(&row.raw);
+                    start.turn_number = Some(turn);
+                    events.push(start);
                     events.push(
                         Event::new(EventType::UserMessageChunk)
                             .with_ts(ts)
@@ -128,7 +128,6 @@ fn timeline_rows(rows: &[JsonlRow]) -> Vec<Event> {
             events.extend(assistant(&row.value, ts, &children, &row.raw));
         }
     }
-    text::index_events(&mut events);
     events
 }
 
@@ -194,7 +193,7 @@ fn assistant(
                     let desc = text::field_str(&input, "description");
                     let mut spawn = Event::new(EventType::SubagentSpawned)
                         .with_ts(ts)
-                        .with_content(format!("spawned {typ}: {desc}").trim().to_string())
+                        .with_content(format!("spawned {typ}: {desc}").trim())
                         .with_raw(raw);
                     spawn.child_session_id = child;
                     spawn.subagent_type = typ;
@@ -282,26 +281,15 @@ impl Store for Claude {
             .collect()
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-        if !locator.is_file() {
-            return Err(format!("claude session not found: {session_id}"));
-        }
-        let _rows = jsonl::window(locator);
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            model_id: "unknown".into(),
-            title: String::new(),
-            harness: "claude".into(),
-            turn_outcome: String::new(),
-            ..ListMeta::default()
-        })
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
+        crate::store::jsonl_records(locator, self.id(), session_id)
     }
 
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
-        if !locator.is_file() {
-            return Err(format!("claude session not found: {session_id}"));
-        }
-        Ok(timeline_rows(&jsonl::read_objects(locator)))
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        timeline_rows(records)
     }
 }

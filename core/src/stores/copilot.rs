@@ -1,6 +1,6 @@
 //! Copilot session-store.db plus events.jsonl.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, SessionLocator};
 use crate::jsonl;
 use crate::store::Store;
 use crate::text;
@@ -139,17 +139,11 @@ impl Store for Copilot {
         out
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            harness: "copilot".into(),
-            model_id: "unknown".into(),
-            ..ListMeta::default()
-        })
-    }
-
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
         let path = if locator.extension().and_then(|s| s.to_str()) == Some("jsonl") {
             locator.to_path_buf()
         } else {
@@ -158,11 +152,10 @@ impl Store for Copilot {
         if !path.is_file() {
             return Ok(Vec::new());
         }
-        let mut events: Vec<Event> = jsonl::read_objects(&path)
-            .into_iter()
-            .filter_map(|row| from_row(&row))
-            .collect();
-        text::index_events(&mut events);
-        Ok(events)
+        Ok(jsonl::read_objects(&path))
+    }
+
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        records.iter().filter_map(from_row).collect()
     }
 }

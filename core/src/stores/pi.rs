@@ -60,12 +60,12 @@ fn timeline_rows(rows: &[JsonlRow]) -> Vec<Event> {
         let ts =
             text::field_i64(&row.value, "timestamp").or_else(|| text::field_i64(&msg, "timestamp"));
         if role == "user" {
-            events.push(
-                Event::new(EventType::TurnStarted)
-                    .with_ts(ts)
-                    .with_content(format!("turn_number={turn}"))
-                    .with_raw(row.raw.clone()),
-            );
+            let mut start = Event::new(EventType::TurnStarted)
+                .with_ts(ts)
+                .with_content(format!("turn_number={turn}"))
+                .with_raw(row.raw.clone());
+            start.turn_number = Some(turn);
+            events.push(start);
             events.push(
                 Event::new(EventType::UserMessageChunk)
                     .with_ts(ts)
@@ -83,7 +83,6 @@ fn timeline_rows(rows: &[JsonlRow]) -> Vec<Event> {
             events.extend(assistant_events(&msg, ts, &row.raw));
         }
     }
-    text::index_events(&mut events);
     events
 }
 
@@ -146,7 +145,7 @@ fn assistant_events(msg: &Value, ts: Option<i64>, raw: &str) -> Vec<Event> {
                         let desc = text::field_str(task, "task");
                         let mut spawn = Event::new(EventType::SubagentSpawned)
                             .with_ts(ts)
-                            .with_content(format!("spawned {agent}: {desc}").trim().to_string())
+                            .with_content(format!("spawned {agent}: {desc}").trim())
                             .with_raw(raw);
                         spawn.child_session_id = format!("{call_id}:{i}");
                         spawn.subagent_type = agent;
@@ -292,6 +291,18 @@ impl Store for Pi {
         out
     }
 
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
+        crate::store::jsonl_records(locator, self.id(), session_id)
+    }
+
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        timeline_rows(records)
+    }
+
     fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
         if !locator.is_file() {
             return Err(format!("pi session not found: {session_id}"));
@@ -340,12 +351,5 @@ impl Store for Pi {
         };
         let _ = stamp;
         Ok(meta)
-    }
-
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
-        if !locator.is_file() {
-            return Err(format!("pi session not found: {session_id}"));
-        }
-        Ok(timeline_rows(&jsonl::read_objects(locator)))
     }
 }

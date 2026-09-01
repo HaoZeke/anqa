@@ -95,8 +95,8 @@ impl EventType {
             "scheduled_task_fired" => Self::ScheduledTaskFired,
             "scheduled_task_deleted" => Self::ScheduledTaskDeleted,
             "turn_completed" => Self::TurnCompleted,
-            "subagent_spawned" => Self::SubagentSpawned,
-            "subagent_finished" => Self::SubagentFinished,
+            "subagent_spawned" | "subagent_started" => Self::SubagentSpawned,
+            "subagent_finished" | "subagent_completed" => Self::SubagentFinished,
             "current_mode_update" => Self::CurrentModeUpdate,
             "retry_state" => Self::RetryState,
             "goal_updated" => Self::GoalUpdated,
@@ -116,6 +116,39 @@ impl EventType {
             other => Self::Other(other.to_string()),
         }
     }
+
+    #[must_use]
+    pub fn is_message_chunk(&self) -> bool {
+        matches!(
+            self,
+            Self::UserMessageChunk | Self::AgentMessageChunk | Self::AgentThoughtChunk
+        )
+    }
+
+    #[must_use]
+    pub fn is_scheduled_task(&self) -> bool {
+        matches!(
+            self,
+            Self::ScheduledTaskCreated
+                | Self::ScheduledTaskUpdated
+                | Self::ScheduledTaskFired
+                | Self::ScheduledTaskDeleted
+        )
+    }
+
+    /// ``events.jsonl`` rows that belong on the timeline (turn bookends / errors).
+    #[must_use]
+    pub fn is_turn_marker(&self) -> bool {
+        matches!(
+            self,
+            Self::TurnStarted
+                | Self::TurnEnded
+                | Self::SessionError
+                | Self::Error
+                | Self::TurnError
+                | Self::FatalError
+        )
+    }
 }
 
 /// One timeline row. `raw` is the original store record as text.
@@ -131,6 +164,7 @@ pub struct Event {
     pub is_error: bool,
     pub update_index: u32,
     pub prompt_index: Option<i32>,
+    pub turn_number: Option<i32>,
     pub child_session_id: String,
     pub subagent_type: String,
     pub description: String,
@@ -150,6 +184,7 @@ impl Event {
             is_error: false,
             update_index: 0,
             prompt_index: None,
+            turn_number: None,
             child_session_id: String::new(),
             subagent_type: String::new(),
             description: String::new(),
@@ -179,6 +214,39 @@ impl Event {
         let val: Value = serde_json::from_str(&self.raw).ok()?;
         val.as_object().cloned().map(Value::Object)
     }
+
+    /// Copy each numbered ``turn_started`` onto later rows.
+    ///
+    /// Rows before the first start inherit that start. A session with no
+    /// numbered starts stamps ``0`` on every row.
+    pub fn carry_turn_numbers(events: &mut [Self]) {
+        let has_numbered_start = events
+            .iter()
+            .any(|ev| matches!(ev.event_type, EventType::TurnStarted) && ev.turn_number.is_some());
+        if !has_numbered_start {
+            for ev in events.iter_mut() {
+                ev.turn_number = Some(0);
+            }
+            return;
+        }
+        let mut current: Option<i32> = None;
+        let mut pending: Vec<usize> = Vec::new();
+        for i in 0..events.len() {
+            if matches!(events[i].event_type, EventType::TurnStarted) {
+                if let Some(n) = events[i].turn_number {
+                    current = Some(n);
+                    for j in pending.drain(..) {
+                        events[j].turn_number = Some(n);
+                    }
+                }
+            }
+            if let Some(n) = current {
+                events[i].turn_number = Some(n);
+            } else {
+                pending.push(i);
+            }
+        }
+    }
 }
 
 /// List-grade session stamp.
@@ -201,6 +269,20 @@ pub struct ListMeta {
     pub subagent_count: u32,
 }
 
+impl ListMeta {
+    /// Empty list row for *session_id* at *locator*.
+    #[must_use]
+    pub fn for_session(harness: &str, locator: &std::path::Path, session_id: &str) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            locator: locator.to_path_buf(),
+            harness: harness.to_string(),
+            model_id: "unknown".into(),
+            ..Self::default()
+        }
+    }
+}
+
 /// Cheap file stamp (mtime, size, extra, extra).
 pub type FileStamp = (f64, u64, u64, u64);
 
@@ -211,4 +293,35 @@ pub struct SessionLocator {
     pub session_id: String,
     pub locator: PathBuf,
     pub cwd: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Event, EventType};
+
+    #[test]
+    fn carry_turn_numbers_stamps_zero_without_starts() {
+        let mut evs = vec![
+            Event::new(EventType::UserMessageChunk),
+            Event::new(EventType::AgentMessageChunk),
+        ];
+        Event::carry_turn_numbers(&mut evs);
+        assert_eq!(evs[0].turn_number, Some(0));
+        assert_eq!(evs[1].turn_number, Some(0));
+    }
+
+    #[test]
+    fn carry_turn_numbers_backfills_then_forwards() {
+        let mut start = Event::new(EventType::TurnStarted);
+        start.turn_number = Some(3);
+        let mut evs = vec![
+            Event::new(EventType::UserMessageChunk),
+            start,
+            Event::new(EventType::AgentMessageChunk),
+        ];
+        Event::carry_turn_numbers(&mut evs);
+        assert_eq!(evs[0].turn_number, Some(3));
+        assert_eq!(evs[1].turn_number, Some(3));
+        assert_eq!(evs[2].turn_number, Some(3));
+    }
 }

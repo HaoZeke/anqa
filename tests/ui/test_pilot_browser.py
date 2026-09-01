@@ -1301,6 +1301,65 @@ async def test_browser_control_paints_first_page_before_remainder(
 
 
 @pytest.mark.asyncio
+async def test_browser_control_end_of_list_fetches_next_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor on the last painted row asks the owner for the next page."""
+    from anqa.session import wire_timeline as wt
+    from anqa.session.control_views import build_session_overview, build_session_timeline
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    monkeypatch.setattr(wt, "TIMELINE_RPC_LIMIT", 1)
+    offsets: list[int] = []
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            return build_session_overview(sess)
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            offsets.append(int(kwargs.get("offset") or 0))
+            return build_session_timeline(
+                sess,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 1),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    access = _Access()
+    app = _host_app(work, traces)
+    app.is_control_client = lambda: True  # type: ignore[method-assign]
+    app.session_access = lambda: access  # type: ignore[method-assign]
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        app.push_screen(BrowserScreen(sess))
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, BrowserScreen) and bool(app.screen.timeline),
+            description="control first page returned",
+        )
+        screen = app.screen
+        assert isinstance(screen, BrowserScreen)
+        screen._stop_live_refresh()
+        await wait_until(
+            pilot,
+            lambda: screen.query_one("#timeline-list", TimelineTable).row_count >= 1,
+            description="first timeline page painted",
+        )
+        first_n = len(screen.timeline)
+        if first_n == 1:
+            assert screen._timeline_events_complete is False
+            screen.query_one("#timeline-list", TimelineTable).scroll_to_end()
+        await wait_until(
+            pilot,
+            lambda: len(screen.timeline) > 1,
+            description="next page fetched from last painted row",
+        )
+        assert any(off > 0 for off in offsets)
+
+
+@pytest.mark.asyncio
 async def test_browser_control_turn_pick_refetches_that_turn(
     tmp_path: Path,
 ) -> None:

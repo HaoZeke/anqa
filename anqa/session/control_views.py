@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from collections import Counter
 from concurrent.futures import Future
 from pathlib import Path
@@ -17,7 +18,7 @@ from typing import ClassVar
 from .. import event_types as et
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
-from ..harness.registry import harness_product, require_adapter
+from ..harness.registry import harness_product, ref_from_path, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..notes import load_schema, notes_snapshot
 from ..session.tagged_blocks import unwrap_for_display
@@ -642,6 +643,240 @@ def timeline_query_hit(event: TraceEvent, query: str) -> tuple[str, str] | None:
     return None
 
 
+class SessionTimeline:
+    """Paged ``session/timeline`` payload for one session directory."""
+
+    def __init__(self, session_dir: Path) -> None:
+        self.session_dir = Path(session_dir)
+
+    def build(
+        self,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        event_type: str = "",
+        kind: str = "",
+        query: str = "",
+        prompt_index: int | None = None,
+        around_index: int | None = None,
+        at_index: int | None = None,
+        content_chars: int = DEFAULT_CONTENT_CHARS,
+    ) -> JsonObject:
+        """Native page when the request has no type/kind/query/turn filter."""
+        if (
+            (event_type or "").strip()
+            or (kind or "").strip()
+            or (query or "").strip()
+            or prompt_index is not None
+        ):
+            return self.scan(
+                offset=offset,
+                limit=limit,
+                event_type=event_type,
+                kind=kind,
+                query=query,
+                prompt_index=prompt_index,
+                around_index=around_index,
+                at_index=at_index,
+                content_chars=content_chars,
+            )
+        return self.page(
+            offset=offset,
+            limit=limit,
+            around_index=around_index,
+            at_index=at_index,
+            content_chars=content_chars,
+        )
+
+    def page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        around_index: int | None = None,
+        at_index: int | None = None,
+        content_chars: int = DEFAULT_CONTENT_CHARS,
+    ) -> JsonObject:
+        """One native slice. Does not inflate the full Python timeline."""
+        from ..core import timeline_page
+
+        t0 = time.perf_counter()
+        sd = self.session_dir
+        ref = ref_from_path(sd)
+        if ref is None:
+            raise FileNotFoundError(f"no adapter for session: {sd}")
+        off = max(0, int(offset))
+        lim = (
+            DEFAULT_TIMELINE_LIMIT if limit is None else max(0, min(int(limit), MAX_TIMELINE_LIMIT))
+        )
+        if at_index is not None:
+            off = max(0, int(at_index))
+            lim = 1
+        elif around_index is not None:
+            off = max(0, int(around_index) - 8)
+        events, total = timeline_page(
+            ref.harness, ref.locator, ref.session_id, offset=off, limit=lim
+        )
+        if at_index is not None and (not events or int(events[0].index) != int(at_index)):
+            events = []
+            off = 0
+            lim = 0
+        rows: list[JsonValue] = [
+            timeline_event_mapping(
+                ev,
+                content_chars=content_chars,
+                turn_index=ev.turn_number,
+                session_dir=sd,
+            )
+            for ev in events
+        ]
+        logger.debug(
+            "session/timeline page harness=%s total=%s offset=%s limit=%s events=%s %.1fms",
+            ref.harness,
+            total,
+            off,
+            lim,
+            len(rows),
+            (time.perf_counter() - t0) * 1000,
+        )
+        return {
+            "sessionId": sd.name,
+            "total": total,
+            "offset": off,
+            "limit": lim,
+            "events": rows,
+        }
+
+    def scan(
+        self,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        event_type: str = "",
+        kind: str = "",
+        query: str = "",
+        prompt_index: int | None = None,
+        around_index: int | None = None,
+        at_index: int | None = None,
+        content_chars: int = DEFAULT_CONTENT_CHARS,
+    ) -> JsonObject:
+        """Filtered timeline: parse once, then page the matching rows."""
+        t0 = time.perf_counter()
+        sd = self.session_dir
+        events = require_adapter(sd).parse_timeline(sd)
+        _segs, turn_by_index = SessionOverview.turn_view(sd, events)
+        prompt_indexes: set[int] | None = None
+        if prompt_index is not None:
+            prompt_indexes = TurnSegment.indexes_for_prompt(_segs, int(prompt_index))
+        type_filter = (event_type or "").strip().casefold()
+        query_hits: set[int] | None = None
+        if query.strip():
+            query_hits = set(
+                matching_indexes(
+                    events,
+                    query,
+                    key=str(sd.resolve()),
+                    stamp=require_adapter(sd).timeline_stamp(sd),
+                    turns=turn_by_index,
+                )
+            )
+        filtered: list[TraceEvent] = []
+        for ev in events:
+            if type_filter and type_filter not in (ev.event_type or "").casefold():
+                if type_filter not in (ev.type_label or "").casefold():
+                    continue
+            if not event_matches_timeline_kind(ev, kind):
+                continue
+            if query_hits is not None and int(ev.index) not in query_hits:
+                continue
+            if prompt_indexes is not None and int(ev.index) not in prompt_indexes:
+                continue
+            filtered.append(ev)
+        total = len(filtered)
+        off = max(0, int(offset))
+        lim = (
+            DEFAULT_TIMELINE_LIMIT if limit is None else max(0, min(int(limit), MAX_TIMELINE_LIMIT))
+        )
+        if at_index is not None:
+            target = int(at_index)
+            hit = next((i for i, ev in enumerate(filtered) if int(ev.index) == target), None)
+            if hit is None:
+                off = 0
+                lim = 0
+            else:
+                off = hit
+                lim = 1
+        elif around_index is not None:
+            target = int(around_index)
+            hit = next((i for i, ev in enumerate(filtered) if int(ev.index) >= target), None)
+            if hit is None and filtered:
+                hit = len(filtered) - 1
+            if hit is not None:
+                off = max(0, hit - 8)
+        page = filtered[off : off + lim] if lim else []
+        q = (query or "").strip()
+        spawn_ident: dict[str, tuple[str, str]] = {}
+        for ev in events:
+            if ev.event_type != "subagent_spawned":
+                continue
+            child = event_child_session_id(ev)
+            if not child:
+                continue
+            bag = ev.raw_input.raw() if isinstance(ev.raw_input, ToolInputBag) else {}
+            fields = spawn_fields(bag if isinstance(bag, dict) else {})
+            spawn_ident[child] = (
+                fields.get("subagent_type") or "",
+                fields.get("description") or "",
+            )
+        events_out: list[JsonValue] = []
+        for ev in page:
+            row = timeline_event_mapping(
+                ev,
+                content_chars=content_chars,
+                turn_index=turn_by_index.get(int(ev.index)),
+                session_dir=sd,
+            )
+            child = event_child_session_id(ev)
+            ident = spawn_ident.get(child) if child else None
+            if ident is not None:
+                typ, desc = ident
+                raw_out = row.get("rawInput")
+                if isinstance(raw_out, dict):
+                    if typ:
+                        raw_out.setdefault("subagentType", typ)
+                    if desc:
+                        raw_out.setdefault("description", desc)
+                if typ and not row.get("subagentType"):
+                    row["subagentType"] = typ
+                if desc and not row.get("description"):
+                    row["description"] = desc
+                if ev.event_type in et.SUBAGENT_TYPES and desc:
+                    row["preview"] = desc[:200]
+            if q:
+                match = timeline_query_hit(ev, q)
+                if match is not None:
+                    field, snippet = match
+                    row["matchField"] = field
+                    row["matchSnippet"] = snippet
+            events_out.append(row)
+        logger.debug(
+            "session/timeline scan total=%s filtered=%s offset=%s limit=%s events=%s %.1fms",
+            len(events),
+            total,
+            off,
+            lim,
+            len(events_out),
+            (time.perf_counter() - t0) * 1000,
+        )
+        return {
+            "sessionId": sd.name,
+            "total": total,
+            "offset": off,
+            "limit": lim,
+            "events": events_out,
+        }
+
+
 def build_session_timeline(
     session_dir: Path,
     *,
@@ -656,107 +891,17 @@ def build_session_timeline(
     content_chars: int = DEFAULT_CONTENT_CHARS,
 ) -> JsonObject:
     """Paged timeline for ``session/timeline``."""
-    sd = Path(session_dir)
-    events = require_adapter(sd).parse_timeline(sd)
-    # Enclosing turn_started.turn_number on each event (HUD/TUI column).
-    _segs, turn_by_index = SessionOverview.turn_view(sd, events)
-    prompt_indexes: set[int] | None = None
-    if prompt_index is not None:
-        prompt_indexes = TurnSegment.indexes_for_prompt(_segs, int(prompt_index))
-    type_filter = (event_type or "").strip().casefold()
-    query_hits: set[int] | None = None
-    if query.strip():
-        query_hits = set(
-            matching_indexes(
-                events,
-                query,
-                key=str(sd.resolve()),
-                stamp=require_adapter(sd).timeline_stamp(sd),
-                turns=turn_by_index,
-            )
-        )
-    filtered: list[TraceEvent] = []
-    for ev in events:
-        if type_filter and type_filter not in (ev.event_type or "").casefold():
-            if type_filter not in (ev.type_label or "").casefold():
-                continue
-        if not event_matches_timeline_kind(ev, kind):
-            continue
-        if query_hits is not None and int(ev.index) not in query_hits:
-            continue
-        if prompt_indexes is not None and int(ev.index) not in prompt_indexes:
-            continue
-        filtered.append(ev)
-    total = len(filtered)
-    off = max(0, int(offset))
-    lim = DEFAULT_TIMELINE_LIMIT if limit is None else max(0, min(int(limit), MAX_TIMELINE_LIMIT))
-    if at_index is not None:
-        target = int(at_index)
-        hit = next((i for i, ev in enumerate(filtered) if int(ev.index) == target), None)
-        if hit is None:
-            off = 0
-            lim = 0
-        else:
-            off = hit
-            lim = 1
-    elif around_index is not None:
-        target = int(around_index)
-        hit = next((i for i, ev in enumerate(filtered) if int(ev.index) >= target), None)
-        if hit is None and filtered:
-            hit = len(filtered) - 1
-        if hit is not None:
-            off = max(0, hit - 8)
-    page = filtered[off : off + lim] if lim else []
-    q = (query or "").strip()
-    spawn_ident: dict[str, tuple[str, str]] = {}
-    for ev in events:
-        if ev.event_type != "subagent_spawned":
-            continue
-        child = event_child_session_id(ev)
-        if not child:
-            continue
-        bag = ev.raw_input.raw() if isinstance(ev.raw_input, ToolInputBag) else {}
-        fields = spawn_fields(bag if isinstance(bag, dict) else {})
-        spawn_ident[child] = (fields.get("subagent_type") or "", fields.get("description") or "")
-    events_out: list[JsonValue] = []
-    for ev in page:
-        row = timeline_event_mapping(
-            ev,
-            content_chars=content_chars,
-            turn_index=turn_by_index.get(int(ev.index)),
-            session_dir=sd,
-        )
-        child = event_child_session_id(ev)
-        ident = spawn_ident.get(child) if child else None
-        if ident is not None:
-            typ, desc = ident
-            raw_out = row.get("rawInput")
-            if isinstance(raw_out, dict):
-                if typ:
-                    raw_out.setdefault("subagentType", typ)
-                if desc:
-                    raw_out.setdefault("description", desc)
-            if typ and not row.get("subagentType"):
-                row["subagentType"] = typ
-            if desc and not row.get("description"):
-                row["description"] = desc
-            if ev.event_type in et.SUBAGENT_TYPES and desc:
-                row["preview"] = desc[:200]
-        if q:
-            # Distinct name: earlier branches bind ``hit`` as a page index.
-            match = timeline_query_hit(ev, q)
-            if match is not None:
-                field, snippet = match
-                row["matchField"] = field
-                row["matchSnippet"] = snippet
-        events_out.append(row)
-    return {
-        "sessionId": sd.name,
-        "total": total,
-        "offset": off,
-        "limit": lim,
-        "events": events_out,
-    }
+    return SessionTimeline(session_dir).build(
+        offset=offset,
+        limit=limit,
+        event_type=event_type,
+        kind=kind,
+        query=query,
+        prompt_index=prompt_index,
+        around_index=around_index,
+        at_index=at_index,
+        content_chars=content_chars,
+    )
 
 
 def build_session_turns(session_dir: Path, *, query: str = "") -> JsonObject:
@@ -824,6 +969,7 @@ __all__ = [
     "build_session_turns",
     "warm_timeline_search",
     "SessionOverview",
+    "SessionTimeline",
     "timeline_query_hit",
     "session_meta_mapping",
     "timeline_event_mapping",

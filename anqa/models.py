@@ -400,6 +400,7 @@ class TraceEvent:
     is_error: bool = False
     update_index: int = 0
     prompt_index: int | None = None
+    turn_number: int | None = None
     images: list[bytes] = field(default_factory=list)
     still_paths: list[str] = field(default_factory=list)
     raw: str = ""

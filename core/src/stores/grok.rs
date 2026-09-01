@@ -1,6 +1,6 @@
 //! Grok session directory (`updates.jsonl` + `events.jsonl`).
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, SessionLocator};
 use crate::jsonl;
 use crate::scan::keep_updates_line;
 use crate::store::Store;
@@ -13,26 +13,63 @@ use std::path::{Path, PathBuf};
 
 pub struct Grok;
 
-fn consume_line(line: &str, events: &mut Vec<Event>) {
+fn update_raw(update: &Value, line: &str) -> String {
+    serde_json::to_string(update).unwrap_or_else(|_| line.to_string())
+}
+
+fn prompt_index(update: &Value) -> Option<i32> {
+    update
+        .get("_meta")
+        .and_then(|meta| text::field_i64(meta, "promptIndex"))
+        .map(|n| n as i32)
+}
+
+fn task_family_raw(update: &Value, line: &str) -> String {
+    let mut merged = serde_json::Map::new();
+    if let Some(Value::Object(snap)) = update.get("task_snapshot") {
+        for (key, val) in snap {
+            merged.insert(key.clone(), val.clone());
+        }
+    }
+    if let Some(obj) = update.as_object() {
+        for (key, val) in obj {
+            merged.insert(key.clone(), val.clone());
+        }
+    }
+    serde_json::to_string(&Value::Object(merged)).unwrap_or_else(|_| line.to_string())
+}
+
+fn consume_line(
+    line: &str,
+    events: &mut Vec<Event>,
+    results: &mut std::collections::HashMap<String, usize>,
+) {
     if !keep_updates_line(line.as_bytes()) {
         return;
     }
     let Some(val) = jsonl::object_line(line) else {
         return;
     };
-    let params = val.get("params").cloned().unwrap_or(Value::Null);
-    let update = params.get("update").cloned().unwrap_or(Value::Null);
-    let etype = text::field_str(&update, "sessionUpdate");
-    let ts = text::field_i64(&val, "timestamp").or_else(|| text::field_i64(&val, "ts"));
-    match etype.as_str() {
-        "user_message_chunk" | "agent_message_chunk" | "agent_thought_chunk" => {
-            let mapped = EventType::parse(&etype);
+    let update = val
+        .pointer("/params/update")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let kind = EventType::parse(&text::field_str(&update, "sessionUpdate"));
+    let ts = text::epoch(&val);
+    match kind {
+        EventType::UserMessageChunk
+        | EventType::AgentMessageChunk
+        | EventType::AgentThoughtChunk => {
+            let mapped = kind;
             let content = text::text_of(update.get("content").unwrap_or(&Value::Null));
             if let Some(prev) = events.last_mut() {
                 if prev.event_type == mapped {
-                    if etype != "user_message_chunk" {
+                    if mapped != EventType::UserMessageChunk {
                         prev.content.push_str(&content);
                         prev.timestamp = ts.or(prev.timestamp);
+                        if prev.prompt_index.is_none() {
+                            prev.prompt_index = prompt_index(&update);
+                        }
                         return;
                     }
                     let old = prev.content.clone();
@@ -45,18 +82,21 @@ fn consume_line(line: &str, events: &mut Vec<Event>) {
                             prev.content = content;
                         }
                         prev.timestamp = ts.or(prev.timestamp);
+                        if prev.prompt_index.is_none() {
+                            prev.prompt_index = prompt_index(&update);
+                        }
                         return;
                     }
                 }
             }
-            events.push(
-                Event::new(mapped)
-                    .with_ts(ts)
-                    .with_content(content)
-                    .with_raw(line),
-            );
+            let mut ev = Event::new(mapped)
+                .with_ts(ts)
+                .with_content(content)
+                .with_raw(update_raw(&update, line));
+            ev.prompt_index = prompt_index(&update);
+            events.push(ev);
         }
-        "tool_call" => {
+        EventType::ToolCall => {
             let name = {
                 let n = text::field_str(&update, "toolName");
                 if n.is_empty() {
@@ -79,22 +119,46 @@ fn consume_line(line: &str, events: &mut Vec<Event>) {
             ev.tool_call_id = call_id;
             events.push(ev);
         }
-        "tool_call_update" => {
+        EventType::ToolCallUpdate => {
+            let call_id = text::field_str(&update, "toolCallId");
+            let body = text::text_of(update.get("content").unwrap_or(&Value::Null));
+            let failed = update.get("isError") == Some(&Value::Bool(true))
+                || text::field_str(&update, "status") == "failed";
+            let terminal = failed
+                || matches!(
+                    text::field_str(&update, "status").as_str(),
+                    "completed" | "failed"
+                );
+            if body.is_empty() && !failed {
+                return;
+            }
+            if let Some(&idx) = results.get(&call_id) {
+                if let Some(ev) = events.get_mut(idx) {
+                    if !body.is_empty() && (body.len() >= ev.content.len() || terminal) {
+                        ev.content = body;
+                    }
+                    ev.timestamp = ts.or(ev.timestamp);
+                    if failed {
+                        ev.is_error = true;
+                    }
+                }
+                return;
+            }
             let mut ev = Event::new(EventType::ToolCallUpdate)
                 .with_ts(ts)
-                .with_content(text::text_of(update.get("content").unwrap_or(&Value::Null)))
-                .with_raw(line);
+                .with_content(body)
+                .with_raw(update_raw(&update, line));
             ev.tool_name = text::field_str(&update, "toolName");
-            ev.tool_call_id = text::field_str(&update, "toolCallId");
-            ev.is_error = update.get("isError") == Some(&Value::Bool(true))
-                || text::field_str(&update, "status") == "failed";
+            ev.tool_call_id = call_id.clone();
+            ev.is_error = failed;
+            results.insert(call_id, events.len());
             events.push(ev);
         }
-        "subagent_spawned" | "subagent_started" => {
+        EventType::SubagentSpawned => {
             let mut ev = Event::new(EventType::SubagentSpawned)
                 .with_ts(ts)
                 .with_content(text::field_str(&update, "description"))
-                .with_raw(line);
+                .with_raw(update_raw(&update, line));
             ev.child_session_id = text::field_str(&update, "subagentId");
             if ev.child_session_id.is_empty() {
                 ev.child_session_id = text::field_str(&update, "childSessionId");
@@ -103,81 +167,123 @@ fn consume_line(line: &str, events: &mut Vec<Event>) {
             ev.description = text::field_str(&update, "description");
             events.push(ev);
         }
-        "subagent_finished" | "subagent_completed" => {
+        EventType::SubagentFinished => {
             let mut ev = Event::new(EventType::SubagentFinished)
                 .with_ts(ts)
                 .with_content(text::field_str(&update, "description"))
-                .with_raw(line);
+                .with_raw(update_raw(&update, line));
             ev.child_session_id = text::field_str(&update, "subagentId");
             events.push(ev);
         }
-        "task_backgrounded" => {
+        EventType::TaskBackgrounded => {
             events.push(
                 Event::new(EventType::TaskBackgrounded)
                     .with_ts(ts)
-                    .with_raw(line),
+                    .with_raw(task_family_raw(&update, line)),
             );
         }
-        "task_completed" => {
+        EventType::TaskCompleted => {
             events.push(
                 Event::new(EventType::TaskCompleted)
                     .with_ts(ts)
-                    .with_raw(line),
+                    .with_raw(task_family_raw(&update, line)),
             );
         }
-        "turn_completed" => {
+        EventType::TurnCompleted => {
             events.push(
                 Event::new(EventType::TurnCompleted)
                     .with_ts(ts)
-                    .with_raw(line),
+                    .with_raw(update_raw(&update, line)),
             );
         }
-        other if !other.is_empty() => {
+        EventType::Other(_) => {}
+        other => {
+            let raw = if other.is_scheduled_task() {
+                task_family_raw(&update, line)
+            } else {
+                update_raw(&update, line)
+            };
             events.push(
-                Event::new(EventType::parse(other))
+                Event::new(other)
                     .with_ts(ts)
                     .with_content(text::text_of(update.get("content").unwrap_or(&Value::Null)))
-                    .with_raw(line),
+                    .with_raw(raw),
             );
+        }
+    }
+}
+
+fn map_events_row(row: &crate::store::Record, events: &mut Vec<Event>) {
+    let kind = EventType::parse(&text::field_str(&row.value, "type"));
+    let ts = text::epoch(&row.value);
+    match &kind {
+        EventType::TurnStarted => {
+            let tn = text::field_i64(&row.value, "turn_number").map(|n| n as i32);
+            let mut parts = vec!["turn started".to_string()];
+            if let Some(n) = tn {
+                parts.push(format!("turn_number={n}"));
+            }
+            let model = text::field_str(&row.value, "model_id");
+            if !model.is_empty() {
+                parts.push(format!("model={model}"));
+            }
+            let mut ev = Event::new(EventType::TurnStarted)
+                .with_ts(ts)
+                .with_content(parts.join("  "))
+                .with_raw(&row.raw);
+            ev.turn_number = tn;
+            events.push(ev);
+        }
+        EventType::TurnEnded => {
+            let outcome = text::field_str(&row.value, "outcome");
+            let mut ev = Event::new(EventType::TurnEnded)
+                .with_ts(ts)
+                .with_content(format!("turn ended  outcome={outcome}"))
+                .with_raw(&row.raw);
+            if !matches!(
+                outcome.to_ascii_lowercase().as_str(),
+                "" | "success" | "ok" | "completed" | "complete" | "interjected"
+            ) {
+                ev.is_error = true;
+            }
+            events.push(ev);
+        }
+        EventType::SessionError
+        | EventType::Error
+        | EventType::TurnError
+        | EventType::FatalError => {
+            let label = kind.as_str();
+            let msg = ["message", "error", "detail"]
+                .iter()
+                .map(|k| text::field_str(&row.value, k))
+                .find(|s| !s.is_empty())
+                .unwrap_or_else(|| label.to_string());
+            let mut ev = Event::new(EventType::SessionError)
+                .with_ts(ts)
+                .with_content(format!("{label}: {msg}"))
+                .with_raw(&row.raw);
+            ev.is_error = true;
+            events.push(ev);
         }
         _ => {}
     }
 }
 
-fn events_jsonl(dir: &Path, events: &mut Vec<Event>) {
-    let path = dir.join("events.jsonl");
-    if !path.is_file() {
-        return;
-    }
-    for row in jsonl::read_objects(&path) {
-        let typ = text::field_str(&row.value, "type");
-        if typ.is_empty() {
+fn read_updates(dir: &Path) -> Vec<crate::store::Record> {
+    let path = dir.join("updates.jsonl");
+    let Ok(file) = File::open(&path) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        if !keep_updates_line(line.as_bytes()) {
             continue;
         }
-        let ts = text::field_i64(&row.value, "timestamp");
-        let ev_type = EventType::parse(&typ);
-        events.push(
-            Event::new(ev_type)
-                .with_ts(ts)
-                .with_content(text::text_of(
-                    row.value.get("content").unwrap_or(&Value::Null),
-                ))
-                .with_raw(row.raw),
-        );
-    }
-}
-
-fn parse_dir(dir: &Path) -> Vec<Event> {
-    let mut events = Vec::new();
-    let updates = dir.join("updates.jsonl");
-    if let Ok(file) = File::open(&updates) {
-        for line in BufReader::new(file).lines().map_while(Result::ok) {
-            consume_line(&line, &mut events);
+        if let Some(value) = jsonl::object_line(&line) {
+            out.push(crate::store::Record { raw: line, value });
         }
     }
-    events_jsonl(dir, &mut events);
-    text::index_events(&mut events);
-    events
+    out
 }
 
 impl Store for Grok {
@@ -219,27 +325,127 @@ impl Store for Grok {
         out
     }
 
-    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+    fn records(
+        &self,
+        locator: &Path,
+        session_id: &str,
+    ) -> Result<Vec<crate::store::Record>, String> {
         if !locator.is_dir() {
             return Err(format!("grok session not found: {session_id}"));
         }
-        Ok(ListMeta {
-            session_id: session_id.to_string(),
-            locator: locator.to_path_buf(),
-            harness: "grok".into(),
-            model_id: "unknown".into(),
-            ..ListMeta::default()
-        })
+        let mut rows = read_updates(locator);
+        rows.extend(jsonl::read_objects(&locator.join("events.jsonl")));
+        Ok(rows)
     }
 
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
-        if !locator.is_dir() {
-            return Err(format!("grok session not found: {session_id}"));
+    fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
+        let mut events = Vec::new();
+        let mut results = std::collections::HashMap::new();
+        for rec in records {
+            if rec.value.pointer("/params/update").is_some() {
+                consume_line(&rec.raw, &mut events, &mut results);
+            } else {
+                map_events_row(rec, &mut events);
+            }
         }
-        Ok(parse_dir(locator))
+        events.sort_by_key(|ev| {
+            let ts = ev.timestamp.unwrap_or(i64::MAX);
+            let start = u8::from(ev.event_type == EventType::TurnStarted);
+            (ts, ev.update_index, start, ev.index)
+        });
+        events
     }
 
     fn stamp(&self, locator: &Path) -> crate::event::FileStamp {
         jsonl::file_stamp(&locator.join("updates.jsonl"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+
+    #[test]
+    fn turn_markers_interleave_and_carry_turn_number() {
+        let dir = std::env::temp_dir().join(format!("anqa-grok-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut u = fs::File::create(dir.join("updates.jsonl")).unwrap();
+        writeln!(
+            u,
+            r#"{{"timestamp":100,"params":{{"update":{{"sessionUpdate":"user_message_chunk","content":"hi"}}}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            u,
+            r#"{{"timestamp":200,"params":{{"update":{{"sessionUpdate":"agent_message_chunk","content":"yo"}}}}}}"#
+        )
+        .unwrap();
+        drop(u);
+        let mut e = fs::File::create(dir.join("events.jsonl")).unwrap();
+        writeln!(
+            e,
+            r#"{{"ts":"1970-01-01T00:01:30Z","type":"turn_started","turn_number":0}}"#
+        )
+        .unwrap();
+        writeln!(
+            e,
+            r#"{{"ts":"1970-01-01T00:03:30Z","type":"turn_ended","outcome":"completed"}}"#
+        )
+        .unwrap();
+        drop(e);
+        let evs = Grok.timeline(&dir, "sess").unwrap();
+        let types: Vec<_> = evs.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(
+            types,
+            [
+                "turn_started",
+                "user_message_chunk",
+                "agent_message_chunk",
+                "turn_ended"
+            ]
+        );
+        assert_eq!(evs[0].turn_number, Some(0));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn runtime_noise_is_not_a_timeline_row() {
+        let dir = std::env::temp_dir().join(format!("anqa-grok-noise-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut u = fs::File::create(dir.join("updates.jsonl")).unwrap();
+        writeln!(
+            u,
+            r#"{{"timestamp":100,"params":{{"update":{{"sessionUpdate":"user_message_chunk","content":"hi"}}}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            u,
+            r#"{{"timestamp":101,"params":{{"update":{{"sessionUpdate":"phase_changed","phase":"act"}}}}}}"#
+        )
+        .unwrap();
+        drop(u);
+        let mut e = fs::File::create(dir.join("events.jsonl")).unwrap();
+        for typ in [
+            r#"{"ts":"1970-01-01T00:01:30Z","type":"turn_started","turn_number":0}"#,
+            r#"{"ts":"1970-01-01T00:01:31Z","type":"loop_started","loop_index":0}"#,
+            r#"{"ts":"1970-01-01T00:01:32Z","type":"first_token"}"#,
+            r#"{"ts":"1970-01-01T00:01:33Z","type":"phase_changed","phase":"act"}"#,
+            r#"{"ts":"1970-01-01T00:01:34Z","type":"tool_started"}"#,
+            r#"{"ts":"1970-01-01T00:01:35Z","type":"permission_requested"}"#,
+            r#"{"ts":"1970-01-01T00:01:36Z","type":"permission_resolved"}"#,
+            r#"{"ts":"1970-01-01T00:01:37Z","type":"tool_completed"}"#,
+            r#"{"ts":"1970-01-01T00:03:30Z","type":"turn_ended","outcome":"completed"}"#,
+        ] {
+            writeln!(e, "{typ}").unwrap();
+        }
+        drop(e);
+        let evs = Grok.timeline(&dir, "sess").unwrap();
+        let types: Vec<_> = evs.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(types, ["turn_started", "user_message_chunk", "turn_ended"]);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
