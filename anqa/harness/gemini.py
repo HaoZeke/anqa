@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .. import event_types as et
 from ..json_lines import json_lines
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..session.tagged_blocks import is_harness_user_chrome, operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
@@ -314,7 +314,7 @@ def _turn_outcome(messages: Sequence[JsonObject]) -> str:
             if not isinstance(item, dict):
                 continue
             mapped = from_last(str(item.get("status") or "").strip())
-            if mapped == "running":
+            if mapped is ListStatus.RUNNING:
                 return mapped
     return from_last("complete")
 

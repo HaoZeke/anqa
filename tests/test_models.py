@@ -7,6 +7,7 @@ from pathlib import Path
 
 from anqa.models import (
     LIST_STATUS_IDLE,
+    ListStatus,
     SessionMeta,
     ToolCall,
     TraceEvent,
@@ -224,6 +225,7 @@ class TestSessionMeta:
 
     def test_empty_turn_outcome_is_idle(self):
         meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="")
+        assert meta.list_status_label() is ListStatus.IDLE
         assert meta.list_status_label() == LIST_STATUS_IDLE
 
 

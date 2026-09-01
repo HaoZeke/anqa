@@ -10,9 +10,22 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
+from enum import StrEnum
 from pathlib import Path
 
 from .models import JsonObject, JsonValue, as_json_object, json_as_str
+
+
+class ToolFamily(StrEnum):
+    """Action family for tool-name color. Stored tool ids stay snake_case."""
+
+    READ = "read"
+    WRITE = "write"
+    SHELL = "shell"
+    AGENT = "agent"
+    MCP = "mcp"
+    OTHER = "other"
+
 
 _STILL_SUFFIX = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 _STILL_TOOLS = frozenset({"image_gen", "image_edit"})
@@ -88,27 +101,27 @@ _TOOL_FAMILY_MCP_WRAPPER = frozenset(
 )
 
 
-def tool_family(name: str) -> str:
-    """Map a tool id to read | write | shell | agent | mcp | other."""
+def tool_family(name: str) -> ToolFamily:
+    """Map a tool id to a :class:`ToolFamily` member."""
     n = (name or "").strip()
     if "__" in n or n.startswith("mcp_") or n in _TOOL_FAMILY_MCP_WRAPPER:
-        return "mcp"
+        return ToolFamily.MCP
     if n in _TOOL_FAMILY_READ:
-        return "read"
+        return ToolFamily.READ
     if n in _TOOL_FAMILY_WRITE:
-        return "write"
+        return ToolFamily.WRITE
     if n in _TOOL_FAMILY_SHELL:
-        return "shell"
+        return ToolFamily.SHELL
     if n in _TOOL_FAMILY_AGENT:
-        return "agent"
+        return ToolFamily.AGENT
     low = n.lower()
     if any(k in low for k in ("read", "get", "list", "search", "grep", "find", "view")):
-        return "read"
+        return ToolFamily.READ
     if any(k in low for k in ("write", "edit", "create", "update", "delete", "save")):
-        return "write"
+        return ToolFamily.WRITE
     if any(k in low for k in ("run", "exec", "shell", "terminal", "wait", "kill")):
-        return "shell"
-    return "other"
+        return ToolFamily.SHELL
+    return ToolFamily.OTHER
 
 
 def _human_tool_token(part: str) -> str:

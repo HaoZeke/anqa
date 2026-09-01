@@ -491,7 +491,7 @@ pub fn is_live_status(status: &str) -> bool {
         .trim()
         .to_ascii_lowercase()
         .replace(char::is_whitespace, "_");
-    if x.is_empty() || x == "—" || x == "-" {
+    if x.is_empty() || x == "—" || x == "-" || x == "idle" {
         return false;
     }
     if LIVE_STATUS.contains(&x.as_str()) {

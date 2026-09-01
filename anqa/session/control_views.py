@@ -226,32 +226,34 @@ def timeline_event_mapping(
     else:
         raw = preserve_primary_raw_input(as_json_object(raw), cap)
     kind = et.event_kind(event.event_type)
-    family = tool_family(tname) if kind in ("tool", "tool_result") or tname else ""
+    family = (
+        tool_family(tname) if kind in {et.EventKind.TOOL, et.EventKind.TOOL_RESULT} or tname else ""
+    )
     chrome_heading = (
         harness_user_chrome_heading(content_raw)
-        if kind == "user" or event.event_type in et.USER_TYPES
+        if kind is et.EventKind.USER or event.event_type in et.USER_TYPES
         else None
     )
     # Harness injects system-reminder / background-task bodies as user_message_chunk;
     # re-label so TUI/HUD do not present them as operator "User" rows.
     if chrome_heading is not None:
-        kind = "system"
+        kind = et.EventKind.SYSTEM
     # Prefer structured tool headline when available.
-    if kind == "tool" and tname:
+    if kind is et.EventKind.TOOL and tname:
         heading = tname if not family else f"{tname}"
-    elif kind == "tool_result" and tname:
+    elif kind is et.EventKind.TOOL_RESULT and tname:
         heading = f"{tname} result"
     elif chrome_heading is not None:
         heading = chrome_heading
-    elif kind == "user":
+    elif kind is et.EventKind.USER:
         heading = "User"
-    elif kind == "agent":
+    elif kind is et.EventKind.AGENT:
         heading = "Assistant"
-    elif kind == "thought":
+    elif kind is et.EventKind.THOUGHT:
         heading = "Thought"
-    elif kind == "error":
+    elif kind is et.EventKind.ERROR:
         heading = "Error"
-    elif kind == "system":
+    elif kind is et.EventKind.SYSTEM:
         heading = "System"
     else:
         heading = event.type_label

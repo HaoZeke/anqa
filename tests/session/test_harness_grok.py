@@ -126,7 +126,7 @@ def test_list_status_complete_and_running(tmp_path: Path) -> None:
     )
     (live / "events.jsonl").write_text('{"type":"turn_started"}\n', encoding="utf-8")
     assert_adapter_turn(done, "complete")
-    assert_adapter_turn(live, "—")
+    assert_adapter_turn(live, "idle")
 
 
 def _session_update(kind: str) -> str:
@@ -158,7 +158,7 @@ def test_list_status_events_turn_started_after_close_is_idle(tmp_path: Path) -> 
         '{"type":"turn_ended","outcome":"completed"}\n{"type":"turn_started"}\n',
         encoding="utf-8",
     )
-    assert_adapter_turn(sd, "—")
+    assert_adapter_turn(sd, "idle")
 
 
 def test_list_status_new_user_after_complete_is_not_complete(tmp_path: Path) -> None:
@@ -171,7 +171,7 @@ def test_list_status_new_user_after_complete_is_not_complete(tmp_path: Path) -> 
         _session_update("turn_completed") + _session_update("user_message_chunk"),
         encoding="utf-8",
     )
-    assert_adapter_turn(sd, "—")
+    assert_adapter_turn(sd, "idle")
 
 
 def test_watch_hints_include_updates_jsonl() -> None:

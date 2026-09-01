@@ -131,9 +131,9 @@ def test_list_status_close_bookend_live_and_later_user(tmp_path: Path) -> None:
         '{"id":"u2","type":"user","content":[{"text":"again"}]}',
     )
     assert_adapter_turn(closed, "complete")
-    assert_adapter_turn(bookend, "—")
+    assert_adapter_turn(bookend, "idle")
     assert_adapter_turn(live, "running")
-    assert_adapter_turn(later, "—")
+    assert_adapter_turn(later, "idle")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

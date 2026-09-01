@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .. import event_types as et
 from ..json_lines import json_lines
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
+from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, json_mapping
 from ..session.tagged_blocks import operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
@@ -168,7 +168,9 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     kind, status = _last_signal(rows)
     if kind == "turn_ended":
         mapped = from_last(status)
-        return mapped or "complete"
+        if mapped is ListStatus.IDLE:
+            return ListStatus.COMPLETE
+        return mapped
     return from_last(status)
 
 

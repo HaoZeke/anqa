@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar
 
@@ -28,7 +29,28 @@ from .workflows import (
     workflows_from_overview,
 )
 
-_MONITOR_LINE = {"DONE": "done", "FAILED": "failed", "CANCELLED": "cancelled"}
+
+class JobStatus(StrEnum):
+    """Background shell or monitor finish state."""
+
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class JobKind(StrEnum):
+    """Background row kind."""
+
+    BACKGROUND = "background"
+    MONITOR = "monitor"
+
+
+_MONITOR_LINE = {
+    "DONE": JobStatus.DONE,
+    "FAILED": JobStatus.FAILED,
+    "CANCELLED": JobStatus.CANCELLED,
+}
 JOB_INSPECT_LOG_CHARS = 50_000
 
 type _JobFileStamp = tuple[tuple[str, int, int], ...]
@@ -55,31 +77,31 @@ class BackgroundJob:
     tool_call_id: str = ""
 
     @staticmethod
-    def completed_status(row: JsonObject) -> str:
-        """``done`` / ``failed`` / ``cancelled`` from a finish mapping."""
+    def completed_status(row: JsonObject) -> JobStatus:
+        """Finish member from a mapping."""
         signal = json_as_str(row.get("signal")).casefold()
         if row.get("explicitly_killed") is True or signal in {"killed", "sigkill", "sigterm"}:
-            return "cancelled"
+            return JobStatus.CANCELLED
         code = row.get("exit_code")
         if isinstance(code, int) and code != 0:
-            return "failed"
-        return "done"
+            return JobStatus.FAILED
+        return JobStatus.DONE
 
     @staticmethod
-    def kind_from(row: JsonObject, output_path: str, description: str) -> str:
-        """``monitor`` or ``background`` from a mapping and log path."""
+    def kind_from(row: JsonObject, output_path: str, description: str) -> JobKind:
+        """Kind member from a mapping and log path."""
         raw = json_as_str(row.get("kind")).casefold()
-        if raw == "monitor" or "monitor-call" in output_path.replace("\\", "/"):
-            return "monitor"
+        if raw == JobKind.MONITOR or "monitor-call" in output_path.replace("\\", "/"):
+            return JobKind.MONITOR
         if json_as_str(row.get("monitor_description")).strip():
-            return "monitor"
+            return JobKind.MONITOR
         if description.casefold().startswith("live ") and "watch" in description.casefold():
-            return "monitor"
-        return "background"
+            return JobKind.MONITOR
+        return JobKind.BACKGROUND
 
     @staticmethod
-    def last_line_class(path: Path) -> str:
-        """``done`` / ``failed`` / ``cancelled`` / ``running`` from the log tail."""
+    def last_line_class(path: Path) -> JobStatus:
+        """Status member from the log tail."""
         try:
             with path.open("rb") as handle:
                 handle.seek(0, 2)
@@ -87,9 +109,9 @@ class BackgroundJob:
                 handle.seek(max(0, size - 512))
                 chunk = handle.read()
         except OSError:
-            return "running"
+            return JobStatus.RUNNING
         text = chunk.decode("utf-8", errors="replace")
-        return monitor_line_status(text) or "running"
+        return monitor_line_status(text) or JobStatus.RUNNING
 
     @staticmethod
     def log_file(session_dir: Path | None, output_path: str) -> Path | None:
@@ -147,7 +169,7 @@ class BackgroundJob:
         output = json_as_str(row.get("output_file")).strip()
         if output and not Path(output).is_absolute():
             output = str(session_dir / output)
-        status = "running"
+        status = JobStatus.RUNNING
         if row.get("completed") is True:
             status = cls.completed_status(row)
         return cls(
@@ -209,7 +231,7 @@ class BackgroundJob:
         )
         return BackgroundJob(
             job_id=extra.job_id or self.job_id,
-            kind=extra.kind if extra.kind == "monitor" else self.kind,
+            kind=extra.kind if extra.kind == JobKind.MONITOR else self.kind,
             status=status,
             description=extra.description or self.description,
             command=extra.command or self.command,
@@ -777,7 +799,7 @@ def read_log_tail(path: Path, *, max_chars: int = 8_000) -> str:
     return chunk.decode("utf-8", errors="replace")[-max_chars:]
 
 
-def monitor_line_status(text: str) -> str | None:
+def monitor_line_status(text: str) -> JobStatus | None:
     """Map the last DONE/FAILED/CANCELLED token on its own line, if any."""
     for line in reversed(text.splitlines()):
         token = line.strip().split(maxsplit=1)[0] if line.strip() else ""

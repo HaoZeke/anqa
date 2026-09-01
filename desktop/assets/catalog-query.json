@@ -91,6 +91,7 @@
         "ending",
         "complete",
         "cancelled",
+        "idle",
         "host",
         "import"
       ],

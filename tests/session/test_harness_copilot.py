@@ -73,7 +73,7 @@ def test_catalog_lists_copilot_sessions() -> None:
     assert by_id[_SID]["harness"] == COPILOT_HARNESS_ID
     assert by_id[_SID]["path"] == f"copilot:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "—"
+    assert by_id[_RUNNING_SID]["status"] == "idle"
 
 
 def test_delete_session_removes_row_and_state() -> None:
@@ -90,14 +90,14 @@ def test_delete_session_removes_row_and_state() -> None:
 def test_last_open_turn_is_idle() -> None:
     dest = _install_store()
     assert_adapter_turn(Path(f"copilot:{_SID}"), "complete")
-    assert_adapter_turn(Path(f"copilot:{_RUNNING_SID}"), "—")
+    assert_adapter_turn(Path(f"copilot:{_RUNNING_SID}"), "idle")
     events = dest.parent / "session-state" / _SID / "events.jsonl"
     events.write_text(
         events.read_text(encoding="utf-8")
         + '{"type":"assistant.turn_start","id":"later","timestamp":"2026-08-30T12:10:00.000Z"}\n',
         encoding="utf-8",
     )
-    assert_adapter_turn(Path(f"copilot:{_SID}"), "—")
+    assert_adapter_turn(Path(f"copilot:{_SID}"), "idle")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

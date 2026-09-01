@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -35,11 +36,18 @@ _HOST_SKIP_DIR_NAMES = frozenset(
     }
 )
 
-ORIGIN_WORK = "work"
-ORIGIN_HOST = "host"
-ORIGIN_IMPORT = "import"
 
-type SessionOrigin = str
+class SessionOrigin(StrEnum):
+    """Where a catalog row came from."""
+
+    HOST = "host"
+    IMPORT = "import"
+    WORK = "work"
+
+
+ORIGIN_WORK = SessionOrigin.WORK
+ORIGIN_HOST = SessionOrigin.HOST
+ORIGIN_IMPORT = SessionOrigin.IMPORT
 
 
 def _resolved(path: Path) -> Path:

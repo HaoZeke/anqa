@@ -17,6 +17,7 @@ from .. import event_types as et
 from ..models import (
     JsonObject,
     JsonValue,
+    ListStatus,
     SessionMeta,
     ToolInputBag,
     TraceEvent,
@@ -315,7 +316,7 @@ def _turn_outcome_payload(payload: _Payload) -> str:
     if archived not in (None, 0, ""):
         return from_last("complete")
     live = _part_live_token(payload)
-    if live:
+    if live is not ListStatus.IDLE:
         return live
     if not payload.messages:
         return ""

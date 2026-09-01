@@ -127,8 +127,8 @@ def test_list_status_last_user_and_later_open_after_close() -> None:
         '{"type":"USER_INPUT","status":"DONE","content":"hi"}\n'
         '{"type":"USER_INPUT","content":"again"}\n',
     )
-    assert_adapter_turn(Path("antigravity:dddddddd-4444-4444-8444-000000000004"), "—")
-    assert_adapter_turn(Path("antigravity:eeeeeeee-5555-4555-8555-000000000005"), "—")
+    assert_adapter_turn(Path("antigravity:dddddddd-4444-4444-8444-000000000004"), "idle")
+    assert_adapter_turn(Path("antigravity:eeeeeeee-5555-4555-8555-000000000005"), "idle")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

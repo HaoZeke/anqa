@@ -114,8 +114,8 @@ def test_list_status_last_user_and_later_open_after_close() -> None:
             '{"role":"user","time":{"created":3}}',
         ],
     )
-    assert_adapter_turn(Path("opencode:ses_user"), "—")
-    assert_adapter_turn(Path("opencode:ses_later"), "—")
+    assert_adapter_turn(Path("opencode:ses_user"), "idle")
+    assert_adapter_turn(Path("opencode:ses_later"), "idle")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

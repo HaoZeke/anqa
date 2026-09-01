@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from .. import event_types as et
 from ..json_lines import json_lines
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -223,9 +223,9 @@ def _turn_outcome(rows: Sequence[JsonObject], summary: JsonObject) -> str:
         return ""
     status = str(last.get("status") or "").strip()
     mapped = from_last(status)
-    if mapped:
-        return mapped
-    return ""
+    if mapped is ListStatus.IDLE:
+        return ""
+    return mapped
 
 
 def _count_tools(rows: Sequence[JsonObject]) -> int:

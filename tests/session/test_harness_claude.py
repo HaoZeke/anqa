@@ -102,8 +102,8 @@ def test_list_status_close_bookend_and_later_user(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert_adapter_turn(closed, "complete")
-    assert_adapter_turn(bookend, "—")
-    assert_adapter_turn(later, "—")
+    assert_adapter_turn(bookend, "idle")
+    assert_adapter_turn(later, "idle")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

@@ -13,7 +13,7 @@ from contextlib import suppress
 from textual.app import App
 
 from ..session.query import QuerySpanKind
-from ..tool_display import format_tool_display, tool_family
+from ..tool_display import ToolFamily, format_tool_display, tool_family
 
 # One job, one ANSI face. Theme tokens paint the same roles in TCSS / HUD.
 SUCCESS = "green"
@@ -24,10 +24,10 @@ EMPHASIS = "default"
 
 # Catalog search box — modifier vs value (same roles on the HUD).
 QUERY_SPAN_STYLE: dict[QuerySpanKind, str] = {
-    "field": f"bold {CAUTION}",
-    "operator": f"bold {CAUTION}",
-    "value": SUCCESS,
-    "unknown": DANGER,
+    QuerySpanKind.FIELD: f"bold {CAUTION}",
+    QuerySpanKind.OPERATOR: f"bold {CAUTION}",
+    QuerySpanKind.VALUE: SUCCESS,
+    QuerySpanKind.UNKNOWN: DANGER,
 }
 
 SEVERITY_STYLE: dict[str, str] = {
@@ -198,7 +198,8 @@ def severity_style(value: str) -> str:
 def tool_style(name: str, *, light: bool = False) -> str:
     """Rich style for a tool name (family palette)."""
     del light
-    return TOOL_FAMILY_STYLE.get(tool_family(name or ""), TOOL_FAMILY_STYLE["other"])
+    family = tool_family(name or "")
+    return TOOL_FAMILY_STYLE.get(family, TOOL_FAMILY_STYLE[ToolFamily.OTHER])
 
 
 def tool_label(name: str, *, max_len: int = 32, light: bool = False) -> str:

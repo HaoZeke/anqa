@@ -38,7 +38,7 @@ from ..control.client import (
     listen_control_notifications,
 )
 from ..harness.registry import require_adapter
-from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
+from ..models import JsonObject, ListStatus, SessionMeta, as_json_object, json_as_str
 from ..paths import app_config_path
 from ..session.access import (
     DEFAULT_SESSION_LIST_LIMIT,
@@ -1468,22 +1468,17 @@ class AnqaApp(App):
 
         light = theme_is_light(str(self.theme or ""))
         status = meta.list_status_label()
-        if status == "awaiting":
-            return Text(
-                t("status-waiting-prompt"), style=status_rich_style("awaiting", light=light)
-            )
-        if status == "ending":
-            return Text(t("status-ending"), style=status_rich_style("ending", light=light))
-        if status == "running":
-            return Text(t("status-running"), style=status_rich_style("running", light=light))
-        if status == "cancelled":
+        if status is ListStatus.AWAITING:
+            return Text(t("status-waiting-prompt"), style=status_rich_style(status, light=light))
+        if status is ListStatus.ENDING:
+            return Text(t("status-ending"), style=status_rich_style(status, light=light))
+        if status is ListStatus.RUNNING:
+            return Text(t("status-running"), style=status_rich_style(status, light=light))
+        if status is ListStatus.CANCELLED:
             return Text(t("status-cancelled"), style=status_rich_style("failed", light=light))
-        if status == "complete":
+        if status is ListStatus.COMPLETE:
             return Text(t("status-complete"), style=status_rich_style("completed", light=light))
-        return Text(
-            status if status != "—" else t("status-unknown"),
-            style=status_rich_style("idle", light=light),
-        )
+        return Text(t("status-unknown"), style=status_rich_style("idle", light=light))
 
     def _session_home_cells(
         self,
@@ -1492,10 +1487,11 @@ class AnqaApp(App):
         selected: bool,
     ) -> tuple[str | Text, ...]:
         from ..harness.registry import harness_product
+        from ..session.sources import SessionOrigin
 
         harness = harness_product(meta.harness) or "—"
         origin = self._origin_for_dir(Path(meta.session_dir)) or (meta.origin or "").strip()
-        if origin == "import":
+        if origin == SessionOrigin.IMPORT:
             harness = join_ui(harness, t("ui-origin-import"), sep=" · ")
         return (
             Text("*", style="bold green") if selected else Text(" "),

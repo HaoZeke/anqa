@@ -375,7 +375,7 @@ def test_refresh_rows_host_reads_events_when_tail_has_no_close(tmp_path: Path) -
     cache = SessionCatalogCache(traces_path=traces, include_host=True, host_root=host, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
-    assert by_id["live-host"]["status"] == "—"
+    assert by_id["live-host"]["status"] == "idle"
     events.write_text(
         json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
         + "\n"
@@ -409,7 +409,7 @@ def test_refresh_rows_host_running_stays_until_turn_signal(tmp_path: Path) -> No
     cache = SessionCatalogCache(traces_path=traces, include_host=True, host_root=host, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
-    assert by_id["was-live"]["status"] == "—"
+    assert by_id["was-live"]["status"] == "idle"
     old = time.time() - (20 * 60)
     for name in ("summary.json", "signals.json", "updates.jsonl"):
         path = bucket / name
@@ -418,7 +418,7 @@ def test_refresh_rows_host_running_stays_until_turn_signal(tmp_path: Path) -> No
     os.utime(bucket, (old, old))
     rows, _changed = cache.refresh_rows([bucket])
     by_id = {str(r["sessionId"]): r for r in rows}
-    assert by_id["was-live"]["status"] == "—"
+    assert by_id["was-live"]["status"] == "idle"
 
 
 def test_refresh_rows_host_uses_latest_turn_signal(tmp_path: Path) -> None:

@@ -46,7 +46,7 @@ pub fn origin_label(origin: &str) -> &'static str {
 }
 
 pub fn is_blank_status(status: &str) -> bool {
-    matches!(status.trim(), "" | "—" | "-" | "–")
+    matches!(status.trim(), "" | "—" | "-" | "–" | "idle")
 }
 
 /// Home-list terminal labels. A later live label without a live outcome is hydrate flicker.
@@ -91,7 +91,7 @@ pub fn list_status_label(status: &str, outcome: &str) -> String {
             "cancelled" | "canceled" | "interrupted" | "aborted" => "cancelled".into(),
             "success" | "ok" | "completed" | "complete" | "done" => "complete".into(),
             "error" | "failed" | "failure" | "timeout" => "cancelled".into(),
-            _ => "—".into(),
+            _ => "idle".into(),
         };
     };
     match raw
@@ -2828,8 +2828,8 @@ mod tests {
         assert_eq!(list_status_label("", "cancelled"), "cancelled");
         assert_eq!(list_status_label("", "done"), "complete");
         assert_eq!(list_status_label("", "running"), "running");
-        assert_eq!(list_status_label("", ""), "—");
-        assert_eq!(list_status_label("", "token_count"), "—");
+        assert_eq!(list_status_label("", ""), "idle");
+        assert_eq!(list_status_label("", "token_count"), "idle");
         assert_eq!(status_tone("cancelled"), "cancelled");
         assert_eq!(status_tone("complete"), "complete");
         assert!(is_blank_status(""));

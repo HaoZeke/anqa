@@ -16,7 +16,7 @@ from pathlib import Path
 
 from ..control.contract import PROTOCOL_VERSION
 from ..harness.ref import SessionRef
-from ..models import JsonObject, as_json_object
+from ..models import JsonObject, ListStatus, as_json_object
 from ..paths import cache_dir
 from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
@@ -24,7 +24,10 @@ from .subagents import drop_subagent_sessions
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
 # Bump when a cached row is missing fields the list must show.
 SNAPSHOT_ROW_FORMAT = 4
-_LIVE_LIST_STATUS = frozenset({"running", "in_progress", "pending", "awaiting", "ending"})
+
+_LIVE_LIST_STATUS = frozenset(
+    {ListStatus.RUNNING, ListStatus.AWAITING, ListStatus.ENDING, "in_progress", "pending"}
+)
 
 
 def _mtime_ns(path: Path) -> int:

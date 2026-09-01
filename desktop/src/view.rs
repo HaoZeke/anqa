@@ -282,7 +282,7 @@ fn session_state_row(
     }
     let meta = bits.join("  ·  ");
     let mut row = row![].spacing(8).align_y(Alignment::Center);
-    if status_label != "—" && !status_label.is_empty() {
+    if status_label != "—" && status_label != "idle" && !status_label.is_empty() {
         row = row.push(status_chip(
             status_label.clone(),
             status_tone(&status_label),
@@ -291,7 +291,7 @@ fn session_state_row(
     }
     if !meta.is_empty() {
         row = row.push(muted_meta(meta, tea));
-    } else if status_label == "—" {
+    } else if status_label == "—" || status_label == "idle" {
         row = row.push(muted_meta("—".into(), tea));
     }
     row.into()
@@ -1149,7 +1149,7 @@ fn overview_run_list<'a>(
             let kind = format_tool_display(&row.kind);
             let ink = if row.openable { tea.text } else { tea.muted };
             let mut chips = row![].spacing(8).align_y(Alignment::Center);
-            if status != "—" && !status.is_empty() {
+            if status != "—" && status != "idle" && !status.is_empty() {
                 chips = chips.push(status_chip(status.clone(), status_tone(&status), tea));
             }
             if !kind.is_empty() {
@@ -1807,7 +1807,7 @@ fn turn_list_card(
         status_tone(&status)
     };
     let mut chips = row![].spacing(8).align_y(Alignment::Center);
-    if status != "—" && !status.is_empty() {
+    if status != "—" && status != "idle" && !status.is_empty() {
         chips = chips.push(status_chip(status, tone, tea));
     }
     let mut bits: Vec<String> = Vec::new();

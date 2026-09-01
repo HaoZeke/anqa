@@ -31,8 +31,7 @@ from .mtime_export import (
 )
 from .query import apply_catalog_presence_row, catalog_presence, catalog_presence_from_meta
 from .sources import (
-    ORIGIN_HOST,
-    ORIGIN_IMPORT,
+    SessionOrigin,
     SessionScanRoot,
     collect_session_dirs,
     session_run_dir,
@@ -155,7 +154,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         locator_str = str(locator)
     imported = is_import_locator(locator)
     path_str = locator_str if imported else ref.ref_string()
-    meta.origin = ORIGIN_IMPORT if imported else ORIGIN_HOST
+    meta.origin = SessionOrigin.IMPORT if imported else SessionOrigin.HOST
     if not (meta.harness or "").strip():
         meta.harness = ref.harness
     session_id = (meta.session_id or ref.session_id).strip()
@@ -1034,20 +1033,16 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
             meta.reasoning_effort = eff
         else:
             meta.model_id = model
+    from ..models import ListStatus
+
     outcome = str(row.get("outcome") or "").strip()
     status = str(row.get("status") or "").strip().lower()
     if outcome:
         meta.turn_outcome = outcome
-    elif status == "awaiting":
-        meta.turn_outcome = "awaiting_follow_up"
-    elif status == "running":
-        meta.turn_outcome = "running"
-    elif status == "ending":
-        meta.turn_outcome = "ending"
-    elif status == "cancelled":
-        meta.turn_outcome = "cancelled"
-    elif status == "complete":
-        meta.turn_outcome = "success"
+    elif status:
+        if status in {"—", "-", "–"}:
+            status = ListStatus.IDLE
+        meta.turn_outcome = ListStatus.from_token(status)
     task_id = str(row.get("taskId") or "").strip()
     if task_id:
         meta.task_id = task_id

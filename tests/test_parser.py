@@ -1619,7 +1619,7 @@ def test_infer_interrupted_with_marker(tmp_path: Path):
 def test_infer_no_body_returns_empty(tmp_path: Path):
     sd = tmp_path / "s"
     sd.mkdir()
-    assert _infer_incomplete_turn_outcome(sd) == ""
+    assert _infer_incomplete_turn_outcome(sd) == "idle"
 
 
 def test_infer_stale_body_returns_interrupted(tmp_path: Path):
@@ -1633,7 +1633,7 @@ def test_infer_stale_body_returns_interrupted(tmp_path: Path):
     # Set mtime to long ago
     old_time = time.time() - 100_000
     os.utime(ev, (old_time, old_time))
-    assert _infer_incomplete_turn_outcome(sd) == ""
+    assert _infer_incomplete_turn_outcome(sd) == "idle"
 
 
 # ── _load_summary / _load_signals / _load_run_meta edge cases ────────────
@@ -1850,7 +1850,7 @@ def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
         encoding="utf-8",
     )
     meta = load_session_meta(sd)
-    assert meta.list_status_label() == "—"
+    assert meta.list_status_label() == "idle"
     assert meta.turn_in_progress is False
 
 
@@ -1867,7 +1867,7 @@ def test_load_session_meta_single_turn_started_is_running(tmp_path: Path):
     (sd / "updates.jsonl").write_text('{"x": 1}\n' * 50, encoding="utf-8")
     meta = load_session_meta(sd)
     assert meta.turn_outcome != "awaiting_follow_up"
-    assert meta.list_status_label() == "—"
+    assert meta.list_status_label() == "idle"
 
 
 def test_load_session_meta_failed_increments_error():
@@ -2143,7 +2143,7 @@ def test_infer_running_when_recent(tmp_path: Path):
     ev = sd / "events.jsonl"
     ev.write_text('{"x":1}\n' * 50, encoding="utf-8")
     # Body without a turn-class store signal is unknown.
-    assert _infer_incomplete_turn_outcome(sd) == ""
+    assert _infer_incomplete_turn_outcome(sd) == "idle"
 
 
 def test_infer_no_mtime_returns_interrupted(tmp_path: Path):
@@ -2153,7 +2153,7 @@ def test_infer_no_mtime_returns_interrupted(tmp_path: Path):
     ev = sd / "chat_history.jsonl"
     ev.write_text('{"x":1}\n' * 50, encoding="utf-8")
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == ""
+    assert result == "idle"
 
 
 # ── _find_container partial match ────────────────────────────────────────
@@ -2282,7 +2282,7 @@ def test_infer_incomplete_no_body_returns_empty(tmp_path: Path):
     sd.mkdir()
     # No trace files at all → no body → returns ""
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == ""
+    assert result == "idle"
 
 
 def test_infer_incomplete_stale_returns_interrupted(tmp_path: Path):
@@ -2299,7 +2299,7 @@ def test_infer_incomplete_stale_returns_interrupted(tmp_path: Path):
     old_time = time.time() - 86400  # 1 day ago
     os.utime(sd / "events.jsonl", (old_time, old_time))
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == ""
+    assert result == "idle"
 
 
 def test_find_sessions_events_only(tmp_path: Path):
@@ -2438,7 +2438,7 @@ def test_infer_incomplete_running_recent(tmp_path: Path):
     sd.mkdir()
     (sd / "events.jsonl").write_text("x" * 300 + "\n", encoding="utf-8")
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == ""
+    assert result == "idle"
 
 
 def test_infer_incomplete_interrupted_stale(tmp_path: Path):
@@ -2454,7 +2454,7 @@ def test_infer_incomplete_interrupted_stale(tmp_path: Path):
     old_time = time.time() - 7200
     os.utime(sd / "events.jsonl", (old_time, old_time))
     result = _infer_incomplete_turn_outcome(sd)
-    assert result == ""
+    assert result == "idle"
 
 
 def test_session_trace_mtime_oserror(tmp_path: Path):
@@ -2607,7 +2607,7 @@ def test_infer_incomplete_no_body(tmp_path: Path):
 
     sd = tmp_path / "sess"
     sd.mkdir()
-    assert _infer_incomplete_turn_outcome(sd) == ""
+    assert _infer_incomplete_turn_outcome(sd) == "idle"
 
 
 def test_infer_incomplete_with_marker(tmp_path: Path):
@@ -2634,7 +2634,7 @@ def test_infer_incomplete_stale_body(tmp_path: Path):
     ef.write_text("x" * 300, encoding="utf-8")
     old = time.time() - 86400
     os.utime(ef, (old, old))
-    assert _infer_incomplete_turn_outcome(sd) == ""
+    assert _infer_incomplete_turn_outcome(sd) == "idle"
 
 
 def test_session_trace_mtime_no_files(tmp_path: Path):
@@ -2848,7 +2848,7 @@ def test_infer_incomplete_mtime_zero(tmp_path: Path):
     # Patch session_trace_mtime to return 0
     with patch("anqa.harness.grok_parse.session_trace_mtime", return_value=0.0):
         result = _infer_incomplete_turn_outcome(sd)
-    assert result == ""
+    assert result == "idle"
 
 
 def test_resolve_tool_display_name_use_tool_mcp():
@@ -3429,8 +3429,8 @@ def test_load_host_list_meta_aged_turn_started_stays_running(tmp_path: Path) -> 
     old = time.time() - (20 * 60)
     os.utime(sd / "summary.json", (old, old))
     os.utime(sd / "updates.jsonl", (old, old))
-    assert load_host_list_meta(sd).list_status_label() == "—"
-    assert load_session_meta_list(sd).list_status_label() == "—"
+    assert load_host_list_meta(sd).list_status_label() == "idle"
+    assert load_session_meta_list(sd).list_status_label() == "idle"
 
 
 def test_load_host_list_meta_later_turn_started_clears_completed(tmp_path: Path) -> None:
@@ -3450,8 +3450,8 @@ def test_load_host_list_meta_later_turn_started_clears_completed(tmp_path: Path)
         + "\n",
         encoding="utf-8",
     )
-    assert load_host_list_meta(sd).list_status_label() == "—"
-    assert load_session_meta_list(sd).list_status_label() == "—"
+    assert load_host_list_meta(sd).list_status_label() == "idle"
+    assert load_session_meta_list(sd).list_status_label() == "idle"
 
 
 def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -> None:
@@ -3498,7 +3498,7 @@ def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> 
         os.utime(sd / name, (old, old))
     cheap = load_host_list_meta(sd)
     full = load_session_meta(sd, include_timeline_count=False)
-    assert cheap.list_status_label() == "—"
+    assert cheap.list_status_label() == "idle"
     assert cheap.list_status_label() == full.list_status_label()
 
 
@@ -3604,7 +3604,7 @@ def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> N
     )
     listed = load_session_meta_list(sd)
     full = load_session_meta(sd, include_timeline_count=False)
-    assert listed.list_status_label() == "—"
+    assert listed.list_status_label() == "idle"
     assert listed.list_status_label() == full.list_status_label()
 
 

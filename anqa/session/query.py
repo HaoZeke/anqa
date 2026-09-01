@@ -13,9 +13,9 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 import dateparser
 from luqum.exceptions import InconsistentQueryException, ParseError
@@ -121,7 +121,14 @@ _HIGHLIGHT_RE = re.compile(
 
 _RESOLVE_AND = UnknownOperationResolver(resolve_to=AndOperation)
 
-type QuerySpanKind = Literal["field", "value", "unknown", "operator"]
+
+class QuerySpanKind(StrEnum):
+    """Highlighted slice of a catalog query."""
+
+    FIELD = "field"
+    VALUE = "value"
+    UNKNOWN = "unknown"
+    OPERATOR = "operator"
 
 
 @dataclass(frozen=True)
@@ -418,13 +425,13 @@ def highlight_query_spans(query: str) -> tuple[QuerySpan, ...]:
             continue
         if match.group("operator") is not None:
             start, end = match.span("operator")
-            spans.append(QuerySpan(start, end, "operator"))
+            spans.append(QuerySpan(start, end, QuerySpanKind.OPERATOR))
             continue
         if match.group("prohibit") is not None:
             start, end = match.span("prohibit")
-            spans.append(QuerySpan(start, end, "operator"))
+            spans.append(QuerySpan(start, end, QuerySpanKind.OPERATOR))
         field_start, field_end = match.span("field")
-        spans.append(QuerySpan(field_start, field_end + 1, "field"))
+        spans.append(QuerySpan(field_start, field_end + 1, QuerySpanKind.FIELD))
         raw = match.group("value") or ""
         value_start, value_end = match.span("value")
         quoted = _quoted_value(raw)
@@ -440,7 +447,7 @@ def highlight_query_spans(query: str) -> tuple[QuerySpan, ...]:
         if field_key == "has" and not quoted:
             spans.extend(_has_value_spans(value_start, value_end, inner))
             continue
-        kind: QuerySpanKind = "value" if _value_known(field_key, inner) else "unknown"
+        kind = QuerySpanKind.VALUE if _value_known(field_key, inner) else QuerySpanKind.UNKNOWN
         spans.append(QuerySpan(value_start, value_end, kind))
     return tuple(spans)
 
@@ -449,8 +456,8 @@ def _has_value_spans(start: int, end: int, inner: str) -> tuple[QuerySpan, ...]:
     name, cmp = _split_has_value(inner)
     closed = {item.casefold() for item in HAS_VALUES}
     if cmp or name not in closed:
-        return (QuerySpan(start, end, "unknown"),)
-    return (QuerySpan(start, end, "value"),)
+        return (QuerySpan(start, end, QuerySpanKind.UNKNOWN),)
+    return (QuerySpan(start, end, QuerySpanKind.VALUE),)
 
 
 def _values_for_field(
@@ -541,9 +548,15 @@ def _match_is(value: str, row: CatalogQueryRow) -> bool:
         if row.imported or (bool(row.path) and is_import_locator(row.path)):
             return False
         return (row.origin or "host").strip().casefold() == "host"
+    from ..models import ListStatus
+
     status = row.status.strip().casefold()
-    if value in {"cancelled", "canceled"}:
-        return status in {"cancelled", "canceled"}
+    if status in {"—", "-", "–"}:
+        status = ListStatus.IDLE
+    if value in {ListStatus.CANCELLED, "canceled"}:
+        return status in {ListStatus.CANCELLED, "canceled"}
+    if value in {ListStatus.IDLE, "—", "-", "–"}:
+        return status == ListStatus.IDLE
     return status == value
 
 

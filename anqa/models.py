@@ -11,6 +11,7 @@ import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -502,20 +503,80 @@ class TraceEvent:
             return ""
 
 
-# List Turn column and ``is:`` status. These are turn states from the
-# store, not "the product window is open."
-LIST_STATUS_RUNNING = "running"
-# A turn is in progress: live flag or mid-turn work after the latest user open.
-LIST_STATUS_ENDING = "ending"
-# The host asked the session to stop; the last turn is still finishing.
-LIST_STATUS_AWAITING = "awaiting"
-# The store wrote that it is waiting for the next user prompt.
-LIST_STATUS_CANCELLED = "cancelled"
-# The store wrote a cancel, interrupt, abort, or failed turn.
-LIST_STATUS_COMPLETE = "complete"
-# The store wrote a turn or session close.
-LIST_STATUS_IDLE = "—"
-# No list status: last user row, turn bookend, or nothing mappable.
+class ListStatus(StrEnum):
+    """Turn column and ``is:`` status. One finite list face.
+
+    Values are program tokens. Operator marks (the idle em dash) live in
+    the string table, not here.
+    """
+
+    RUNNING = "running"
+    ENDING = "ending"
+    AWAITING = "awaiting"
+    CANCELLED = "cancelled"
+    COMPLETE = "complete"
+    IDLE = "idle"
+
+    @classmethod
+    def from_token(cls, token: str) -> ListStatus:
+        """Map one store or list token to a member."""
+        key = (token or "").strip().lower().replace(" ", "_")
+        if key in {"ending", "finishing"}:
+            return cls.ENDING
+        if key in {"awaiting", "awaiting_follow_up"}:
+            return cls.AWAITING
+        if key in {
+            "complete",
+            "completed",
+            "success",
+            "ok",
+            "done",
+            "end_turn",
+            "stop",
+            "stop_sequence",
+            "task_complete",
+            "turn_completed",
+            "turn_ended",
+            "session_recap",
+            "session.shutdown",
+            "assistant.turn_end",
+        }:
+            return cls.COMPLETE
+        if key in {
+            "cancelled",
+            "canceled",
+            "error",
+            "failed",
+            "failure",
+            "killed",
+            "aborted",
+            "interrupted",
+            "timeout",
+            "turn_aborted",
+            "max_tokens",
+            "refusal",
+        }:
+            return cls.CANCELLED
+        if key in {
+            "running",
+            "in_progress",
+            "pending",
+            "active",
+            "executing",
+            "awaiting_approval",
+            "scheduled",
+            "not_fully_idle",
+        }:
+            return cls.RUNNING
+        return cls.IDLE
+
+
+LIST_STATUS_RUNNING = ListStatus.RUNNING
+LIST_STATUS_ENDING = ListStatus.ENDING
+LIST_STATUS_AWAITING = ListStatus.AWAITING
+LIST_STATUS_CANCELLED = ListStatus.CANCELLED
+LIST_STATUS_COMPLETE = ListStatus.COMPLETE
+LIST_STATUS_IDLE = ListStatus.IDLE
 
 
 @dataclass
@@ -633,54 +694,31 @@ class SessionMeta:
 
     @property
     def turn_in_progress(self) -> bool:
-        oc = (self.turn_outcome or "").lower().replace(" ", "_")
-        return oc in (
-            "running",
-            "in_progress",
-            "pending",
-            "awaiting_follow_up",
-            "ending",
-            "finishing",
-        )
+        return self.list_status_label() in {
+            ListStatus.RUNNING,
+            ListStatus.ENDING,
+            ListStatus.AWAITING,
+        }
 
     @property
     def turn_failed(self) -> bool:
-        oc = (self.turn_outcome or "").lower().replace(" ", "_")
-        if not oc or oc in ("success", "ok", "completed", "complete"):
+        oc = (self.turn_outcome or "").strip().lower().replace(" ", "_")
+        if not oc or oc == "interjected":
             return False
-        # In-progress / interactive wait / shutdown are not failures
-        if oc in (
-            "running",
-            "in_progress",
-            "pending",
-            "awaiting_follow_up",
-            "ending",
-            "finishing",
-            "interjected",
-        ):
+        status = self.list_status_label()
+        if status in {
+            ListStatus.COMPLETE,
+            ListStatus.RUNNING,
+            ListStatus.ENDING,
+            ListStatus.AWAITING,
+        }:
             return False
         return True
 
-    def list_status_label(self) -> str:
+    def list_status_label(self) -> ListStatus:
         """Turn column and ``is:`` status from the last store signal.
 
-        :returns: One of :data:`LIST_STATUS_RUNNING` (turn in progress),
-            :data:`LIST_STATUS_ENDING`, :data:`LIST_STATUS_AWAITING`,
-            :data:`LIST_STATUS_CANCELLED`, :data:`LIST_STATUS_COMPLETE`
-            (store close), or :data:`LIST_STATUS_IDLE` (``—``: last user
-            row, bookend, or nothing mappable). Not "session window open."
+        :returns: A :class:`ListStatus` member. Idle is a last user row,
+            bookend, or nothing mappable — not an open window.
         """
-        oc = (self.turn_outcome or "").strip().lower().replace(" ", "_")
-        if oc in ("ending", "finishing"):
-            return LIST_STATUS_ENDING
-        if oc == "awaiting_follow_up":
-            return LIST_STATUS_AWAITING
-        if oc in ("running", "in_progress", "pending") or (not oc and self.turn_in_progress):
-            return LIST_STATUS_RUNNING
-        if oc in ("cancelled", "canceled", "interrupted", "aborted"):
-            return LIST_STATUS_CANCELLED
-        if oc in ("success", "ok", "completed", "complete"):
-            return LIST_STATUS_COMPLETE
-        if oc in ("error", "failed", "failure", "timeout"):
-            return LIST_STATUS_CANCELLED
-        return LIST_STATUS_IDLE
+        return ListStatus.from_token(self.turn_outcome or "")

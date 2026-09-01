@@ -103,7 +103,7 @@ def test_catalog_lists_codex_sessions() -> None:
     assert by_id[_SID]["harness"] == CODEX_HARNESS_ID
     assert by_id[_SID]["path"] == f"codex:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "—"
+    assert by_id[_RUNNING_SID]["status"] == "idle"
 
 
 def test_delete_session_removes_rollout() -> None:
@@ -115,7 +115,7 @@ def test_delete_session_removes_rollout() -> None:
 
 def test_last_open_turn_is_idle() -> None:
     _install_store()
-    assert_adapter_turn(Path(f"codex:{_RUNNING_SID}"), "—")
+    assert_adapter_turn(Path(f"codex:{_RUNNING_SID}"), "idle")
 
 
 def test_list_status_close_bookend_and_later_start(tmp_path: Path) -> None:
@@ -135,8 +135,8 @@ def test_list_status_close_bookend_and_later_start(tmp_path: Path) -> None:
     aborted = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-0000000000c4.jsonl"
     aborted.write_text(meta + _ev("turn_aborted"), encoding="utf-8")
     assert_adapter_turn(closed, "complete")
-    assert_adapter_turn(bookend, "—")
-    assert_adapter_turn(later, "—")
+    assert_adapter_turn(bookend, "idle")
+    assert_adapter_turn(later, "idle")
     assert_adapter_turn(aborted, "cancelled")
 
 

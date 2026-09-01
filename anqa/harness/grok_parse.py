@@ -29,6 +29,7 @@ from ..models import (
     ChatMessage,
     JsonObject,
     JsonValue,
+    ListStatus,
     SessionMeta,
     ToolCall,
     ToolInput,
@@ -2056,7 +2057,7 @@ def _outcome_from_update_types(types: list[str]) -> tuple[str, bool]:
     for etype in types:
         if etype not in _LIST_TURN_UPDATES:
             continue
-        if from_last(etype) == "complete":
+        if from_last(etype) is ListStatus.COMPLETE:
             status = "completed"
             opened = False
         elif etype in {"user_message_chunk", "turn_started"}:

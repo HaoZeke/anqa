@@ -64,7 +64,7 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "is",
         "Status or origin.",
-        ("running", "awaiting", "ending", "complete", "cancelled", "host", "import"),
+        ("running", "awaiting", "ending", "complete", "cancelled", "idle", "host", "import"),
     ),
     CatalogQueryToken(
         "has",

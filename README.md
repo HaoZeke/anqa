@@ -238,7 +238,7 @@ it like any other session.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:import` | Turn status or import store. `is:running` is a turn in progress (store live flag or mid-turn work). `—` is no list status (last user row or bookend), not an open window |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:idle` `is:host` `is:import` | Turn status or import store. `is:running` is a turn in progress (store live flag or mid-turn work). `is:idle` is no list status (last user row or bookend), not an open window |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (shells, monitors, or schedules). `task:` is a task-id substring. Git stays yes/no. |
 | `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |

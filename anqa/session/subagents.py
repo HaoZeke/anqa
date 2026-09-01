@@ -6,11 +6,30 @@ import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from ..models import JsonObject, JsonValue, ToolInputBag, TraceEvent, as_json_object, json_as_str
 from ..tool_display import clip_preview
 from .turns import TurnSegment
+
+
+class RunStatus(StrEnum):
+    """Normalized child-run / job finish state."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class SessionKind(StrEnum):
+    """Operator vs harness child. Store tokens map onto these members."""
+
+    PRIMARY = "primary"
+    FORK = "fork"
+    SUBAGENT = "subagent"
+
 
 _KIND_KEYS = ("session_kind", "sessionKind")
 _SPAWN_CHILD_KEYS = ("child_session_id", "childSessionId")
@@ -26,9 +45,19 @@ _FINISH_TOKENS_KEYS = ("tokens_used", "tokensUsed")
 _FINISH_OUTPUT_KEYS = ("output",)
 
 
+def parse_session_kind(kind: str) -> SessionKind:
+    """Map a store ``session_kind`` token to a :class:`SessionKind`."""
+    raw = (kind or "").strip().lower()
+    if raw.startswith(SessionKind.SUBAGENT):
+        return SessionKind.SUBAGENT
+    if raw == SessionKind.FORK:
+        return SessionKind.FORK
+    return SessionKind.PRIMARY
+
+
 def is_subagent_kind(kind: str) -> bool:
     """True when *kind* is a harness subagent (not an operator fork)."""
-    return (kind or "").strip().lower().startswith("subagent")
+    return parse_session_kind(kind) is SessionKind.SUBAGENT
 
 
 def compact_child_chrome(kind: str, turn_count: int) -> bool:
@@ -493,16 +522,16 @@ def finish_fields(update: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     }
 
 
-def normalize_run_status(raw: str, *, finished: bool) -> str:
-    """Map harness status to ``running`` | ``completed`` | ``cancelled`` | ``failed``."""
+def normalize_run_status(raw: str, *, finished: bool) -> RunStatus:
+    """Map harness status to a :class:`RunStatus` member."""
     s = (raw or "").strip().lower()
     if "cancel" in s:
-        return "cancelled"
+        return RunStatus.CANCELLED
     if any(tok in s for tok in ("fail", "error", "abort")):
-        return "failed"
+        return RunStatus.FAILED
     if finished or s in {"done", "complete", "completed", "success", "ok"}:
-        return "completed"
-    return "running"
+        return RunStatus.COMPLETED
+    return RunStatus.RUNNING
 
 
 def subagent_runs_for_session(

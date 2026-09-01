@@ -14,7 +14,7 @@ Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must
 
 | Token | Meaning |
 |--------|------|
-| is: | running, awaiting, ending, complete, cancelled |
+| is: | running, awaiting, ending, complete, cancelled, idle |
 | has: | workflow, note, goal, plan, subagent, task, job, schedule, error, failure, diff, compaction, doom, git, context |
 |  | has:workflow workflows:>=N, has:note notes:>=N, has:goal goals:>=N, has:plan plans:>=N, has:subagent subagents:>=N, has:task tasks:>=N, has:job jobs:>=N, has:schedule schedules:>=N, has:error errors:>=N, has:failure failures:>=N, has:diff diff:>=N, has:compaction compaction:>=N, has:doom doom:>=N |
 | in: | Directory the session was run in |
