@@ -19,6 +19,7 @@ from ..session.control_views import (
     turn_segment_mapping,
 )
 from ..session.event_search import matching_indexes
+from ..session.jobs import SessionJobs
 from ..session.query import turn_matches_query
 from ..session.subagents import subagent_run_mapping, subagent_runs_for_session
 from ..session.turns import (
@@ -94,13 +95,15 @@ def session_overview(ref: SessionRef) -> JsonObject:
     mapped = session_meta_mapping(meta, path=None)
     mapped["path"] = ref.ref_string()
     mapped["harness"] = ref.harness
+    disk = ref.locator if ref.locator.is_dir() else ref.overlay_dir()
+    jobs, schedules, workflows = SessionJobs.overview_rows(disk, events, ref.ref_string())
     return {
         "sessionId": ref.session_id,
         "meta": mapped,
         "summary": (meta.summary_text or "").strip(),
-        "backgroundJobs": [],
-        "schedules": [],
-        "workflows": [],
+        "backgroundJobs": SessionJobs.json_rows(jobs),
+        "schedules": SessionJobs.json_rows(schedules),
+        "workflows": SessionJobs.json_rows(workflows),
         "turns": {
             "total": len(segs),
             "turns": [

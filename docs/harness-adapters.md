@@ -28,6 +28,33 @@ Adding or re-checking an adapter: `.grok/skills/harness-adapter-qa/SKILL.md`.
 `just lint` runs `scripts/check_harness_adapters.py`.
 `just harness-probe` compares each installed product version to
 `supported_version` and samples on-disk record types (no session text).
+The session surfaces below are the adapter contract:
+`tests/session/test_harness_contract.py` drives them on every shipped
+store fixture.
+
+## Session surfaces
+
+The terminal app and the desktop palette show the same session
+body. Each row is one domain call. The adapter supplies the
+timeline and list meta; missing product data stays unset.
+
+| Surface | Where | Domain | Adapter supplies |
+|---------|-------|--------|------------------|
+| List Turn | Home list | `load_meta` / `list_turn_outcome` → `from_last` | Last store signal. Labels: `running`, `awaiting`, `ending`, `complete`, `cancelled`, `—`. |
+| Title, model, product | List + Overview Session | `load_meta` | Title, `model_id`, `harness`, `harness_version`. |
+| Context | List + Overview Session | `SessionMeta` context fields | `signals.json` on a directory store, else unset. |
+| Timeline | Browser pane 1 / HUD Events | `parse_timeline` | `TraceEvent` list in anqa type names. |
+| Turns | HUD Turns / Timeline Turn | `segment_timeline_turns` | `turn_started` plus user / assistant rows. |
+| Timeline Filter | Timeline | `event_matches_timeline_kind` | Event types (tools, user, assistant, session, subagents, background, workflows, errors). |
+| Subagents | Overview Subagents + Timeline filter | `subagent_runs_for_session` | `subagent_spawned` / `subagent_finished` bookends (and `subagents/` children on a directory store). |
+| Tasks | Overview Tasks | `SessionJobs` | `task_backgrounded` / `task_completed` on the timeline; a directory store also reads `background_tasks_manifest.json`, `terminal/` logs, and `resources_state.json` schedules. |
+| Workflows | Overview Workflows | `load_session_workflows` + bookends | `workflows/wf_*` on a directory store; workflow events on the timeline. |
+| Goals / Plan | List `has:goal` / `has:plan` | `catalog_presence` | `goal/state.json`, `plan.json` / `plan_mode.json` on a directory store; else meta counts. |
+| Diff | Browser pane 3 / HUD Diff | `session/diff` | `rewind_points.jsonl` when present, else write / edit tool calls, else OpenCode `summary.diffs`. |
+| Notes | Browser pane 4 / HUD Notes | `notes_snapshot(overlay_dir)` | Nothing from the product store. Path is `~/.anqa/notes/<harness>/<id>/`. |
+| Stats | Overview Stats | `overview_stat_counts` | Counts of timeline event types and tool names. |
+| Export | `E` | `write_archive` | Native archive members. |
+| Next prompt / Done | Awaiting turn | Store files those keys read | Only when the store wrote them. |
 
 ## Config
 
@@ -191,6 +218,23 @@ rows are `message` (roles `user`, `assistant`, `toolResult`) and
 `toolResult` or an assistant `stopReason` of tool use; otherwise
 the assistant stop reason. Diff is edit / write tools on the
 timeline.
+
+## How each store fills the surfaces
+
+Same domain calls as the table above. A blank cell is unset (the
+store did not write that product data).
+
+| Id | Timeline | List Turn | Diff | Subagents | Tasks / Workflows / Goals / Plan / Context |
+|----|----------|-----------|------|-----------|---------------------------------------------|
+| `antigravity` | transcript.jsonl | `killed` / `not_fully_idle` / last row status | write / replace tools | `parent_conversation_id` children | Timeline bookends only |
+| `claude` | user / assistant jsonl | assistant `stop_reason` | Edit / Write / StrReplace | Agent / Task bookends + `subagents/` files | Timeline bookends only |
+| `copilot` | `events.jsonl` | last turn signal | write / replace tools | `subagent.started` / `completed` | Timeline bookends only |
+| `codex` | rollout jsonl | `task_started` / `task_complete` / `turn_aborted` | `apply_patch` Begin Patch | `SubAgentActivity` | Timeline bookends only |
+| `cursor` | agent-transcripts jsonl | `turn_ended` status | write / replace tools | — | Timeline bookends only |
+| `gemini` | `$set` / `session_metadata` jsonl | tool `status` / last user | write / replace tools | `kind=subagent` files (off the list) | Timeline bookends only |
+| `grok` | `updates.jsonl` | updates tail | `rewind_points.jsonl` or `search_replace` | `subagents/` + spawn bookends | Directory files + timeline (`terminal/`, `workflows/wf_*`, `goal/state.json`, `plan.json`, `signals.json`) |
+| `opencode` | `event` / `part` rows | last part `state.status` | `summary.diffs` or edit / write | `task` + `parentID` | Timeline bookends only |
+| `pi` | jsonl `message` | `stopReason` / last `toolResult` | edit / write tools | — | Timeline bookends only |
 
 ## Filter
 

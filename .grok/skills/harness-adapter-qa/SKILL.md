@@ -39,17 +39,17 @@ without query/`harness:<id>`.
 4. Add the id to the `harness` query token in
    `anqa/control/contract.py`.
 5. Add the id to HUD `is_harness_ref` in `desktop/src/live.rs`.
-6. `tests/session/test_harness_<id>.py` driven from a committed
-   synthesized store fixture (`tests/fixtures/harness/<id>/`, never
-   copy real session text, never `db_path=` / mocks). Cover discover,
-   meta, timeline tools, child/subagent behaviour when the store has
-   it, **`list_session_catalog`** (the home list), **list status**
-   (`list_status_label` running vs complete from that store’s own
-   signals), and **`export_session_bundle`** through `require_adapter`
-   / `Path("harness:id")` (the browser passes that path). Never default
-   `turn_outcome` to success/complete. File and database locators
-   must appear via `list_session_catalog` / `discover`. The
-   session-directory walk only collects directory locators.
+6. `tests/session/test_harness_contract.py` is the session-surface
+   contract (list Turn, timeline, overview keys, Diff payload,
+   notes path, export). Drive it from a committed synthesized
+   store fixture (`tests/fixtures/harness/<id>/` or the Grok
+   snapshot; never copy real session text). Store-specific keys
+   stay in `tests/session/test_harness_<id>.py`. Cover discover,
+   child/subagent behaviour when the store has it, and
+   **`list_session_catalog`**. Never default `turn_outcome` to
+   success/complete. File and database locators must appear via
+   `discover`. The session-directory walk only collects directory
+   locators.
 7. `docs/harness-adapters.md` table row + README host sentence.
 8. `just schema` if the control or config schema changed.
 

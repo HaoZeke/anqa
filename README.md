@@ -133,8 +133,9 @@ prompt) is whatever that store wrote.
 
 Tested is the product version we last parsed. A session may carry a
 different `harnessVersion` from its own files. Each product's record
-types, list Turn, children, and Diff source:
-[`docs/harness-adapters.md`](docs/harness-adapters.md).
+types, list Turn, children, Diff, Tasks, Workflows, and the other
+session surfaces:
+[`docs/harness-adapters.md`](docs/harness-adapters.md#session-surfaces).
 
 Notes for every store live under
 `~/.anqa/notes/<harness>/<session_id>/`.
