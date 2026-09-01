@@ -463,6 +463,26 @@ def test_point_from_events_reads_write_tools(
     assert body in point.files[0].unified
 
 
+def test_point_from_events_reads_codex_apply_patch() -> None:
+    raw = (
+        'const patch = "*** Begin Patch\\n*** Add File: NOTE.txt\\n+WS1\\n*** End Patch";\n'
+        "await tools.apply_patch(patch);\n"
+    )
+    point = point_from_events([_call("exec", {"command": raw})])
+    assert point is not None
+    assert [h.path for h in point.files] == ["NOTE.txt"]
+    assert point.files[0].kind == "added"
+    assert "WS1" in point.files[0].unified
+
+
+def test_point_from_events_reads_codex_update_patch() -> None:
+    raw = "*** Begin Patch\n*** Update File: NOTE.txt\n@@\n WS1\n+WS2\n*** End Patch"
+    point = point_from_events([_call("exec", {"command": raw})])
+    assert point is not None
+    assert [h.path for h in point.files] == ["NOTE.txt"]
+    assert "WS2" in point.files[0].unified
+
+
 def test_point_from_events_keeps_last_prompt_and_reply() -> None:
     events = [
         TraceEvent(

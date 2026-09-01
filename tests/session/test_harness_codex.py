@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tarfile
 from pathlib import Path
 
 from anqa.harness.codex import CODEX_HARNESS_ID, CodexAdapter
 from anqa.harness.registry import require_adapter
-from anqa.harness.views import session_overview, session_timeline
+from anqa.harness.views import session_diff, session_overview, session_timeline
 from anqa.session.catalog import list_session_catalog
 from anqa.session.delete import delete_session_dirs
 from anqa.session.export_bundle import export_session_bundle
@@ -49,6 +50,35 @@ def test_discover_and_meta() -> None:
     assert meta.has_subagents
     assert meta.subagent_count == 1
     assert meta.list_status_label() == "complete"
+
+
+def test_session_diff_reads_exec_apply_patch(tmp_path: Path) -> None:
+    path = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-000000000099.jsonl"
+    payload = {
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "c1",
+        "input": (
+            'const patch = "*** Begin Patch\\n*** Add File: NOTE.txt\\n+WS1\\n*** End Patch";\n'
+            "await tools.apply_patch(patch);\n"
+        ),
+    }
+    path.write_text(
+        json.dumps(
+            {"type": "session_meta", "payload": {"id": "aaaaaaaa-1111-4111-8111-000000000099"}}
+        )
+        + "\n"
+        + json.dumps({"type": "response_item", "payload": payload})
+        + "\n",
+        encoding="utf-8",
+    )
+    ref = CodexAdapter().bind_locator(path)
+    assert ref is not None
+    doc = session_diff(ref)
+    assert doc["points"]
+    paths = [str(f["path"]) for f in doc["points"][0]["files"]]
+    assert paths == ["NOTE.txt"]
+    assert "WS1" in str(doc["points"][0]["files"][0]["unified"])
 
 
 def test_catalog_lists_codex_sessions() -> None:

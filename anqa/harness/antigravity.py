@@ -85,15 +85,18 @@ def _model_from_conversation_db(db: Path) -> str:
     found = ""
     try:
         with _connect(db) as con:
-            for table in ("executor_metadata", "gen_metadata"):
+            for table, col in (
+                ("executor_metadata", "data"),
+                ("gen_metadata", "data"),
+                ("steps", "step_payload"),
+            ):
                 try:
-                    rows = con.execute(f"SELECT data FROM {table}").fetchall()
+                    rows = con.execute(f"SELECT {col} FROM {table}").fetchall()
                 except sqlite3.Error:
                     continue
                 for (data,) in rows:
-                    if not isinstance(data, bytes):
-                        continue
-                    for match in _GEMINI_MODEL.finditer(data):
+                    blob = data if isinstance(data, bytes) else str(data).encode()
+                    for match in _GEMINI_MODEL.finditer(blob):
                         found = match.group(0).decode("ascii")
     except sqlite3.Error:
         return found

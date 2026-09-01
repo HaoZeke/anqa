@@ -245,6 +245,83 @@ def _pairs_from_bag(bag: ToolInputBag) -> list[tuple[str, str]]:
     return _pairs_from_mapping(bag.raw())
 
 
+_PATCH_BEGIN = "*** Begin Patch"
+_PATCH_END = "*** End Patch"
+
+
+def _unescape_patch_text(text: str) -> str:
+    idx = text.find(_PATCH_BEGIN)
+    if idx < 0 and "\\n" in text:
+        expanded = text.replace("\\n", "\n")
+        idx = expanded.find(_PATCH_BEGIN)
+        if idx >= 0:
+            text = expanded.replace("\\t", "\t")
+    if idx >= 0 and "\n" not in text[idx : idx + 40] and "\\n" in text:
+        return text.replace("\\n", "\n").replace("\\t", "\t")
+    return text
+
+
+def _hunk_from_patch_block(block: str) -> DiffHunk | None:
+    lines = block.splitlines()
+    path = ""
+    kind = "edit"
+    start = 0
+    for i, line in enumerate(lines):
+        raw = line.strip()
+        if raw.startswith("*** Add File:"):
+            path, kind, start = raw.split(":", 1)[1].strip(), "added", i + 1
+            break
+        if raw.startswith("*** Update File:"):
+            path, kind, start = raw.split(":", 1)[1].strip(), "edit", i + 1
+            break
+        if raw.startswith("*** Delete File:"):
+            path, kind, start = raw.split(":", 1)[1].strip(), "removed", i + 1
+            break
+    if not path:
+        return None
+    body = lines[start:]
+    if kind == "added":
+        new = "\n".join(ln[1:] if ln.startswith("+") else ln for ln in body)
+        unified, added, removed = _unified_diff(None, new, path)
+    elif kind == "removed":
+        unified, added, removed = _unified_diff("", None, path)
+    else:
+        unified = "\n".join(body)
+        added = sum(1 for ln in body if ln.startswith("+") and not ln.startswith("+++"))
+        removed = sum(1 for ln in body if ln.startswith("-") and not ln.startswith("---"))
+        if not unified.startswith("---"):
+            unified = f"--- a/{path}\n+++ b/{path}\n{unified}"
+    return DiffHunk(path=path, kind=kind, added=added, removed=removed, unified=unified)
+
+
+def _hunks_from_apply_patch(text: str) -> tuple[DiffHunk, ...]:
+    text = _unescape_patch_text(text)
+    out: list[DiffHunk] = []
+    cursor = 0
+    while True:
+        start = text.find(_PATCH_BEGIN, cursor)
+        if start < 0:
+            break
+        end = text.find(_PATCH_END, start)
+        block = text[start + len(_PATCH_BEGIN) : end if end >= 0 else None]
+        cursor = end + len(_PATCH_END) if end >= 0 else len(text)
+        hunk = _hunk_from_patch_block(block)
+        if hunk is not None:
+            out.append(hunk)
+    return tuple(out)
+
+
+def _apply_patch_hunks(ev: TraceEvent) -> tuple[DiffHunk, ...]:
+    if ev.event_type != et.TOOL_CALL:
+        return ()
+    bag = ev.raw_input if isinstance(ev.raw_input, ToolInputBag) else ToolInputBag()
+    found: list[DiffHunk] = []
+    for value in bag.raw().values():
+        if isinstance(value, str) and "Begin Patch" in value.replace("\\n", "\n"):
+            found.extend(_hunks_from_apply_patch(value))
+    return tuple(found)
+
+
 def _edit_from_event(ev: TraceEvent) -> tuple[str, list[tuple[str, str]], str] | None:
     if ev.event_type != et.TOOL_CALL:
         return None
@@ -311,16 +388,30 @@ def point_from_events(events: Sequence[TraceEvent]) -> DiffPoint | None:
     :returns: One edits point, or ``None`` when no reconstructable writes exist.
     """
     grouped: dict[str, list[tuple[str, str, str]]] = {}
+    extras: list[DiffHunk] = []
     for ev in events:
         parsed = _edit_from_event(ev)
-        if parsed is None:
+        if parsed is not None:
+            path, pairs, kind = parsed
+            for old_s, new_s in pairs:
+                grouped.setdefault(path, []).append((old_s, new_s, kind))
+        extras.extend(_apply_patch_hunks(ev))
+    files = list(_hunks_from_pairs(grouped))
+    seen = {h.path for h in files}
+    for hunk in extras:
+        if hunk.path in seen:
             continue
-        path, pairs, kind = parsed
-        for old_s, new_s in pairs:
-            grouped.setdefault(path, []).append((old_s, new_s, kind))
-    point = _point_from_grouped(grouped)
-    if point is None:
+        files.append(hunk)
+        seen.add(hunk.path)
+    if not files:
         return None
+    point = DiffPoint(
+        key="edits",
+        source="search_replace",
+        prompt_index=None,
+        created_at=None,
+        files=tuple(sorted(files, key=lambda item: item.path)),
+    )
     prompt, assistant = _edits_context(events)
     if not prompt and not assistant:
         return point
