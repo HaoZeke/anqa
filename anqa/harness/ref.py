@@ -1,9 +1,7 @@
-"""Session locator that is not always a directory.
+"""Session locator: directory, transcript file, or database.
 
-A directory locator is the session (catalog path is that directory; notes
-live in-tree). A file or database locator is a store the adapter reads
-(catalog path is ``harness:session_id``; notes live under
-``~/.anqa/notes/<harness>/<session_id>/``).
+Catalog path and notes path are the same shape for every adapter:
+``harness:session_id`` and ``~/.anqa/notes/<harness>/<session_id>/``.
 """
 
 from __future__ import annotations
@@ -45,18 +43,11 @@ class SessionRef:
     cwd: str = ""
 
     def ref_string(self) -> str:
-        """Control / catalog path: resolved directory, or ``harness:id``."""
-        if self.locator.is_dir():
-            try:
-                return str(self.locator.expanduser().resolve())
-            except OSError:
-                return str(self.locator)
+        """Control / catalog path: ``harness:id`` for every store."""
         return f"{self.harness}:{self.session_id}"
 
     def overlay_dir(self) -> Path:
-        """Operator notes. Directory locators keep notes in the session tree."""
-        if self.locator.is_dir():
-            return self.locator
+        """Operator notes: ``~/.anqa/notes/<harness>/<session_id>/``."""
         return APP_HOME / "notes" / self.harness / self.session_id
 
     @classmethod

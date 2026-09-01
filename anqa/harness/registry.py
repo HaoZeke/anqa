@@ -73,15 +73,15 @@ def adapters() -> tuple[HarnessAdapter, ...]:
     global _ADAPTERS
     if _ADAPTERS is None:
         _ADAPTERS = (
+            _antigravity_adapter(),
+            _claude_adapter(),
+            _codex_adapter(),
+            _copilot_adapter(),
+            _cursor_adapter(),
+            _gemini_adapter(),
             _grok_adapter(),
             _opencode_adapter(),
             _pi_adapter(),
-            _claude_adapter(),
-            _gemini_adapter(),
-            _antigravity_adapter(),
-            _copilot_adapter(),
-            _codex_adapter(),
-            _cursor_adapter(),
         )
     return _ADAPTERS
 

@@ -129,15 +129,14 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
     locator = Path(ref.locator)
     if locator.is_dir():
         meta.run_dir = meta.run_dir or session_run_dir(locator)
-        try:
-            path_str = str(locator.resolve())
-        except OSError:
-            path_str = str(locator)
-    else:
-        path_str = ref.ref_string()
-        if not meta.run_dir:
-            meta.run_dir = ref.cwd or ""
+    elif not meta.run_dir:
+        meta.run_dir = ref.cwd or ""
+    try:
+        locator_str = str(locator.resolve())
+    except OSError:
+        locator_str = str(locator)
     imported = is_import_locator(locator)
+    path_str = locator_str if imported else ref.ref_string()
     meta.origin = ORIGIN_IMPORT if imported else ORIGIN_HOST
     if not (meta.harness or "").strip():
         meta.harness = ref.harness
@@ -161,6 +160,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
     return {
         "sessionId": session_id,
         "path": path_str,
+        "locator": locator_str,
         "title": (meta.title or "").strip(),
         "label": label if label is not None else meta.label,
         "model": meta.model_display,
@@ -268,7 +268,7 @@ def list_session_catalog(
     return rows
 
 
-_DEAD_LIST_KEYS = ("originTag", "isHost", "origin")
+_DEAD_LIST_KEYS = ("originTag", "isHost", "origin", "locator")
 
 
 def public_catalog_row(row: JsonObject) -> JsonObject:
@@ -279,7 +279,7 @@ def public_catalog_row(row: JsonObject) -> JsonObject:
     hid = str(out.get("harness") or "").strip()
     if not hid:
         parsed = parse_session_ref_string(str(out.get("path") or ""))
-        hid = parsed[0] if parsed is not None else "grok"
+        hid = parsed[0] if parsed is not None else ""
         out["harness"] = hid
     if not str(out.get("harnessLabel") or "").strip():
         out["harnessLabel"] = harness_product(hid)
@@ -696,14 +696,18 @@ class SessionCatalogCache:
             path_raw = str(row.get("path") or "").strip()
             if not path_raw:
                 continue
-            if sid != ref and path_raw != ref and Path(path_raw).name != ref:
+            loc_raw = str(row.get("locator") or "").strip()
+            if sid != ref and path_raw != ref and Path(loc_raw).name != ref:
                 continue
-            path = Path(path_raw)
-            if path.is_dir():
-                try:
-                    return path.resolve()
-                except OSError:
-                    return path
+            for raw in (loc_raw, path_raw):
+                if not raw:
+                    continue
+                path = Path(raw)
+                if path.is_dir() or path.is_file():
+                    try:
+                        return path.resolve()
+                    except OSError:
+                        return path
         return None
 
     def refresh_rows(self, session_dirs: list[Path]) -> tuple[list[JsonObject], dict[str, bool]]:

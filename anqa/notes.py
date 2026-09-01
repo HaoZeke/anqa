@@ -3,10 +3,7 @@
 Schema: ``~/.anqa/notes_schema.toml`` (default fields: summary, detail)
 is the in-app form layout only. Every write must include a non-empty
 ``source``. Extra field keys are stored as sent. Session file:
-``<session_dir>/operator_notes.toml``, fallback under
-``~/.anqa/notes/<session_id>/``. Adapter host stores
-(and any symlinked session dir) always write the fallback so the live
-adapter store stays clean.
+``~/.anqa/notes/<harness>/<session_id>/operator_notes.toml``.
 """
 
 from __future__ import annotations

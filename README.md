@@ -54,8 +54,7 @@ Wheels for Linux, macOS, and Windows (Intel and ARM) are on
 | Catalog | each enabled adapter store | listed sessions (`[catalog.roots]` can override a path) |
 
 ```bash
-anqa                      # default host store
-anqa /path/to/sessions    # store tree or one session dir
+anqa                      # catalog: every shipped store
 ```
 
 `~/.anqa/config.toml` is the only prefs file (terminal app and desktop HUD).
@@ -112,42 +111,42 @@ anqa keys --check      # exit 1 on overlay errors
 ## Supported harnesses
 
 A harness is a coding-agent product whose sessions anqa lists and
-opens. Each adapter under `anqa/harness/` owns that product's native
-store. The catalog, timeline, notes, desktop HUD, and control clients
-all use the same session ref. Filter with `harness:<id>`. What a
-session can do (rewind, context meter, next prompt) comes from files
-that store wrote.
+opens. Run `anqa` and the home list is every shipped store. Filter
+with `harness:<id>`. OpenCode, Copilot, and Antigravity keep
+sessions in SQLite (plus a transcript where that product writes
+one). Claude Code, Codex, Cursor, Gemini CLI, and Pi keep one
+JSONL conversation per session. Grok Build keeps a session
+directory. What a session can do (rewind, context meter, next
+prompt) is whatever that store wrote.
 
-| Id | Product | Tested | Store | Catalog path |
-|----|---------|--------|--------|--------------|
-| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` (`updates.jsonl`, `rewind_points.jsonl`, `signals.json`) | directory |
-| `opencode` | [OpenCode](https://opencode.ai) | 1.18.25 | `~/.local/share/opencode/opencode.db` (`event` rows; `session` / `message` / `part` for archives) | `opencode:<id>` |
-| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` (`type=session` header) | `pi:<id>` |
-| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` (children in `<uuid>/subagents/`) | `claude:<id>` |
-| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` (`$set` / `session_metadata`) | `gemini:<id>` |
-| `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` plus `brain/<uuid>/…/transcript.jsonl` | `antigravity:<id>` |
-| `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` plus `session-state/<id>/events.jsonl` | `copilot:<id>` |
-| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` (`apply_patch` Begin Patch grammar) | `codex:<id>` |
-| `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` plus `chats/*/<id>/meta.json` | `cursor:<id>` |
+| Id | Product | Tested | Store |
+|----|---------|--------|--------|
+| `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` plus `brain/<uuid>/…/transcript.jsonl` |
+| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` (children in `<uuid>/subagents/`) |
+| `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` plus `session-state/<id>/events.jsonl` |
+| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` (`apply_patch` Begin Patch grammar) |
+| `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` plus `chats/*/<id>/meta.json` |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` (`$set` / `session_metadata`) |
+| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` (`updates.jsonl`, `rewind_points.jsonl`, `signals.json`) |
+| `opencode` | [OpenCode](https://opencode.ai) | 1.18.25 | `~/.local/share/opencode/opencode.db` (`event` rows; `session` / `message` / `part` for archives) |
+| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` (`type=session` header) |
 
 Tested is the product version we last parsed. A session may carry a
 different `harnessVersion` from its own files. Each product's record
 types, list Turn, children, and Diff source:
 [`docs/harness-adapters.md`](docs/harness-adapters.md).
 
-Notes for a host adapter session live under
-`~/.anqa/notes/<session_id>/`. A session directory you open with
-`-P` that is not an adapter store keeps notes in that tree. File
-or database locators use `~/.anqa/notes/<harness>/<session_id>/`.
+Notes for every store live under
+`~/.anqa/notes/<harness>/<session_id>/`.
 
 The home list and the session glance show the product name. The
 catalog lists every shipped adapter. `[catalog] ignore` drops a
-store. `[catalog.roots]` overrides a path.
+store. `[catalog.roots]` overrides a store's default location.
 
 ## Catalog
 
 The list is every enabled adapter store. Filter with `harness:<id>`.
-`anqa -P ~/.grok/sessions` opens that tree. Every note has a `source`
+Every note has a `source`
 (who wrote it). Control `notes/upsert` accepts any field bag plus that
 source. A new note uses `~/.anqa/notes_schema.toml`. Editing a note
 also shows extra stored fields as free-text. Notes, the edit form,

@@ -416,7 +416,8 @@ class CopilotAdapter:
         dest = extract_sid_tarball(src, dest_root)
         db = dest / "session.db"
         events = dest / "events.jsonl"
-        if not db.is_file() and not events.is_file():
+        workspace = dest / "workspace.yaml"
+        if not db.is_file() and not workspace.is_file():
             raise RuntimeError(f"archive is not a copilot session: {src}")
         sid = dest.name
         store = dest_root / "copilot.db"

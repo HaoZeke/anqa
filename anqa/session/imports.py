@@ -167,11 +167,13 @@ def _open_with_adapter(src: Path, dest_root: Path, harness_id: str) -> SessionRe
 def _open_native(src: Path, dest_home: Path) -> SessionRef:
     errors: list[str] = []
     for item in adapters():
-        dest_root = dest_home / item.id
-        try:
-            return item.open_archive(src, dest_root)
-        except (RuntimeError, FileNotFoundError, OSError, tarfile.TarError) as exc:
-            errors.append(f"{item.id}: {exc}")
+        with tempfile.TemporaryDirectory(prefix=f"anqa-open-{item.id}-") as tmp:
+            try:
+                ref = item.open_archive(src, Path(tmp))
+            except (RuntimeError, FileNotFoundError, OSError, tarfile.TarError) as exc:
+                errors.append(f"{item.id}: {exc}")
+                continue
+            return _copy_bound_session(ref, dest_home / item.id)
     detail = "; ".join(errors) if errors else "no adapters"
     raise RuntimeError(f"not a session archive: {src} ({detail})")
 
@@ -206,8 +208,8 @@ def _import_bundle(path: Path, dest_home: Path, manifest: JsonObject) -> Session
         nested = root / SESSION_ARCHIVE_NAME
         if not nested.is_file():
             raise RuntimeError(f"export bundle missing {SESSION_ARCHIVE_NAME}")
-        dest_root = dest_home / (hid or "grok")
         if hid:
+            dest_root = dest_home / hid
             ref = _open_with_adapter(nested, dest_root, hid)
         else:
             ref = _open_native(nested, dest_home)
@@ -255,8 +257,8 @@ def import_session(path: Path | str, *, dest_home: Path | None = None) -> Import
     if manifest is not None:
         hid = str(manifest.get("harness") or "").strip()
         sid = str(manifest.get("session_id") or "").strip()
-        dest_root = home / (hid or "grok")
-        replaced = bool(sid) and _dest_existed(dest_root, sid)
+        dest_root = home / hid if hid else home
+        replaced = bool(sid) and bool(hid) and _dest_existed(home / hid, sid)
         ref = _import_bundle(src, home, manifest)
         _write_sidecar(ref, src)
         return ImportResult(ref=ref, source=src, replaced=replaced)

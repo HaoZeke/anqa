@@ -214,12 +214,11 @@ catalog discovery for control outside ``session/catalog`` +
 
 - Catalog = every enabled adapter store. ``harness:<id>`` filters.
   ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
-  Directory locators use the session path; file or database locators use
-  ``harness:<session_id>``. Contract: ``docs/harness-adapters.md``. New or
-  bumped adapters go through ``.grok/skills/harness-adapter-qa`` and
+  Every session's catalog path is ``harness:<session_id>``. Notes live
+  under ``~/.anqa/notes/<harness>/<session_id>/``. Contract:
+  ``docs/harness-adapters.md``. New or bumped adapters go through
+  ``.grok/skills/harness-adapter-qa`` and
   ``scripts/check_harness_adapters.py``.
-- CLI path chooses a store or session
-  (:func:`anqa.paths.resolve_catalog_root`).
 
 ### 3.1 Live sessions (product behaviour)
 

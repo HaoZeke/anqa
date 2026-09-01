@@ -19,28 +19,17 @@ def test_parse_rejects_paths() -> None:
     assert parse_session_ref_string("") is None
 
 
-def test_directory_ref_string_is_path(tmp_path: Path) -> None:
+def test_ref_string_and_notes_are_the_same_for_every_store(tmp_path: Path) -> None:
     loc = tmp_path / "sid"
     loc.mkdir()
-    ref = SessionRef(
-        harness="grok",
-        session_id="sid",
-        locator=loc,
-    )
-    assert Path(ref.ref_string()) == loc.resolve()
-    assert ref.overlay_dir() == loc
-
-
-def test_file_locator_ref_string_is_harness_id(tmp_path: Path) -> None:
     store = tmp_path / "store.db"
     store.write_bytes(b"")
-    ref = SessionRef(
-        harness="demo",
-        session_id="ses_1",
-        locator=store,
-    )
-    assert ref.ref_string() == "demo:ses_1"
-    assert ref.overlay_dir().parts[-2:] == ("demo", "ses_1")
+    directory = SessionRef(harness="grok", session_id="sid", locator=loc)
+    row = SessionRef(harness="demo", session_id="ses_1", locator=store)
+    assert directory.ref_string() == "grok:sid"
+    assert row.ref_string() == "demo:ses_1"
+    assert directory.overlay_dir().parts[-2:] == ("grok", "sid")
+    assert row.overlay_dir().parts[-2:] == ("demo", "ses_1")
 
 
 def test_resolve_unknown_harness_id_is_none() -> None:

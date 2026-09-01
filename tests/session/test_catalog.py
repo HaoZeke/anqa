@@ -42,12 +42,12 @@ def _write_session(root: Path, name: str, *, title: str = "Catalog session") -> 
 
 def test_list_session_catalog_discovers_store(tmp_path: Path) -> None:
     store = tmp_path / "sessions"
-    sess = _write_session(store, "session-catalog-a", title="Alpha review")
+    _write_session(store, "session-catalog-a", title="Alpha review")
     rows = list_session_catalog(traces_path=store, include_host=False)
     assert len(rows) == 1
     row = rows[0]
     assert row["sessionId"] == "session-catalog-a"
-    assert row["path"] == str(sess.resolve())
+    assert row["path"] == "grok:session-catalog-a"
     assert row["title"] == "Alpha review"
     assert "status" in row
     assert "model" in row

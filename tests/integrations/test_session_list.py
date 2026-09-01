@@ -57,7 +57,7 @@ def test_filter_session_catalog_drops_origin_and_fills_harness_label() -> None:
     raw = [
         {
             "sessionId": "old-grok",
-            "path": "/tmp/old-grok",
+            "path": "grok:old-grok",
             "title": "Cached grok",
             "status": "complete",
             "origin": "host",

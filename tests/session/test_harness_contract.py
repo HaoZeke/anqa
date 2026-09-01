@@ -12,7 +12,7 @@ def test_registered_adapters_declare_support() -> None:
     found = list(adapters())
     assert found
     ids = [item.id for item in found]
-    assert ids[0] == "grok"
+    assert set(ids) == set(HARNESS_IDS)
     for item in found:
         assert item.id in HARNESS_IDS
         assert item.product.strip()
