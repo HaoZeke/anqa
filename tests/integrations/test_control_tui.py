@@ -179,7 +179,7 @@ async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> Non
             await _wait_until(pilot, app.is_control_client, description="control client attach")
             await _wait_until(
                 pilot,
-                lambda: any(m.session_dir.name == session_dir.name for m, _ in app._meta_only),
+                lambda: any(m.session_id == session_dir.name for m, _ in app._meta_only),
                 description="catalog rows from control",
             )
             assert not any("Scanning" in msg for msg in toasts)

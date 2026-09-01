@@ -182,8 +182,8 @@ def resolve_session_ref(
 ) -> SessionRef | None:
     """Map a control ``session`` argument to a :class:`SessionRef`.
 
-    Order: ``harness:id`` → each adapter ``ref_for_id`` → directory path
-    via ``bind_locator``.
+    Order: catalog locator (``path_resolve``) → ``harness:id`` /
+    ``ref_for_id`` → directory path via ``bind_locator``.
 
     :param reference: Session id, directory, or ``harness:id``.
     :param path_resolve: Optional directory resolver (catalog cache).
@@ -193,23 +193,38 @@ def resolve_session_ref(
     if not raw:
         return None
     parsed = parse_session_ref_string(raw)
+
+    def _from_cache(key: str, *, harness: str = "", session_id: str = "") -> SessionRef | None:
+        if path_resolve is None:
+            return None
+        path = path_resolve(key)
+        if path is None or not (path.is_dir() or path.is_file()):
+            return None
+        if harness and session_id:
+            return SessionRef(harness=harness, session_id=session_id, locator=path)
+        return ref_from_path(path)
+
     if parsed is not None:
         hid, sid = parsed
         found = adapter(hid)
         if found is None:
             return None
+        cached = _from_cache(raw, harness=hid, session_id=sid) or _from_cache(
+            sid, harness=hid, session_id=sid
+        )
+        if cached is not None:
+            return cached
         return found.ref_for_id(sid)
+    cached = _from_cache(raw)
+    if cached is not None:
+        return cached
+    candidate = Path(raw).expanduser()
+    if candidate.is_dir() or candidate.is_file():
+        return ref_from_path(candidate)
     for item in adapters():
         hit = item.ref_for_id(raw)
         if hit is not None:
             return hit
-    if path_resolve is not None:
-        path = path_resolve(raw)
-        if path is not None and path.is_dir():
-            return ref_from_path(path)
-    candidate = Path(raw).expanduser()
-    if candidate.is_dir():
-        return ref_from_path(candidate)
     return None
 
 

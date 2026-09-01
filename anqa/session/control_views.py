@@ -435,8 +435,12 @@ class SessionOverview:
         except Exception:
             logger.debug("notes stamp for overview %s", sd, exc_info=True)
         job_files, monitor_status = job_input_stamp(sd)
+        try:
+            stamp = require_adapter(sd).timeline_stamp(sd)
+        except FileNotFoundError:
+            stamp = (0.0, 0, 0, 0)
         return (
-            require_adapter(sd).timeline_stamp(sd),
+            stamp,
             notes_rev,
             job_files,
             monitor_status,

@@ -999,7 +999,7 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
         return None
     if loc_raw:
         session_dir = Path(loc_raw)
-    elif path_raw and Path(path_raw).exists():
+    elif path_raw and (Path(path_raw).exists() or parse_session_ref_string(path_raw) is not None):
         session_dir = Path(path_raw)
     else:
         session_dir = Path(sid)

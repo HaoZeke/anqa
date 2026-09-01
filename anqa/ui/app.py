@@ -2062,6 +2062,13 @@ class AnqaApp(App):
     ) -> None:
         """Open a session in the browser immediately."""
         session_path = Path(row_key)
+        if not (session_path.is_dir() or session_path.is_file()):
+            for meta, _label in self._meta_only:
+                if str(meta.session_dir) == row_key or meta.session_id == row_key:
+                    hid = (meta.harness or "").strip()
+                    if hid and meta.session_id:
+                        session_path = Path(f"{hid}:{meta.session_id}")
+                    break
         self._push_browser(session_path, prompt_index=prompt_index)
         if notify_control:
             self.control_session_selected(session_path, prompt_index)

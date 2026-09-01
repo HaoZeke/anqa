@@ -162,6 +162,7 @@ def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:
     rows = cache.get(force=True)
     assert len(rows) == 1
     assert cache.resolve("cached-resolve") == sess.resolve()
+    assert cache.resolve(f"grok:{sess.name}") == sess.resolve()
     assert cache.resolve(str(sess.resolve())) == sess.resolve()
     assert cache.resolve("missing") is None
 

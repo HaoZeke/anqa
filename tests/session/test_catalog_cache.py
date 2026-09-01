@@ -593,6 +593,23 @@ def test_session_meta_from_catalog_row_status() -> None:
     assert "35" in meta.context_usage_compact
 
 
+def test_session_meta_from_catalog_row_harness_path_binds_adapter() -> None:
+    """Public list rows have ``grok:id`` and no locator. Open must still bind."""
+    from anqa.harness.registry import require_adapter
+
+    sid = "01a05924-0d67-7102-a1cc-8504003a794a"
+    meta = session_meta_from_catalog_row(
+        {
+            "sessionId": sid,
+            "path": f"grok:{sid}",
+            "harness": "grok",
+        }
+    )
+    assert meta is not None
+    assert meta.session_id == sid
+    assert require_adapter(meta.session_dir).id == "grok"
+
+
 def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = host / "%2Fproj" / "019fe503-d45c-7320-904e-cfa8836c361c"

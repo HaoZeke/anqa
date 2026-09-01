@@ -857,6 +857,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         ov = as_json_object(overview) if isinstance(overview, dict) else {}
         self._overview_payload = ov
         meta = session_meta_from_overview(ov, fallback_dir=Path(self.session_dir))
+        loc = meta.session_dir
+        if loc.is_dir() or loc.is_file():
+            self.session_dir = loc
         first, total = asyncio.run(fetch_timeline_page(access, ref, page_limit=TIMELINE_RPC_LIMIT))
         self.meta = meta
         self.timeline = first

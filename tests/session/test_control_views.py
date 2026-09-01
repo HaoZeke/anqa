@@ -11,9 +11,16 @@ from anqa.session.control_views import (
     build_session_overview,
     build_session_timeline,
     build_session_turns,
+    overview_input_stamp,
     overview_stat_counters,
     overview_stat_counts,
 )
+
+
+def test_overview_input_stamp_bare_session_id_does_not_raise() -> None:
+    """Attached TUI opens ``sessionId`` as a Path; stamp must not fail the load."""
+    overview_input_stamp(Path("01a05924-0d67-7102-a1cc-8504003a794a"))
+    overview_input_stamp(Path("grok:01a05924-0d67-7102-a1cc-8504003a794a"))
 
 
 def _write_session(root: Path, name: str) -> Path:

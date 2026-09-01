@@ -44,3 +44,25 @@ def test_require_adapter_accepts_harness_ref_as_path() -> None:
     raw = "opencode:ses_fb126f42fffebvoGOuSoFc457J"
     assert require_adapter(raw).id == "opencode"
     assert require_adapter(Path(raw)).id == "opencode"
+
+
+def test_resolve_session_ref_uses_path_resolve_before_discover(tmp_path: Path) -> None:
+    """``grok:id`` must hit the catalog locator, not walk every store."""
+    loc = tmp_path / "sess"
+    loc.mkdir()
+    (loc / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    (loc / "summary.json").write_text("{}", encoding="utf-8")
+    calls: list[str] = []
+
+    def path_resolve(reference: str) -> Path | None:
+        calls.append(reference)
+        if reference in {"grok:sess", "sess"}:
+            return loc
+        return None
+
+    found = resolve_session_ref("grok:sess", path_resolve=path_resolve)
+    assert found is not None
+    assert found.harness == "grok"
+    assert found.session_id == "sess"
+    assert found.locator.resolve() == loc.resolve()
+    assert calls == ["grok:sess"]
