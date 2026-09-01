@@ -316,6 +316,7 @@ class AnqaApp(App):
         self._pending_include_host: bool | None = None
         self._pending_sessions_reload_quiet: bool = False
         self._selected: set[str] = set()
+        self._select_all_scope: set[str] = set()
         self._session_search: str = ""
         self._session_search_applied: str = ""
         self._session_search_debounce: Timer | None = None
@@ -1644,10 +1645,16 @@ class AnqaApp(App):
         table = self.query_one("#session-table", DataTable)
         preserve = self._session_row_key_at_cursor(table)
         visible = {str(meta.session_dir) for meta, _ in self._filtered_session_rows()}
-        if visible and visible <= self._selected:
+        scope = self._select_all_scope
+        if scope and self._selected == scope:
+            self._selected -= scope
+            self._select_all_scope = set()
+        elif visible and visible <= self._selected:
             self._selected -= visible
+            self._select_all_scope = set()
         else:
             self._selected |= visible
+            self._select_all_scope = set(visible)
         self._refresh_session_selection_markers(table)
         if preserve:
             self._restore_cursor(table, preserve)
@@ -1881,6 +1888,7 @@ class AnqaApp(App):
         self._meta_only = []
         self._session_mtimes.clear()
         self._selected = set()
+        self._select_all_scope = set()
         self.notify(
             t("notify-full-refresh", path=str(root)),
             severity="warning",
