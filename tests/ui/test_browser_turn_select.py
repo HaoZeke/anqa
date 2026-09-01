@@ -282,6 +282,64 @@ def test_prev_turn_from_all_opens_last() -> None:
     assert screen._turn_filter == "5"
 
 
+def test_rebuild_turn_select_uses_overview_when_timeline_is_first_page(
+    tmp_path: Path,
+) -> None:
+    """Attached browser must list every overview turn, not the first page."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    screen.timeline = [
+        _ev(0, "turn_started", "turn_number=0"),
+        _ev(1, "user_message_chunk", "first"),
+        _ev(2, "turn_ended", "outcome=completed"),
+        _ev(3, "turn_started", "turn_number=1"),
+        _ev(4, "user_message_chunk", "second"),
+    ]
+    screen._overview_payload = {
+        "turns": {
+            "total": 5,
+            "turns": [
+                {
+                    "turnIndex": i,
+                    "turnNumber": i,
+                    "outcome": "completed" if i < 4 else "",
+                    "open": i == 4,
+                    "firstIndex": i * 20,
+                    "lastIndex": i * 20 + 10,
+                    "label": f"turn {i}",
+                }
+                for i in range(5)
+            ],
+        }
+    }
+    screen._last_turn_segment_count = -1
+    screen._turn_rebuild_sig = None
+    screen._turn_filter = "all"
+    calls: list[object] = []
+
+    class _Sel:
+        display = False
+        value = "all"
+
+        def set_options(self, options):
+            calls.append(list(options))
+
+    sel = _Sel()
+    screen.query_one = lambda _q, _t=None: sel  # type: ignore[method-assign]
+    screen._rebuild_turn_select()
+    assert sel.display is True
+    assert screen._last_turn_segment_count == 5
+    values = [v for _, v in calls[-1]]
+    assert values == ["all", "0", "1", "2", "3", "4"]
+    # Turn 4 is not on the first page; the filter still uses overview bounds.
+    screen._turn_filter = "4"
+    indices = screen._turn_event_indices()
+    assert indices is not None
+    assert {80, 90} <= {int(i) for i in indices}
+
+
 def test_timeline_table_does_not_override_column_arrows() -> None:
     """h / Left step turns via the screen catalog binding, not the table."""
     from anqa.ui.widgets.timeline import TimelineTable

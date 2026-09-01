@@ -21,6 +21,7 @@ from anqa.session.wire_timeline import (
     fetch_timeline_page,
     session_meta_from_overview,
     trace_event_from_wire,
+    turn_segments_from_overview,
 )
 
 
@@ -100,6 +101,51 @@ def test_session_meta_from_overview(tmp_path: Path) -> None:
     assert meta.session_id == "w2"
     assert meta.num_events >= 1
     assert meta.session_dir == sd or meta.session_dir.name == "w2"
+
+
+def test_turn_segments_from_overview_match_session_turns_count() -> None:
+    """HUD Turns and the TUI picker hydrate the same overview turns block."""
+    segs = turn_segments_from_overview(
+        {
+            "turns": {
+                "total": 3,
+                "turns": [
+                    {
+                        "turnIndex": 0,
+                        "turnNumber": 0,
+                        "outcome": "completed",
+                        "open": False,
+                        "firstIndex": 0,
+                        "lastIndex": 40,
+                    },
+                    {
+                        "turnIndex": 1,
+                        "turnNumber": 1,
+                        "outcome": "cancelled",
+                        "open": False,
+                        "firstIndex": 41,
+                        "lastIndex": 80,
+                    },
+                    {
+                        "turnIndex": 2,
+                        "turnNumber": 2,
+                        "outcome": "",
+                        "open": True,
+                        "firstIndex": 81,
+                        "lastIndex": 120,
+                    },
+                ],
+            }
+        }
+    )
+    assert [s.turn_index for s in segs] == [0, 1, 2]
+    assert [s.turn_number for s in segs] == [0, 1, 2]
+    assert segs[0].first_index == 0
+    assert segs[0].last_index == 40
+    assert segs[0].outcome == "completed"
+    assert segs[2].open is True
+    assert turn_segments_from_overview({}) == []
+    assert turn_segments_from_overview({"turns": {"turns": []}}) == []
 
 
 def test_session_meta_from_overview_uses_signals_turn_count(tmp_path: Path) -> None:

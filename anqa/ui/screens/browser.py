@@ -262,7 +262,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._needs_live_timeline_valid: bool = False
         self._last_turn_segment_count: int = -1
         # (timeline_len, last_event_index) — skip re-segment only when tail unchanged.
-        self._turn_rebuild_sig: tuple[int, int | None] | None = None
+        self._turn_rebuild_sig: tuple[int, int | None, int] | None = None
         self._detail_debounce: Timer | None = None
         self._search_debounce: Timer | None = None
         self._search_gen: int = 0
@@ -2588,9 +2588,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         indices: set[int] = set()
         found = False
         for seg in segs:
-            if seg.turn_index == ti:
-                found = True
-                indices.update(e.index for e in events_on_display_turn(seg, turn_by))
+            if seg.turn_index != ti:
+                continue
+            found = True
+            indices.update(e.index for e in events_on_display_turn(seg, turn_by))
+            lo, hi = seg.first_index, seg.last_index
+            if lo is not None and hi is not None:
+                indices.update(ev.index for ev in self.timeline if lo <= ev.index <= hi)
         if not found:
             return None
         for ev in self.timeline:
@@ -2615,10 +2619,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         (e.g. turn 42 never appeared until F5).
         """
         from ...session.turns import segment_timeline_turns
+        from ...session.wire_timeline import turn_segments_from_overview
 
         tl = self.timeline or []
         last = tl[-1] if tl else None
-        sig = (len(tl), last.index if last is not None else None)
+        payload = getattr(self, "_overview_payload", None)
+        overview = turn_segments_from_overview(payload if isinstance(payload, dict) else {})
+        sig = (len(tl), last.index if last is not None else None, len(overview))
         if (
             sig == getattr(self, "_turn_rebuild_sig", None)
             and getattr(self, "_turn_segments", None) is not None
@@ -2627,7 +2634,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
         self._turn_rebuild_sig = sig
 
-        self._turn_segments = segment_timeline_turns(tl)
+        local = segment_timeline_turns(tl)
+        self._turn_segments = overview if len(overview) >= len(local) else local
         n_segs = len(self._turn_segments)
         multi = n_segs > 1
         try:

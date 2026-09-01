@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .. import event_types as et
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from .catalog import session_meta_from_catalog_row
 from .control_views import MAX_CONTENT_CHARS, MAX_TIMELINE_LIMIT
+from .turns import TurnSegment
 
 # One RPC must finish inside HEAVY_RPC_TIMEOUT. HUD uses 200 × 12k; the TUI
 # used MAX_TIMELINE_LIMIT × MAX_CONTENT_CHARS and hit the 5s client timeout.
@@ -243,6 +245,60 @@ async def fetch_timeline_growth(
     return await fetch_timeline_events(access, session_ref)
 
 
+def _wire_int(value: object) -> int | None:
+    if isinstance(value, bool) or value is None or value == "":
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def turn_segment_from_wire(row: JsonObject) -> TurnSegment:
+    """Hydrate one :class:`TurnSegment` from a ``session/overview`` / ``session/turns`` row."""
+    turn_index = _wire_int(row.get("turnIndex")) or 0
+    turn_number = _wire_int(row.get("turnNumber"))
+    first = _wire_int(row.get("firstIndex"))
+    last = _wire_int(row.get("lastIndex"))
+    outcome = str(row.get("outcome") or "")
+    events: list[TraceEvent] = []
+    if first is not None:
+        started = f"turn_number={turn_number}" if turn_number is not None else "turn started"
+        events.append(TraceEvent(index=first, event_type=et.TURN_STARTED, content=started))
+    if last is not None and last != first:
+        ended = f"outcome={outcome}" if outcome else "turn ended"
+        events.append(TraceEvent(index=last, event_type=et.TURN_ENDED, content=ended))
+    return TurnSegment(
+        turn_index=turn_index,
+        turn_number=turn_number,
+        prompt_index=_wire_int(row.get("promptIndex")),
+        outcome=outcome,
+        open=bool(row.get("open")),
+        events=events,
+    )
+
+
+def turn_segments_from_overview(overview: JsonObject) -> list[TurnSegment]:
+    """Turns block from ``session/overview`` (same rows the desktop palette lists)."""
+    block = overview.get("turns")
+    if not isinstance(block, dict):
+        return []
+    rows = block.get("turns")
+    if not isinstance(rows, list):
+        return []
+    out: list[TurnSegment] = []
+    for item in rows:
+        if isinstance(item, dict):
+            out.append(turn_segment_from_wire(as_json_object(item)))
+    return out
+
+
 def session_meta_from_overview(overview: JsonObject, *, fallback_dir: Path) -> SessionMeta:
     """Build :class:`SessionMeta` from a ``session/overview`` payload."""
     meta_raw = overview.get("meta")
@@ -308,4 +364,6 @@ __all__ = [
     "fetch_timeline_page",
     "session_meta_from_overview",
     "trace_event_from_wire",
+    "turn_segment_from_wire",
+    "turn_segments_from_overview",
 ]
