@@ -11,7 +11,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
-from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
@@ -578,10 +577,12 @@ class ClaudeAdapter:
         return _meta_from_rows(rows, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
-        path, _sid = _jsonl_from_ref(ref, self.root())
+        path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             return []
-        return _timeline_for(list(json_lines(path)))
+        from ..core import timeline_events
+
+        return timeline_events(self.id, path, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()

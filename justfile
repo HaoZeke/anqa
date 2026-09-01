@@ -116,9 +116,9 @@ hud-cov:
 brand:
     uv run --group brand python brand/build.py
 
-# cargo test the scan crate (walk + updates filter; no Python link).
-scan-check:
-    cargo test --manifest-path scan/Cargo.toml
+# cargo test the core crate (walk + store ingest; no Python link).
+core-check:
+    cargo test --manifest-path core/Cargo.toml
 
 # pytest (no coverage flag).
 test:

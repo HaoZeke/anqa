@@ -560,11 +560,12 @@ class GeminiAdapter:
         return _meta_from_conversation(meta, messages, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
-        path, _sid = _jsonl_from_ref(ref, self.root())
+        path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             return []
-        _meta, messages = _load_conversation(path)
-        return _timeline_for(messages)
+        from ..core import timeline_events
+
+        return timeline_events(self.id, path, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()

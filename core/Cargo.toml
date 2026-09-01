@@ -1,16 +1,18 @@
 [package]
-name = "anqa-scan"
+name = "anqa-core"
 version = "0.1.0"
 edition = "2021"
-description = "Session walk and updates.jsonl prefilter (anqa.scan / anqa._scan)"
+description = "Session store ingest: typed events, list meta, walk (anqa._core)"
 license = "MIT"
 publish = false
 
 [lib]
-name = "_scan"
+name = "_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
 pyo3 = { version = "0.25", optional = true }
 
 [features]

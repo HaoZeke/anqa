@@ -83,9 +83,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
-      - name: cargo test anqa-scan
+      - name: cargo test anqa-core
         if: matrix.scan == '1'
-        run: cargo test --manifest-path scan/Cargo.toml
+        run: cargo test --manifest-path core/Cargo.toml
       - name: pytest with coverage
         run: uv run pytest tests/ -q --tb=short --cov=anqa --cov-report=xml --cov-fail-under=0
       - name: Upload coverage to Codecov

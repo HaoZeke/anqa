@@ -198,9 +198,11 @@ class GrokAdapter:
         return load_meta(ref)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
-        if isinstance(ref, SessionRef):
-            return parse_timeline(ref.locator)
-        return parse_timeline(ref)
+        from ..core import timeline_events
+
+        loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        sid = ref.session_id if isinstance(ref, SessionRef) else Path(loc).name
+        return timeline_events(self.id, loc, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()

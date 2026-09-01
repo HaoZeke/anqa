@@ -12,7 +12,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .. import event_types as et
-from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
@@ -355,7 +354,9 @@ class CopilotAdapter:
         if not sid:
             return []
         db = _assert_readable(db)
-        return _timeline_for(list(json_lines(_events_path(db, sid))))
+        from ..core import timeline_events
+
+        return timeline_events(self.id, db, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()

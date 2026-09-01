@@ -402,6 +402,7 @@ class TraceEvent:
     prompt_index: int | None = None
     images: list[bytes] = field(default_factory=list)
     still_paths: list[str] = field(default_factory=list)
+    raw: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.raw_input, ToolInputBag):

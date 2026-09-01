@@ -123,7 +123,7 @@ def test_scan_env_is_read_each_call(monkeypatch: pytest.MonkeyPatch) -> None:
     assert using_scan() is False
     monkeypatch.setenv("ANQA_SCAN", "1")
     try:
-        from anqa import _scan as ext
+        from anqa import _core as ext
     except ImportError:
         assert using_scan() is False
     else:
@@ -136,7 +136,7 @@ def test_scan_env_matches_using_scan() -> None:
         assert using_scan() is False
     else:
         try:
-            from anqa import _scan as ext
+            from anqa import _core as ext
         except ImportError:
             assert using_scan() is False
         else:
@@ -147,7 +147,7 @@ def test_scan_env_matches_using_scan() -> None:
 def test_scan_on_requires_compiled_module() -> None:
     if scan_forced_off():
         pytest.skip("ANQA_SCAN disables the compiled module")
-    import anqa._scan as ext
+    import anqa._core as ext
 
     assert using_scan() is True
     assert callable(ext.keep_updates_line)

@@ -15,7 +15,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .. import event_types as et
-from ..json_lines import json_lines
 from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..stamp import Stamp
 from .ref import SessionRef
@@ -492,7 +491,9 @@ class AntigravityAdapter:
         if not sid:
             return []
         root = self._store_root_for(db) if db.is_file() else self.root()
-        return _timeline_for(list(json_lines(_transcript_path(root, sid))))
+        from ..core import timeline_events
+
+        return timeline_events(self.id, root, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()

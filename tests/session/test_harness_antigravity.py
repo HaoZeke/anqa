@@ -74,7 +74,7 @@ def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
     def boom(*_a: object, **_k: object) -> list[object]:
         raise AssertionError("list-meta must not read the full transcript")
 
-    monkeypatch.setattr("anqa.harness.antigravity.json_lines", boom)
+    monkeypatch.setattr("anqa.json_lines.json_lines", boom)
     meta = require_adapter(Path(f"antigravity:{_SID}")).load_meta(Path(f"antigravity:{_SID}"))
     assert meta.session_id == _SID
     assert meta.title == "Reply with AGY_PROBE_OK"

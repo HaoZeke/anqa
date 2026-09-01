@@ -1,0 +1,161 @@
+"""Native session store: typed events from anqa-core.
+
+Every harness goes through this module. Store I/O lives in the crate.
+A raw event is the original record string.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from pathlib import Path
+
+from .models import SessionMeta, ToolInputBag, TraceEvent, as_json_object
+
+try:
+    from anqa import _core as _native
+except ImportError as exc:  # pragma: no cover - extension must be built
+    raise ImportError("anqa._core is required; rebuild with uv sync") from exc
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return default
+
+
+def store_ids() -> list[str]:
+    """Shipped harness ids."""
+    return list(_native.store_ids())
+
+
+def timeline_events(harness: str, locator: Path | str, session_id: str) -> list[TraceEvent]:
+    """Full typed timeline for *session_id* at *locator*.
+
+    :param harness: Adapter id (``pi``, ``claude``, …).
+    :param locator: Session file, directory, or database path.
+    :param session_id: Store session id.
+    :return: Linear events. ``TraceEvent.raw`` is the original record.
+    """
+    rows = _native.store_timeline(harness, str(locator), session_id)
+    return [event_from_native(row) for row in rows]
+
+
+def timeline_page(
+    harness: str,
+    locator: Path | str,
+    session_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 200,
+) -> tuple[list[TraceEvent], int]:
+    """One page of the native timeline.
+
+    :return: ``(events, total)``.
+    """
+    page = _native.store_timeline_page(harness, str(locator), session_id, offset, limit)
+    raw_events = page.get("events") if isinstance(page, dict) else None
+    rows = raw_events if isinstance(raw_events, list) else []
+    events = [event_from_native(row) for row in rows if isinstance(row, Mapping)]
+    return events, _as_int(page.get("total") if isinstance(page, dict) else 0)
+
+
+def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
+    """List-grade meta from the native store."""
+    row = _native.store_list_meta(harness, str(locator), session_id)
+    return SessionMeta(
+        session_id=str(row.get("session_id") or session_id),
+        session_dir=Path(str(row.get("locator") or locator)),
+        model_id=str(row.get("model_id") or "unknown"),
+        title=str(row.get("title") or ""),
+        created_at=str(row.get("created_at") or ""),
+        updated_at=str(row.get("updated_at") or ""),
+        duration_seconds=_as_float(row.get("duration_seconds")),
+        tool_call_count=_as_int(row.get("tool_call_count")),
+        turn_outcome=str(row.get("turn_outcome") or ""),
+        harness=str(row.get("harness") or harness),
+        harness_version=str(row.get("harness_version") or ""),
+        run_dir=str(row.get("run_dir") or ""),
+        num_events=_as_int(row.get("num_events")),
+        has_subagents=bool(row.get("has_subagents")),
+        subagent_count=_as_int(row.get("subagent_count")),
+    )
+
+
+def event_from_native(row: object) -> TraceEvent:
+    """Build a :class:`TraceEvent` from a native store row."""
+    data_in = row if isinstance(row, Mapping) else {}
+    raw = str(data_in.get("raw") or "")
+    bag = ToolInputBag()
+    if raw:
+        try:
+            val = json.loads(raw)
+        except json.JSONDecodeError:
+            val = None
+        if isinstance(val, dict):
+            bag = ToolInputBag(as_json_object(val))
+    child = str(data_in.get("child_session_id") or "")
+    if child:
+        data = dict(bag.raw())
+        data.setdefault("child_session_id", child)
+        data.setdefault("subagent_id", child)
+        if data_in.get("subagent_type"):
+            data.setdefault("subagent_type", str(data_in.get("subagent_type") or ""))
+        if data_in.get("description"):
+            data.setdefault("description", str(data_in.get("description") or ""))
+        bag = ToolInputBag(as_json_object(data))
+    ts = data_in.get("timestamp")
+    prompt = data_in.get("prompt_index")
+    ev = TraceEvent(
+        index=_as_int(data_in.get("index")),
+        event_type=str(data_in.get("event_type") or ""),
+        timestamp=int(ts) if isinstance(ts, (int, float)) else None,
+        content=str(data_in.get("content") or ""),
+        tool_name=str(data_in.get("tool_name") or ""),
+        tool_call_id=str(data_in.get("tool_call_id") or ""),
+        raw_input=bag,
+        is_error=bool(data_in.get("is_error")),
+        update_index=_as_int(data_in.get("update_index")),
+        prompt_index=int(prompt) if isinstance(prompt, (int, float)) else None,
+        raw=raw,
+    )
+    return ev
+
+
+def find_sessions(root: Path | str) -> list[Path]:
+    """Session directories under *root*."""
+    return [Path(p) for p in _native.find_sessions(str(root))]
+
+
+def find_files(root: Path | str, *, suffix: str, name_prefix: str = "") -> list[Path]:
+    """Files under *root* matching *suffix* and optional *name_prefix*."""
+    return [Path(p) for p in _native.find_files(str(root), suffix, name_prefix)]
+
+
+def keep_updates_line(line: bytes) -> bool:
+    """Grok streaming-line keep/skip (that store's record shape)."""
+    return bool(_native.keep_updates_line(line))
+
+
+__all__ = [
+    "event_from_native",
+    "find_files",
+    "find_sessions",
+    "keep_updates_line",
+    "list_meta",
+    "store_ids",
+    "timeline_events",
+    "timeline_page",
+]

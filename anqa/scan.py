@@ -55,13 +55,13 @@ def scan_forced_off() -> bool:
 
 
 def scan_module() -> ModuleType | None:
-    """Loaded ``anqa._scan``, or ``None`` when missing or forced off."""
+    """Loaded ``anqa._core``, or ``None`` when missing or forced off."""
     global _mod
     if scan_forced_off():
         return None
     if _mod is None:
         try:
-            from anqa import _scan as loaded
+            from anqa import _core as loaded
         except ImportError:
             return None
         _mod = loaded

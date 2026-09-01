@@ -80,7 +80,7 @@ def test_scan_flag_is_consistent() -> None:
     if scan_forced_off():
         assert using_scan() is False
     else:
-        import anqa._scan as ext
+        import anqa._core as ext
 
         assert using_scan() is True
         assert ext.keep_updates_line(STREAMING) is False

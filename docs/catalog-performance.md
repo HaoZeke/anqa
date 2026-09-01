@@ -23,9 +23,9 @@ row from the file header and a 64 KiB tail (`list_window`). A list row
 never reads a full transcript. The owner keeps `harness:id` → locator
 in the warm snapshot; `session/list` never waits on a cold walk.
 
-Membership walks (session directories, `*.jsonl` under a store) run in
-`anqa._scan` when the extension is loaded. Python twins stay for
-`ANQA_SCAN=0`.
+Membership walks and transcript ingest run in `anqa-core`
+(`anqa._core`). Every harness store implements the same typed event
+and list-meta contract. A raw event is the original record string.
 
 ## Surfaces
 

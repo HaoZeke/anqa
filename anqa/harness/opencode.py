@@ -422,11 +422,9 @@ class OpenCodeAdapter:
         if not sid:
             return []
         db = _assert_readable(db)
-        with _connect(db) as con:
-            payload = _load_payload(con, sid)
-            if payload is None:
-                return []
-            return _timeline_from_payload(payload)
+        from ..core import timeline_events
+
+        return timeline_events(self.id, db, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
         sid = (session_id or "").strip()

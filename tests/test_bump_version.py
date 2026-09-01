@@ -30,7 +30,7 @@ def _seed(root: Path, *, version: str = "0.2.0") -> None:
     scan.mkdir()
     (scan / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
     (root / "Cargo.lock").write_text(
-        f'name = "anqa-hud"\nversion = "{version}"\nname = "anqa-scan"\nversion = "{version}"\n',
+        f'name = "anqa-hud"\nversion = "{version}"\nname = "anqa-core"\nversion = "{version}"\n',
         encoding="utf-8",
     )
     (root / "CHANGELOG.md").write_text(
@@ -62,7 +62,7 @@ def test_bump_rewrites_declarations_and_changelog(tmp_path: Path) -> None:
     assert 'version = "0.2.1"' in (tmp_path / "desktop" / "Cargo.toml").read_text(encoding="utf-8")
     lock = (tmp_path / "Cargo.lock").read_text(encoding="utf-8")
     assert 'name = "anqa-hud"\nversion = "0.2.1"' in lock
-    assert 'name = "anqa-scan"\nversion = "0.2.1"' in lock
+    assert 'name = "anqa-core"\nversion = "0.2.1"' in lock
     assert 'version = "0.2.1"' in (tmp_path / "scan" / "Cargo.toml").read_text(encoding="utf-8")
     log = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## 0.2.1 - 2026-08-15" in log

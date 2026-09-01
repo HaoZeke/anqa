@@ -145,7 +145,8 @@ anqa/
   fs_watch.py            # TraceTreeWatch (live session / trace FS events)
   job_pools.py           # live-refresh worker pool
   session_inflight.py    # per-session inflight locks (refresh)
-  scan.py                # session walk + updates.jsonl keep/skip (Python + anqa._scan)
+  scan.py                # session walk (Python + anqa._core)
+  core.py                # native store ingest (anqa-core)
   keys/                  # action catalog + keys.toml overlay
   harness/               # disk adapters (docs/harness-adapters.md);
                          #   grok.py + grok_parse.py is the Grok Build store
@@ -159,7 +160,7 @@ anqa/
   integrations/          # Emacs / Neovim packs (not the control owner)
   hud/                   # launches iced palette binary
   session/control_views.py  # payloads for session/overview|timeline|turns|diff
-# Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), scan/ (anqa._scan)
+# Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), core/ (anqa._core)
   diagnostics/           # host checks (``anqa doctor`` + in-app self-test)
   locale/                # Fluent .ftl + help.rich.txt
   ui/                    # Textual UI
@@ -335,7 +336,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``just hud-themes`` | Regenerate ``desktop/assets/textual-themes.json`` |
 | ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. ``hud-cov`` writes ``desktop/lcov.info`` and deletes ``target/llvm-cov-target``. |
-| ``just scan-check`` | ``cargo test`` the ``anqa-scan`` crate (walk + updates filter) |
+| ``just core-check`` | ``cargo test`` the ``anqa-core`` crate (walk + store ingest) |
 | ``just wheel`` | ``uv build --wheel`` (this platform; needs Rust) |
 | ``just wheels`` | ``uvx cibuildwheel`` (this host; Linux needs Docker) |
 | ``just sdist`` | ``uv build --sdist`` |

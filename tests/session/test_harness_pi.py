@@ -46,14 +46,12 @@ def test_discover_and_meta() -> None:
 
 
 def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
-    import anqa.harness.pi as pi_mod
-
     path = _install_store()
 
     def boom(*_a: object, **_k: object) -> list[object]:
         raise AssertionError("list-meta must not read the full transcript")
 
-    monkeypatch.setattr(pi_mod, "json_lines", boom)
+    monkeypatch.setattr("anqa.json_lines.json_lines", boom)
     meta = PiAdapter().load_meta(path)
     assert meta.session_id == _SID
     assert meta.title == "Reply with PI_PROBE_OK"

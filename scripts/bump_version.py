@@ -95,7 +95,7 @@ def bump(root: Path, new: str, date: str) -> None:
         template='version = "{}"',
     )
     replace_crate_lock(root, "anqa-hud", old, new)
-    replace_crate_lock(root, "anqa-scan", old, new)
+    replace_crate_lock(root, "anqa-core", old, new)
     log = root / "CHANGELOG.md"
     log.write_text(
         promote_changelog(log.read_text(encoding="utf-8"), new, date),

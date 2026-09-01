@@ -90,10 +90,10 @@ path = "desktop/Cargo.toml"
 args = ["--locked"]
 debug = false
 
-# Session walk + updates.jsonl prefilter (``anqa.scan`` / ``anqa._scan``).
+# Session store ingest (``anqa.core`` / ``anqa._core``).
 [[tool.setuptools-rust.ext-modules]]
-target = "anqa._scan"
-path = "scan/Cargo.toml"
+target = "anqa._core"
+path = "core/Cargo.toml"
 binding = "PyO3"
 args = ["--locked", "--features", "extension-module"]
 debug = false
@@ -110,7 +110,7 @@ skip = [
     "*-manylinux_riscv64",
     "*-musllinux_*",
 ]
-test-command = "anqa --help && anqa-hud --help && python -c \"from anqa import _scan\""
+test-command = "anqa --help && anqa-hud --help && python -c \"from anqa import _core\""
 
 [tool.cibuildwheel.linux]
 before-all = """

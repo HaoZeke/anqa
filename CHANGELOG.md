@@ -21,7 +21,7 @@ Cursor (`cursor`) are registered.
 - The same version appears on the terminal `?` heading, the desktop
   palette window and `?` sheet, and `anqa-hud --version`.
 - One product version across the Python package, `anqa-hud`, and
-  `anqa-scan`.
+  `anqa-core`.
 - Pushes to `main`, version tags, and workflow dispatch build Linux,
   macOS, and Windows wheels plus a source distribution, then upload
   those files to TestPyPI.
