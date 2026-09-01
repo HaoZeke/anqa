@@ -940,6 +940,55 @@ async def test_browser_diff_context_above_files_hunk_split(tmp_path: Path) -> No
         assert "## Heading" in assistant.get_plain_text()
 
 
+@pytest.mark.asyncio
+async def test_diff_view_absolute_paths_keep_the_hunk() -> None:
+    """Tree rows drop a leading slash; the open hunk must still match the file."""
+    from anqa.session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
+    from anqa.ui.widgets.diff_view import DiffView, _tree_nodes
+    from textual.app import App
+    from textual.widgets import Tree
+
+    class Host(App[None]):
+        def compose(self):
+            yield DiffView(id="diff-view")
+
+    path = "/home/ali/.pi/agent/agents/reviewer.md"
+    unified = "--- a/reviewer.md\n+++ b/reviewer.md\n+role: review\n"
+    async with Host().run_test(size=(120, 40)) as pilot:
+        view = pilot.app.query_one("#diff-view", DiffView)
+        view.set_doc(
+            WorkspaceDiff(
+                (
+                    DiffPoint(
+                        key="edits",
+                        source="search_replace",
+                        prompt_index=None,
+                        created_at=None,
+                        files=(
+                            DiffHunk(
+                                path=path,
+                                kind="edit",
+                                added=1,
+                                removed=0,
+                                unified=unified,
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
+        await pilot.pause()
+        tree = view.query_one("#diff-file-list", Tree)
+        leaves = [n for n in _tree_nodes(tree.root) if n.data and n.data[0] == "file"]
+        assert leaves
+        tree.select_node(leaves[0])
+        await pilot.pause()
+        assert "role: review" in view.selected_plain()
+        body = view.query_one("#diff-content").get_plain_text()
+        assert "No file changes" not in body
+        assert "role: review" in body
+
+
 # ── Summary tab ──────────────────────────────────────────────────────────
 
 

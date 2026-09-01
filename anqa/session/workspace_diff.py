@@ -318,7 +318,39 @@ def point_from_events(events: Sequence[TraceEvent]) -> DiffPoint | None:
         path, pairs, kind = parsed
         for old_s, new_s in pairs:
             grouped.setdefault(path, []).append((old_s, new_s, kind))
-    return _point_from_grouped(grouped)
+    point = _point_from_grouped(grouped)
+    if point is None:
+        return None
+    prompt, assistant = _edits_context(events)
+    if not prompt and not assistant:
+        return point
+    return DiffPoint(
+        key=point.key,
+        source=point.source,
+        prompt_index=point.prompt_index,
+        created_at=point.created_at,
+        files=point.files,
+        prompt_text=prompt,
+        assistant_text=assistant,
+    )
+
+
+def _edits_context(events: Sequence[TraceEvent]) -> tuple[str, str]:
+    from .tagged_blocks import operator_prompt_text, unwrap_for_display
+    from .turns import is_operator_user_event
+
+    prompt = ""
+    assistant = ""
+    for ev in events:
+        if is_operator_user_event(ev):
+            text = operator_prompt_text(ev.content or "")
+            if text.strip():
+                prompt = text
+        elif ev.event_type in et.AGENT_TYPES:
+            text = unwrap_for_display(ev.content or "").strip()
+            if text:
+                assistant = text
+    return prompt, assistant
 
 
 def _search_replace_raw(upd: Mapping[str, JsonValue]) -> tuple[str, str, str] | None:

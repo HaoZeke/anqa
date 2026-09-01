@@ -102,8 +102,12 @@ fn walk(node: &Node, name: &str, depth: usize, prefix: &str, out: &mut Vec<DiffT
 
 pub fn path_id(path: &str) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    path.hash(&mut h);
+    stripped_path(path).hash(&mut h);
     h.finish()
+}
+
+fn stripped_path(path: &str) -> String {
+    path.replace('\\', "/").trim().trim_matches('/').to_string()
 }
 
 /// icedtea [`TreeNode`] for Diff files. Directories start expanded unless
@@ -136,9 +140,8 @@ pub fn file_path_for_id(
     paths: impl IntoIterator<Item = impl AsRef<str>>,
     id: u64,
 ) -> Option<String> {
-    tree_rows(paths).into_iter().find_map(|row| {
-        (row.kind == DiffTreeKind::File && path_id(&row.path) == id).then_some(row.path)
-    })
+    let originals: Vec<String> = paths.into_iter().map(|p| p.as_ref().to_string()).collect();
+    originals.into_iter().find(|orig| path_id(orig) == id)
 }
 
 fn insert_at_depth(parent: &mut TreeNode, depth: usize, node: TreeNode) {
@@ -225,6 +228,14 @@ mod tests {
             file_path_for_id(["src/a.py", "src/b.py"], id).as_deref(),
             Some("src/a.py")
         );
+    }
+
+    #[test]
+    fn absolute_path_click_returns_original() {
+        let orig = "/home/ali/.pi/agent/agents/reviewer.md";
+        let id = path_id(orig);
+        assert_eq!(path_id("home/ali/.pi/agent/agents/reviewer.md"), id);
+        assert_eq!(file_path_for_id([orig], id).as_deref(), Some(orig));
     }
 
     #[test]

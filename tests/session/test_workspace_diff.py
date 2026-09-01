@@ -455,6 +455,20 @@ def test_point_from_events_reads_write_tools(
     assert body in point.files[0].unified
 
 
+def test_point_from_events_keeps_last_prompt_and_reply() -> None:
+    events = [
+        TraceEvent(
+            index=0, event_type="user_message_chunk", content="do you have support for workflows?"
+        ),
+        TraceEvent(index=1, event_type="agent_message_chunk", content="yes, here is how"),
+        _call("write", {"path": "/tmp/a.md", "content": "x\n"}),
+    ]
+    point = point_from_events(events)
+    assert point is not None
+    assert point.prompt_text == "do you have support for workflows?"
+    assert point.assistant_text == "yes, here is how"
+
+
 def test_point_from_events_ignores_read_and_shell() -> None:
     events = [
         _call("bash", {"command": "echo hi"}),

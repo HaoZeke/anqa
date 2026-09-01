@@ -28,6 +28,18 @@ def _tree_nodes(node: TreeNode[tuple[str, str]]) -> list[TreeNode[tuple[str, str
     return out
 
 
+def _norm_diff_path(path: str) -> str:
+    return path.replace("\\", "/").strip().strip("/")
+
+
+def _hunk_path_for_tree(tree_path: str, files: tuple[DiffHunk, ...]) -> str:
+    want = _norm_diff_path(tree_path)
+    for hunk in files:
+        if _norm_diff_path(hunk.path) == want:
+            return hunk.path
+    return tree_path
+
+
 def _point_label(point: DiffPoint, index: int) -> str:
     if point.source == "search_replace":
         return t("diff-point-edits")
@@ -200,8 +212,9 @@ class DiffView(Vertical):
                 node = parent.add(row.label, data=("dir", row.path), expand=True)
                 stack.append(node)
                 continue
-            node = parent.add_leaf(row.label, data=("file", row.path))
-            if self._file_key == row.path:
+            source = _hunk_path_for_tree(row.path, files)
+            node = parent.add_leaf(row.label, data=("file", source))
+            if self._file_key == source:
                 select_node = node
         if files:
             keep = self._file_key if any(h.path == self._file_key for h in files) else files[0].path
@@ -220,8 +233,9 @@ class DiffView(Vertical):
         point = self._current_point()
         if point is None or self._file_key is None:
             return None
+        want = _norm_diff_path(self._file_key)
         for hunk in point.files:
-            if hunk.path == self._file_key:
+            if _norm_diff_path(hunk.path) == want:
                 return hunk
         return None
 
