@@ -147,7 +147,6 @@ store. `[catalog.roots]` overrides a store's default location.
 ## Catalog
 
 The list is every enabled adapter store. Filter with `harness:<id>`.
-List and resolve cost: [docs/catalog-performance.md](docs/catalog-performance.md).
 Every note has a `source`
 (who wrote it). Control `notes/upsert` accepts any field bag plus that
 source. A new note uses `~/.anqa/notes_schema.toml`. Editing a note
@@ -313,8 +312,9 @@ signals, and list status from the updates tail). It does not start anqad.
 
 Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
 free (`--no-anqad` attaches only). Quitting a client leaves anqad
-running. Methods, framing, and notifications:
-[docs/control.md](docs/control.md).
+running. Debug every method: `ANQA_SERVE_LOG_LEVEL=DEBUG anqad`
+(foreground) or `ANQA_SERVE_LOG_LEVEL=DEBUG anqad restart`. Methods,
+framing, and notifications: [docs/control.md](docs/control.md).
 
 ## Emacs
 
