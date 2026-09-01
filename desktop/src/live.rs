@@ -1969,11 +1969,32 @@ mod tests {
         }];
         let next = vec![SessionRow {
             session_id: "s1".into(),
+            status: "cancelled".into(),
+            ..SessionRow::default()
+        }];
+        let merged = merge_catalog_rows(&prev, next);
+        assert_eq!(merged[0].status, "cancelled");
+        assert_eq!(merged[0].outcome, "success");
+        assert_eq!(merged[0].context_usage_compact, "12%");
+    }
+
+    #[test]
+    fn catalog_refresh_keeps_status_when_refresh_is_blank() {
+        use crate::model::SessionRow;
+        let prev = vec![SessionRow {
+            session_id: "s1".into(),
+            status: "complete".into(),
+            outcome: "success".into(),
+            context_usage_compact: "12%".into(),
+            ..SessionRow::default()
+        }];
+        let next = vec![SessionRow {
+            session_id: "s1".into(),
             status: "—".into(),
             ..SessionRow::default()
         }];
         let merged = merge_catalog_rows(&prev, next);
-        assert_eq!(merged[0].status, "—");
+        assert_eq!(merged[0].status, "complete");
         assert_eq!(merged[0].outcome, "success");
         assert_eq!(merged[0].context_usage_compact, "12%");
     }
