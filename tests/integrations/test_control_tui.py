@@ -307,7 +307,20 @@ async def test_browser_loads_timeline_via_control_when_attached(
         )
         async with app.run_test(size=(120, 40)) as pilot:
             await _wait_until(pilot, app.is_control_client, description="attach")
+            import traceback
+
+            from anqa.harness import registry as registry_mod
+
+            real_require = registry_mod.require_adapter
+
+            def _tui_must_not_require(ref: object) -> object:
+                stack = "".join(traceback.format_stack())
+                if "anqa/ui/screens/browser.py" in stack or "anqa/ui/app.py" in stack:
+                    raise AssertionError(f"TUI require_adapter on {ref}")
+                return real_require(ref)
+
             with (
+                patch.object(registry_mod, "require_adapter", _tui_must_not_require),
                 patch(
                     "anqa.ui.screens.browser.require_adapter",
                     side_effect=AssertionError("disk parse forbidden when attached"),
