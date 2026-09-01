@@ -60,12 +60,12 @@ def test_catalog_lists_claude_sessions() -> None:
     assert by_id[_SID]["harness"] == CLAUDE_HARNESS_ID
     assert by_id[_SID]["path"] == f"claude:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "—"
+    assert by_id[_RUNNING_SID]["status"] == "running"
 
 
-def test_last_open_turn_is_idle() -> None:
+def test_last_tool_use_is_running() -> None:
     _install_store()
-    assert_adapter_turn(Path(f"claude:{_RUNNING_SID}"), "—")
+    assert_adapter_turn(Path(f"claude:{_RUNNING_SID}"), "running")
 
 
 def test_list_status_close_bookend_and_later_user(tmp_path: Path) -> None:

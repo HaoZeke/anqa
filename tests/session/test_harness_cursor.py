@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import tarfile
 from pathlib import Path
 
@@ -59,6 +60,22 @@ def test_catalog_lists_cursor_sessions() -> None:
     assert by_id[_SID]["path"] == f"cursor:{_SID}"
     assert by_id[_SID]["status"] == "complete"
     assert by_id[_RUNNING_SID]["status"] == "—"
+
+
+def test_load_meta_reads_model_from_store() -> None:
+    _install_store()
+    dest = Path.home() / ".cursor" / "chats" / "probe" / _SID
+    dest.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(dest / "store.db")
+    con.execute("CREATE TABLE blobs (id TEXT, data BLOB)")
+    con.execute(
+        "INSERT INTO blobs VALUES (?, ?)",
+        ("1", b'{"options":{"cursor":{"modelName":"composer-2.5"}}}'),
+    )
+    con.commit()
+    con.close()
+    meta = require_adapter(Path(f"cursor:{_SID}")).load_meta(Path(f"cursor:{_SID}"))
+    assert meta.model_id == "composer-2.5"
 
 
 def test_last_open_turn_is_idle() -> None:

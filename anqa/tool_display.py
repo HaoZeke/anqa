@@ -101,7 +101,7 @@ def tool_family(name: str) -> str:
     if n in _TOOL_FAMILY_AGENT:
         return "agent"
     low = n.lower()
-    if any(k in low for k in ("read", "get", "list", "search", "grep", "find")):
+    if any(k in low for k in ("read", "get", "list", "search", "grep", "find", "view")):
         return "read"
     if any(k in low for k in ("write", "edit", "create", "update", "delete", "save")):
         return "write"

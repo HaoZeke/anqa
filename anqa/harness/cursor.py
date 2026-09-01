@@ -7,6 +7,8 @@ List metadata comes from ``~/.cursor/chats/*/<id>/meta.json``.
 from __future__ import annotations
 
 import json
+import re
+import sqlite3
 import tarfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +23,7 @@ from .status import from_last
 
 CURSOR_HARNESS_ID = "cursor"
 _CANCELLED = frozenset({"cancelled", "canceled", "aborted", "interrupted", "error"})
+_MODEL_NAME = re.compile(r'"modelName"\s*:\s*"([^"]+)"')
 
 
 def default_store_root() -> Path:
@@ -53,6 +56,32 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
             continue
         out.extend(sorted(path.rglob("agent-transcripts/*/*.jsonl")))
     return out
+
+
+def _model_from_store(root: Path, sid: str) -> str:
+    """Last ``modelName`` written in the per-session Cursor store."""
+    chats = root / "chats"
+    if not chats.is_dir() or not sid:
+        return ""
+    found = ""
+    for db in chats.glob(f"*/{sid}/store.db"):
+        try:
+            con = sqlite3.connect(f"file:{db.expanduser()}?mode=ro", uri=True)
+        except sqlite3.Error:
+            continue
+        try:
+            rows = con.execute("SELECT data FROM blobs").fetchall()
+        except sqlite3.Error:
+            rows = []
+        finally:
+            con.close()
+        for (data,) in rows:
+            text = data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data)
+            for match in _MODEL_NAME.finditer(text):
+                name = match.group(1).strip()
+                if name:
+                    found = name
+    return found
 
 
 def _find_meta(root: Path, sid: str) -> JsonObject:
@@ -225,7 +254,7 @@ def _meta_from(rows: Sequence[JsonObject], path: Path, sid: str, header: JsonObj
     return SessionMeta(
         session_id=sid,
         session_dir=path,
-        model_id="unknown",
+        model_id=_model_from_store(default_store_root(), sid) or "unknown",
         title=_session_title(header, rows),
         created_at=created,
         updated_at=updated,

@@ -974,6 +974,7 @@ const TOOL_FAMILY_WRITE: &[&str] = &[
     "reference_to_video",
 ];
 const TOOL_FAMILY_SHELL: &[&str] = &[
+    "bash",
     "run_terminal_command",
     "get_command_or_subagent_output",
     "kill_command_or_subagent",
@@ -1010,7 +1011,7 @@ pub fn tool_family(name: &str) -> &'static str {
         return "agent";
     }
     let low = n.to_ascii_lowercase();
-    if ["read", "get", "list", "search", "grep", "find"]
+    if ["read", "get", "list", "search", "grep", "find", "view"]
         .iter()
         .any(|k| low.contains(k))
     {
@@ -3527,6 +3528,7 @@ mod tests {
     #[test]
     fn tool_family_and_display_match_tui() {
         assert_eq!(tool_family("read_file"), "read");
+        assert_eq!(tool_family("view_file"), "read");
         assert_eq!(tool_family("search_tool"), "read");
         assert_eq!(tool_family("search_replace"), "write");
         assert_eq!(tool_family("run_terminal_command"), "shell");

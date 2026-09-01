@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import tarfile
 from pathlib import Path
 
@@ -65,6 +66,26 @@ def test_discover_and_meta() -> None:
     assert meta.has_subagents
     assert meta.subagent_count == 1
     assert meta.list_status_label() == "complete"
+
+
+def test_load_meta_reads_model_from_conversation_db() -> None:
+    path = _install_store()
+    blob = b"\x00model_enum\x00gemini-3.7-flash\x00used_claude\x00"
+    con = sqlite3.connect(path)
+    cols = [str(row[1]) for row in con.execute("PRAGMA table_info(gen_metadata)")]
+    if "size" in cols:
+        con.execute("DELETE FROM gen_metadata")
+        con.execute(
+            "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?, ?)", (blob, len(blob))
+        )
+    else:
+        con.execute("CREATE TABLE IF NOT EXISTS gen_metadata (idx INTEGER, data BLOB)")
+        con.execute("DELETE FROM gen_metadata")
+        con.execute("INSERT INTO gen_metadata (idx, data) VALUES (0, ?)", (blob,))
+    con.commit()
+    con.close()
+    meta = require_adapter(Path(f"antigravity:{_SID}")).load_meta(Path(f"antigravity:{_SID}"))
+    assert meta.model_id == "gemini-3.7-flash"
 
 
 def test_running_session_is_not_complete() -> None:

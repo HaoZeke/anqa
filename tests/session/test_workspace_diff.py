@@ -419,6 +419,13 @@ def _call(name: str, raw: dict[str, object]) -> TraceEvent:
             "a",
             "b",
         ),
+        (
+            "edit",
+            {"filePath": "pipe.py", "oldString": "old", "newString": "new"},
+            "pipe.py",
+            "old",
+            "new",
+        ),
     ],
 )
 def test_point_from_events_reads_replace_tools(
@@ -443,6 +450,7 @@ def test_point_from_events_reads_replace_tools(
             "AUTOMEDON_TOOL.txt",
             "TOOL_OK",
         ),
+        ("write", {"filePath": "NOTE.txt", "content": "WS1\n"}, "NOTE.txt", "WS1"),
     ],
 )
 def test_point_from_events_reads_write_tools(

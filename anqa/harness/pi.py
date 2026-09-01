@@ -171,11 +171,16 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
         return ""
     msg = json_mapping(last.get("message"))
     role = str(msg.get("role") or "")
-    if role in {"user", "toolResult"}:
+    if role == "toolResult":
+        return from_last("running")
+    if role == "user":
         return from_last(role)
     if role != "assistant":
         return from_last(role)
-    return from_last(str(msg.get("stopReason") or "").strip())
+    stop = str(msg.get("stopReason") or "").strip()
+    if stop.casefold().replace("_", "") == "tooluse":
+        return from_last("running")
+    return from_last(stop)
 
 
 def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> SessionMeta:

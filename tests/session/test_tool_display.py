@@ -62,6 +62,8 @@ def test_tool_family_search_and_marketplace() -> None:
     assert tool_family("search_tool") == "read"
     assert tool_family("use_tool") == "mcp"
     assert tool_family("tasks__list") == "mcp"
+    assert tool_family("view_file") == "read"
+    assert tool_family("view") == "read"
     assert list_event_preview("read_file /tmp/x", "read_file") == "read file /tmp/x"
     assert list_event_detail("read file /tmp/x", "read_file") == "/tmp/x"
 

@@ -201,9 +201,9 @@ def _rewind_points(session_dir: Path) -> tuple[DiffPoint, ...]:
     return tuple(out)
 
 
-_PATH_KEYS = ("file_path", "target_file", "path")
-_OLD_KEYS = ("old_string", "oldText", "old_text", "old")
-_NEW_KEYS = ("new_string", "newText", "new_text", "new")
+_PATH_KEYS = ("file_path", "target_file", "path", "filePath")
+_OLD_KEYS = ("old_string", "oldText", "old_text", "oldString", "old")
+_NEW_KEYS = ("new_string", "newText", "new_text", "newString", "new")
 _CONTENT_KEYS = ("content", "contents", "file_text", "fileText")
 _EDIT_TOOLS = frozenset(
     {"search_replace", "str_replace", "strreplace", "edit", "replace", "multiedit"}

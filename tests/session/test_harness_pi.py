@@ -54,12 +54,12 @@ def test_catalog_lists_pi_sessions() -> None:
     assert by_id[_SID]["harness"] == PI_HARNESS_ID
     assert by_id[_SID]["path"] == f"pi:{_SID}"
     assert by_id[_SID]["status"] == "complete"
-    assert by_id[_RUNNING_SID]["status"] == "—"
+    assert by_id[_RUNNING_SID]["status"] == "running"
 
 
-def test_last_open_turn_is_idle() -> None:
+def test_last_tool_use_is_running() -> None:
     _install_store()
-    assert_adapter_turn(Path(f"pi:{_RUNNING_SID}"), "—")
+    assert_adapter_turn(Path(f"pi:{_RUNNING_SID}"), "running")
 
 
 def test_list_status_close_bookend_and_later_user(tmp_path: Path) -> None:
@@ -86,9 +86,17 @@ def test_list_status_close_bookend_and_later_user(tmp_path: Path) -> None:
         + '{"type":"message","message":{"role":"assistant","stopReason":"stop"}}\n'
         + '{"type":"message","message":{"role":"user","content":[{"type":"text","text":"again"}]}}\n',
     )
+    inflight = _write(
+        "inflight.jsonl",
+        header + '{"type":"message","message":{"role":"assistant","stopReason":"toolUse",'
+        '"content":[{"type":"toolCall","name":"bash","arguments":{"command":"echo x"}}]}}\n'
+        + '{"type":"message","message":{"role":"toolResult","toolName":"bash",'
+        '"content":[{"type":"text","text":"x"}]}}\n',
+    )
     assert_adapter_turn(closed, "complete")
     assert_adapter_turn(bookend, "—")
     assert_adapter_turn(later, "—")
+    assert_adapter_turn(inflight, "running")
 
 
 def test_overview_stats_count_timeline_tools() -> None:

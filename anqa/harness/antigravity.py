@@ -7,6 +7,7 @@ One conversation is ``conversations/<uuid>.db``. The readable timeline is
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import tarfile
 from collections.abc import Sequence
@@ -23,6 +24,7 @@ from .status import from_last
 ANTIGRAVITY_HARNESS_ID = "antigravity"
 _USER_REQUEST = "USER_REQUEST"
 _USER_PLAN = "PLAN"
+_GEMINI_MODEL = re.compile(rb"gemini-[a-z0-9][a-z0-9.-]*", re.IGNORECASE)
 
 
 def default_store_root() -> Path:
@@ -74,6 +76,28 @@ def _transcript_path(root: Path, session_id: str) -> Path:
 
 def _summaries_db(root: Path) -> Path:
     return root / "conversation_summaries.db"
+
+
+def _model_from_conversation_db(db: Path) -> str:
+    """Last ``gemini-…`` id written in conversation metadata blobs."""
+    if not db.is_file():
+        return ""
+    found = ""
+    try:
+        with _connect(db) as con:
+            for table in ("executor_metadata", "gen_metadata"):
+                try:
+                    rows = con.execute(f"SELECT data FROM {table}").fetchall()
+                except sqlite3.Error:
+                    continue
+                for (data,) in rows:
+                    if not isinstance(data, bytes):
+                        continue
+                    for match in _GEMINI_MODEL.finditer(data):
+                        found = match.group(0).decode("ascii")
+    except sqlite3.Error:
+        return found
+    return found
 
 
 def _load_summary(root: Path, session_id: str) -> JsonObject:
@@ -232,7 +256,11 @@ def _meta_for(root: Path, db: Path, session_id: str) -> SessionMeta:
     return SessionMeta(
         session_id=session_id,
         session_dir=db,
-        model_id=str(summary.get("agent_name") or "").strip() or "unknown",
+        model_id=(
+            str(summary.get("agent_name") or "").strip()
+            or _model_from_conversation_db(db)
+            or "unknown"
+        ),
         title=_first_user_title(rows, summary),
         created_at=created,
         updated_at=updated,
