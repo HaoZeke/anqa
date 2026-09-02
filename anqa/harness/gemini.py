@@ -12,10 +12,9 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from .. import event_types as et
 from ..json_lines import json_lines
-from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, as_json_object
-from ..session.tagged_blocks import is_harness_user_chrome, operator_prompt_text
+from ..models import JsonObject, ListStatus, SessionMeta, TraceEvent, as_json_object
+from ..session.tagged_blocks import operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -319,18 +318,6 @@ def _turn_outcome(messages: Sequence[JsonObject]) -> str:
     return from_last("complete")
 
 
-def _thought_text(item: object) -> str:
-    if isinstance(item, str):
-        return item
-    if not isinstance(item, dict):
-        return ""
-    for key in ("description", "text", "thought", "subject"):
-        val = item.get(key)
-        if isinstance(val, str) and val.strip():
-            return val
-    return ""
-
-
 def _meta_from_conversation(
     meta: JsonObject,
     messages: Sequence[JsonObject],
@@ -378,123 +365,6 @@ def _meta_from_conversation(
         turn_outcome=_turn_outcome(messages),
         harness=GEMINI_HARNESS_ID,
     )
-
-
-def _timeline_for(messages: Sequence[JsonObject]) -> list[TraceEvent]:
-    events: list[TraceEvent] = []
-    turn = 0
-    for msg in messages:
-        typ = str(msg.get("type") or "")
-        ts = Stamp.epoch(msg.get("timestamp"))
-        if typ == "user":
-            text = _text_of(msg.get("content"))
-            if not text.strip() or is_harness_user_chrome(text):
-                continue
-            events.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.TURN_STARTED,
-                    timestamp=ts,
-                    content=f"turn_number={turn}",
-                )
-            )
-            events.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.USER_MESSAGE_CHUNK,
-                    timestamp=ts,
-                    content=text,
-                )
-            )
-            turn += 1
-            continue
-        if typ == "error":
-            events.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.SESSION_ERROR,
-                    timestamp=ts,
-                    content=_text_of(msg.get("content")),
-                    is_error=True,
-                )
-            )
-            continue
-        if typ != "gemini":
-            continue
-        events.extend(_gemini_events(msg, ts))
-    for i, ev in enumerate(events):
-        ev.index = i
-    return events
-
-
-def _gemini_events(msg: JsonObject, ts: int | None) -> list[TraceEvent]:
-    out: list[TraceEvent] = []
-    thoughts = msg.get("thoughts")
-    if isinstance(thoughts, list):
-        for item in thoughts:
-            text = _thought_text(item)
-            if text:
-                out.append(
-                    TraceEvent(
-                        index=0,
-                        event_type=et.AGENT_THOUGHT_CHUNK,
-                        timestamp=ts,
-                        content=text,
-                    )
-                )
-    text = _text_of(msg.get("content"))
-    if text.strip():
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.AGENT_MESSAGE_CHUNK,
-                timestamp=ts,
-                content=text,
-            )
-        )
-    calls = msg.get("toolCalls")
-    if isinstance(calls, list):
-        for item in calls:
-            if isinstance(item, dict):
-                out.extend(_tool_events(as_json_object(item), ts))
-    return out
-
-
-def _tool_events(call: JsonObject, ts: int | None) -> list[TraceEvent]:
-    name = str(call.get("name") or "tool").strip() or "tool"
-    call_id = str(call.get("id") or "")
-    raw = call.get("args")
-    bag = ToolInputBag(raw if isinstance(raw, dict) else {})
-    status = str(call.get("status") or "").strip().lower()
-    failed = status in {"error", "failed"}
-    result = _text_of(call.get("result"))
-    call_ts = Stamp.epoch(call.get("timestamp")) or ts
-    events = [
-        TraceEvent(
-            index=0,
-            event_type=et.TOOL_CALL,
-            timestamp=call_ts,
-            content=name,
-            tool_name=name,
-            tool_call_id=call_id,
-            raw_input=bag,
-            is_error=failed,
-        )
-    ]
-    if result or status not in _PENDING_TOOL:
-        events.append(
-            TraceEvent(
-                index=0,
-                event_type=et.TOOL_CALL_UPDATE,
-                timestamp=call_ts,
-                content=result,
-                tool_name=name,
-                tool_call_id=call_id,
-                raw_input=bag,
-                is_error=failed,
-            )
-        )
-    return events
 
 
 class GeminiAdapter:
@@ -549,15 +419,12 @@ class GeminiAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import JsonlFile
+        from ..core import list_meta
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"gemini session not found: {sid}")
-        meta, messages = _header_and_messages(JsonlFile(path).window())
-        if not str(meta.get("sessionId") or sid).strip():
-            raise FileNotFoundError(f"gemini session not found: {sid}")
-        return _meta_from_conversation(meta, messages, path, sid)
+        return list_meta(self.id, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, sid = _jsonl_from_ref(ref, self.root())

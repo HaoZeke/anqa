@@ -1,7 +1,7 @@
 //! Claude Code jsonl store.
 
-use crate::event::{Event, EventType, SessionLocator};
-use crate::jsonl::JsonlRow;
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
+use crate::jsonl::{self, JsonlRow};
 use crate::store::Store;
 use crate::text;
 use serde_json::Value;
@@ -291,5 +291,182 @@ impl Store for Claude {
 
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         timeline_rows(records)
+    }
+
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_file() {
+            return Err(format!("claude session not found: {session_id}"));
+        }
+        let rows = jsonl::window(locator);
+        if rows.is_empty() {
+            return Err(format!("claude session not found: {session_id}"));
+        }
+        Ok(meta_from_window(&rows, locator, session_id))
+    }
+}
+
+const CHROME_TYPES: &[&str] = &[
+    "queue-operation",
+    "last-prompt",
+    "atis-latch",
+    "ai-title",
+    "attachment",
+    "file-history-snapshot",
+    "progress",
+    "system",
+    "mode",
+    "cost-state",
+    "permission-mode",
+];
+
+fn title_from_rows(rows: &[JsonlRow]) -> String {
+    for row in rows {
+        if text::field_str(&row.value, "type") == "ai-title" {
+            let title = text::field_str(&row.value, "aiTitle");
+            if !title.is_empty() {
+                return text::first_line(&title, 80);
+            }
+        }
+    }
+    for row in rows {
+        if text::field_str(&row.value, "type") != "user" {
+            continue;
+        }
+        let msg = row.value.get("message").cloned().unwrap_or(Value::Null);
+        if is_tool_result_user(&msg) {
+            continue;
+        }
+        let title = text::first_line(
+            &text::text_of(msg.get("content").unwrap_or(&Value::Null)),
+            80,
+        );
+        if !title.is_empty() {
+            return title;
+        }
+    }
+    String::new()
+}
+
+fn turn_outcome(rows: &[JsonlRow]) -> String {
+    let mut last: Option<&JsonlRow> = None;
+    for row in rows {
+        let typ = text::field_str(&row.value, "type");
+        if CHROME_TYPES.contains(&typ.as_str()) {
+            continue;
+        }
+        if typ == "user" || typ == "assistant" {
+            last = Some(row);
+        }
+    }
+    let Some(row) = last else {
+        return String::new();
+    };
+    let typ = text::field_str(&row.value, "type");
+    if typ == "user" {
+        return ListStatus::Idle.as_str().into();
+    }
+    let msg = row.value.get("message").cloned().unwrap_or(Value::Null);
+    let stop = text::field_str(&msg, "stop_reason");
+    let compact = stop.to_ascii_lowercase().replace('_', "");
+    if compact == "tooluse" {
+        return ListStatus::Running.as_str().into();
+    }
+    ListStatus::from_token(&stop).as_str().into()
+}
+
+fn count_children(path: &Path, session_id: &str) -> u32 {
+    let folder = path
+        .parent()
+        .unwrap_or(path)
+        .join(session_id)
+        .join("subagents");
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("jsonl"))
+        .count() as u32
+}
+
+fn meta_from_window(rows: &[JsonlRow], path: &Path, session_id: &str) -> ListMeta {
+    let mut sid = session_id.to_string();
+    let mut created = String::new();
+    let mut last_ts = String::new();
+    let mut version = String::new();
+    let mut model = String::new();
+    let mut cwd = String::new();
+    let mut tools = 0u32;
+    for row in rows {
+        let ts = text::field_iso(&row.value, "timestamp");
+        if !ts.is_empty() {
+            last_ts = ts;
+            if created.is_empty() {
+                created = last_ts.clone();
+            }
+        }
+        if sid.is_empty() {
+            sid = text::field_str(&row.value, "sessionId");
+        }
+        if version.is_empty() {
+            version = text::field_str(&row.value, "version");
+        }
+        if cwd.is_empty() {
+            cwd = text::field_str(&row.value, "cwd");
+        }
+        let msg = row.value.get("message").cloned().unwrap_or(Value::Null);
+        if model.is_empty() {
+            model = text::field_str(&msg, "model");
+        }
+        if let Some(blocks) = msg.get("content").and_then(|v| v.as_array()) {
+            tools += blocks
+                .iter()
+                .filter(|b| text::field_str(b, "type") == "tool_use")
+                .count() as u32;
+        }
+    }
+    let kids = count_children(path, &sid);
+    ListMeta {
+        session_id: sid,
+        locator: path.to_path_buf(),
+        model_id: if model.is_empty() {
+            "unknown".into()
+        } else {
+            model
+        },
+        title: title_from_rows(rows),
+        created_at: created.clone(),
+        updated_at: last_ts.clone(),
+        duration_seconds: text::duration_secs(
+            text::epoch_secs(&Value::String(created)),
+            text::epoch_secs(&Value::String(last_ts)),
+        ),
+        tool_call_count: tools,
+        turn_outcome: turn_outcome(rows),
+        harness: "claude".into(),
+        harness_version: version,
+        run_dir: cwd,
+        num_events: 0,
+        has_subagents: kids > 0,
+        subagent_count: kids,
+        context_tokens_used: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_meta_window_title_and_last_turn() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../tests/fixtures/harness/claude/projects/-tmp-probe-ws/aaaaaaaa-bbbb-4ccc-8ddd-000000000001.jsonl",
+        );
+        let meta = Claude
+            .list_meta(&path, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001")
+            .unwrap();
+        assert_eq!(meta.title, "Reply with CLAUDE_PROBE_OK");
+        assert_eq!(meta.turn_outcome, "complete");
+        assert_eq!(meta.model_id, "claude-opus-5");
     }
 }

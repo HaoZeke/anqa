@@ -1,9 +1,10 @@
 //! Antigravity conversation db + transcript jsonl.
 
-use crate::event::{Event, EventType, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
 use crate::jsonl;
 use crate::store::Store;
 use crate::text;
+use rusqlite::Connection;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -195,6 +196,342 @@ impl Store for Antigravity {
             &conversation_db(locator, session_id),
         )
     }
+
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        let db = if locator.extension().and_then(|s| s.to_str()) == Some("db") {
+            locator.to_path_buf()
+        } else {
+            conversation_db(&store_root(locator), session_id)
+        };
+        if !db.is_file() {
+            return Err(format!("antigravity session not found: {session_id}"));
+        }
+        let root = store_root(&db);
+        Ok(meta_for(&root, &db, session_id))
+    }
+}
+
+fn store_root(locator: &Path) -> PathBuf {
+    if locator.is_file() && locator.extension().and_then(|s| s.to_str()) == Some("db") {
+        if locator
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            == Some("conversations")
+        {
+            return locator
+                .parent()
+                .and_then(|p| p.parent())
+                .unwrap_or(locator)
+                .to_path_buf();
+        }
+        return locator.parent().unwrap_or(locator).to_path_buf();
+    }
+    locator.to_path_buf()
+}
+
+fn summaries_db(root: &Path) -> PathBuf {
+    root.join("conversation_summaries.db")
+}
+
+fn open_ro(path: &Path) -> Option<Connection> {
+    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+}
+
+fn load_summary(root: &Path, session_id: &str) -> Value {
+    let db = summaries_db(root);
+    let Some(con) = open_ro(&db) else {
+        return Value::Null;
+    };
+    let row = con.query_row(
+        "SELECT conversation_id, title, preview, step_count, last_modified_time, \
+         workspace_uris, status, source, project_id, agent_name, \
+         parent_conversation_id, nesting_depth, not_fully_idle, killed, \
+         last_user_input_time FROM conversation_summaries WHERE conversation_id = ?1",
+        [session_id],
+        |r| {
+            let mut map = serde_json::Map::new();
+            let cols = [
+                "conversation_id",
+                "title",
+                "preview",
+                "step_count",
+                "last_modified_time",
+                "workspace_uris",
+                "status",
+                "source",
+                "project_id",
+                "agent_name",
+                "parent_conversation_id",
+                "nesting_depth",
+                "not_fully_idle",
+                "killed",
+                "last_user_input_time",
+            ];
+            for (i, name) in cols.iter().enumerate() {
+                let val = r.get_ref(i)?;
+                map.insert((*name).into(), sql_json(val));
+            }
+            Ok(Value::Object(map))
+        },
+    );
+    row.unwrap_or(Value::Null)
+}
+
+fn sql_json(val: rusqlite::types::ValueRef<'_>) -> Value {
+    match val {
+        rusqlite::types::ValueRef::Null => Value::Null,
+        rusqlite::types::ValueRef::Integer(n) => Value::from(n),
+        rusqlite::types::ValueRef::Real(n) => Value::from(n),
+        rusqlite::types::ValueRef::Text(s) => {
+            Value::String(String::from_utf8_lossy(s).into_owned())
+        }
+        rusqlite::types::ValueRef::Blob(b) => {
+            Value::String(String::from_utf8_lossy(b).into_owned())
+        }
+    }
+}
+
+fn child_count(root: &Path, session_id: &str) -> u32 {
+    let Some(con) = open_ro(&summaries_db(root)) else {
+        return 0;
+    };
+    con.query_row(
+        "SELECT COUNT(*) FROM conversation_summaries WHERE parent_conversation_id = ?1",
+        [session_id],
+        |r| r.get::<_, i64>(0),
+    )
+    .unwrap_or(0) as u32
+}
+
+fn cwd_from_uris(raw: &Value) -> String {
+    let text = match raw {
+        Value::String(s) => s.clone(),
+        _ => text::as_str(raw),
+    };
+    if text.is_empty() {
+        return String::new();
+    }
+    let val = serde_json::from_str::<Value>(&text)
+        .unwrap_or(Value::Array(vec![Value::String(text.clone())]));
+    let Some(items) = val.as_array() else {
+        return String::new();
+    };
+    for item in items {
+        let uri = text::as_str(item);
+        if let Some(path) = uri.strip_prefix("file://") {
+            return path.to_string();
+        }
+        if uri.starts_with('/') {
+            return uri;
+        }
+    }
+    String::new()
+}
+
+fn cwd_from_last_conversations(root: &Path, session_id: &str) -> String {
+    let path = root.join("cache").join("last_conversations.json");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let Ok(val) = serde_json::from_str::<Value>(&text) else {
+        return String::new();
+    };
+    let Some(obj) = val.as_object() else {
+        return String::new();
+    };
+    for (key, val) in obj {
+        if text::as_str(val) == session_id {
+            return key.clone();
+        }
+    }
+    String::new()
+}
+
+fn gemini_model_in(blob: &[u8]) -> Option<String> {
+    let needle = b"gemini-";
+    let mut found = None;
+    let mut start = 0;
+    while let Some(pos) = memchr::memmem::find(&blob[start..], needle) {
+        let at = start + pos;
+        let rest = &blob[at + needle.len()..];
+        let mut end = 0;
+        for (j, b) in rest.iter().enumerate() {
+            if b.is_ascii_alphanumeric() || *b == b'.' || *b == b'-' {
+                end = j + 1;
+            } else {
+                break;
+            }
+        }
+        if end > 0 {
+            if let Ok(s) = std::str::from_utf8(&blob[at..at + needle.len() + end]) {
+                found = Some(s.to_string());
+            }
+        }
+        start = at + 1;
+    }
+    found
+}
+
+fn model_from_conversation_db(db: &Path) -> String {
+    let Some(con) = open_ro(db) else {
+        return String::new();
+    };
+    let tables = [
+        ("executor_metadata", "data"),
+        ("gen_metadata", "data"),
+        ("steps", "step_payload"),
+    ];
+    let mut found = String::new();
+    for (table, col) in tables {
+        let Ok(mut stmt) = con.prepare(&format!("SELECT {col} FROM {table}")) else {
+            continue;
+        };
+        let Ok(rows) = stmt.query_map([], |row| {
+            Ok(match row.get_ref(0)? {
+                rusqlite::types::ValueRef::Blob(b) => b.to_vec(),
+                rusqlite::types::ValueRef::Text(s) => s.to_vec(),
+                _ => Vec::new(),
+            })
+        }) else {
+            continue;
+        };
+        for row in rows.flatten() {
+            if let Some(model) = gemini_model_in(&row) {
+                found = model;
+            }
+        }
+    }
+    found
+}
+
+fn first_user_title(rows: &[crate::jsonl::JsonlRow], summary: &Value) -> String {
+    let title = text::field_str(summary, "title");
+    if !title.is_empty() {
+        return text::first_line(&title, 80);
+    }
+    for row in rows {
+        if text::field_str(&row.value, "type") != "USER_INPUT" {
+            continue;
+        }
+        let text_body = tag_body(&text::field_str(&row.value, "content"), "USER_REQUEST");
+        if !text_body.is_empty() {
+            return text::first_line(&text_body, 80);
+        }
+    }
+    String::new()
+}
+
+fn truthy(val: &Value) -> bool {
+    match val {
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
+        Value::String(s) => matches!(s.as_str(), "1" | "true" | "True"),
+        _ => false,
+    }
+}
+
+fn turn_outcome(rows: &[crate::jsonl::JsonlRow], summary: &Value) -> String {
+    if truthy(summary.get("killed").unwrap_or(&Value::Null)) {
+        return ListStatus::Cancelled.as_str().into();
+    }
+    if truthy(summary.get("not_fully_idle").unwrap_or(&Value::Null)) {
+        return ListStatus::Running.as_str().into();
+    }
+    let mut last: Option<&crate::jsonl::JsonlRow> = None;
+    for row in rows {
+        let typ = text::field_str(&row.value, "type");
+        if matches!(
+            typ.as_str(),
+            "USER_INPUT" | "PLANNER_RESPONSE" | "GENERIC" | "SYSTEM_MESSAGE"
+        ) {
+            last = Some(row);
+        }
+    }
+    let Some(last) = last else {
+        return String::new();
+    };
+    let mapped = ListStatus::from_token(&text::field_str(&last.value, "status"));
+    if mapped != ListStatus::Idle {
+        mapped.as_str().into()
+    } else {
+        String::new()
+    }
+}
+
+fn count_tools(rows: &[crate::jsonl::JsonlRow]) -> u32 {
+    let mut n = 0u32;
+    for row in rows {
+        if let Some(calls) = row.value.get("tool_calls").and_then(|v| v.as_array()) {
+            n += calls.len() as u32;
+        }
+    }
+    n
+}
+
+fn meta_for(root: &Path, db: &Path, session_id: &str) -> ListMeta {
+    let rows = jsonl::window(&transcript_path(root, session_id));
+    let summary = load_summary(root, session_id);
+    let mut created = String::new();
+    let mut updated = text::field_iso(&summary, "last_modified_time");
+    if updated.is_empty() {
+        updated = text::field_iso(&summary, "last_user_input_time");
+    }
+    if let Some(first) = rows.first() {
+        created = text::field_iso(&first.value, "created_at");
+    }
+    if let Some(last) = rows.last() {
+        let last_ts = text::field_iso(&last.value, "created_at");
+        if !last_ts.is_empty() {
+            updated = last_ts;
+        }
+    }
+    if created.is_empty() {
+        created = updated.clone();
+    }
+    let cwd = {
+        let from_uris = cwd_from_uris(summary.get("workspace_uris").unwrap_or(&Value::Null));
+        if from_uris.is_empty() {
+            cwd_from_last_conversations(root, session_id)
+        } else {
+            from_uris
+        }
+    };
+    let kids = child_count(root, session_id);
+    let model = {
+        let name = text::field_str(&summary, "agent_name");
+        if !name.is_empty() {
+            name
+        } else {
+            let found = model_from_conversation_db(db);
+            if found.is_empty() {
+                "unknown".into()
+            } else {
+                found
+            }
+        }
+    };
+    ListMeta {
+        session_id: session_id.to_string(),
+        locator: db.to_path_buf(),
+        model_id: model,
+        title: first_user_title(&rows, &summary),
+        created_at: created.clone(),
+        updated_at: updated.clone(),
+        duration_seconds: text::duration_secs(
+            text::epoch_secs(&Value::String(created)),
+            text::epoch_secs(&Value::String(updated)),
+        ),
+        tool_call_count: count_tools(&rows),
+        turn_outcome: turn_outcome(&rows, &summary),
+        harness: "antigravity".into(),
+        harness_version: String::new(),
+        run_dir: cwd,
+        num_events: 0,
+        has_subagents: kids > 0,
+        subagent_count: kids,
+        context_tokens_used: None,
+    }
 }
 
 #[cfg(test)]
@@ -228,6 +565,16 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, format!("{line}\n")).unwrap();
         path
+    }
+
+    #[test]
+    fn list_meta_window_title_and_last_turn() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/harness/antigravity/antigravity-cli");
+        let meta =
+            crate::list_meta("antigravity", &root, "aaaaaaaa-1111-4111-8111-000000000001").unwrap();
+        assert_eq!(meta.title, "Reply with AGY_PROBE_OK");
+        assert_eq!(meta.turn_outcome, "complete");
     }
 
     #[test]

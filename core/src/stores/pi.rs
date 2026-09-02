@@ -1,6 +1,6 @@
 //! Pi jsonl store.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
 use crate::jsonl::{self, JsonlRow};
 use crate::store::Store;
 use crate::text;
@@ -252,20 +252,91 @@ fn last_role_outcome(rows: &[JsonlRow]) -> String {
         let msg = row.value.get("message").cloned().unwrap_or(Value::Null);
         let role = text::field_str(&msg, "role");
         if role == "user" {
-            return String::new();
+            return ListStatus::Idle.as_str().into();
+        }
+        if role == "toolResult" {
+            return ListStatus::Running.as_str().into();
         }
         if role == "assistant" {
             let reason = text::field_str(&msg, "stopReason");
-            if reason == "toolUse" {
-                return "running".into();
+            let compact = reason.to_ascii_lowercase().replace('_', "");
+            if compact == "tooluse" {
+                return ListStatus::Running.as_str().into();
             }
-            if !reason.is_empty() {
-                return reason;
-            }
-            return "complete".into();
+            return ListStatus::from_token(&reason).as_str().into();
         }
     }
     String::new()
+}
+
+fn model_from_rows(rows: &[JsonlRow]) -> String {
+    let mut provider = String::new();
+    let mut model = String::new();
+    for row in rows {
+        if text::field_str(&row.value, "type") != "model_change" {
+            continue;
+        }
+        let p = text::field_str(&row.value, "provider");
+        if !p.is_empty() {
+            provider = p;
+        }
+        let m = text::field_str(&row.value, "modelId");
+        if !m.is_empty() {
+            model = m;
+        }
+    }
+    match (provider.is_empty(), model.is_empty()) {
+        (false, false) => format!("{provider}/{model}"),
+        (true, false) => model,
+        (false, true) => provider,
+        (true, true) => "unknown".into(),
+    }
+}
+
+fn first_user_title(rows: &[JsonlRow]) -> String {
+    for row in rows {
+        if text::field_str(&row.value, "type") != "message" {
+            continue;
+        }
+        let msg = row.value.get("message").cloned().unwrap_or(Value::Null);
+        if text::field_str(&msg, "role") != "user" {
+            continue;
+        }
+        let title = text::first_line(
+            &text::text_of(msg.get("content").unwrap_or(&Value::Null)),
+            80,
+        );
+        if !title.is_empty() {
+            return title;
+        }
+    }
+    String::new()
+}
+
+fn count_tools(rows: &[JsonlRow]) -> (u32, u32) {
+    let mut tools = 0u32;
+    let mut kids = 0u32;
+    for row in rows {
+        if text::field_str(&row.value, "type") != "message" {
+            continue;
+        }
+        let msg = row.value.get("message").cloned().unwrap_or(Value::Null);
+        let Some(blocks) = msg.get("content").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for block in blocks {
+            if text::field_str(block, "type") != "toolCall" {
+                continue;
+            }
+            tools += 1;
+            if text::field_str(block, "name") == "subagent" {
+                if let Some(tasks) = block.pointer("/arguments/tasks").and_then(|v| v.as_array()) {
+                    kids += tasks.len() as u32;
+                }
+            }
+        }
+    }
+    (tools, kids)
 }
 
 impl Store for Pi {
@@ -308,49 +379,75 @@ impl Store for Pi {
             return Err(format!("pi session not found: {session_id}"));
         }
         let rows = jsonl::window(locator);
-        let title = rows
+        let header = rows
             .iter()
-            .find(|r| text::field_str(&r.value, "type") == "message")
-            .and_then(|r| r.value.get("message"))
-            .map(|m| text::text_of(m.get("content").unwrap_or(&Value::Null)))
+            .find(|r| text::field_str(&r.value, "type") == "session")
+            .map(|r| &r.value);
+        let sid = header
+            .map(|h| text::field_str(h, "id"))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| session_id.to_string());
+        let created = header
+            .map(|h| text::field_iso(h, "timestamp"))
             .unwrap_or_default();
-        let title = title
-            .lines()
-            .next()
-            .unwrap_or("")
-            .chars()
-            .take(80)
-            .collect();
-        let stamp = jsonl::file_stamp(locator);
-        let meta = ListMeta {
-            session_id: session_id.to_string(),
+        let mut last_ts = created.clone();
+        for row in &rows {
+            let ts = text::field_iso(&row.value, "timestamp");
+            if !ts.is_empty() {
+                last_ts = ts;
+            }
+        }
+        if last_ts.is_empty() {
+            let stamp = jsonl::file_stamp(locator);
+            last_ts = text::iso_secs(stamp.0 as i64);
+        }
+        let (tools, kids) = count_tools(&rows);
+        Ok(ListMeta {
+            session_id: sid,
             locator: locator.to_path_buf(),
-            model_id: "unknown".into(),
-            title,
-            created_at: String::new(),
-            updated_at: String::new(),
-            duration_seconds: 0.0,
-            tool_call_count: 0,
+            model_id: model_from_rows(&rows),
+            title: first_user_title(&rows),
+            created_at: created.clone(),
+            updated_at: last_ts.clone(),
+            duration_seconds: text::duration_secs(
+                text::epoch_secs(&Value::String(created)),
+                text::epoch_secs(&Value::String(last_ts)),
+            ),
+            tool_call_count: tools,
             turn_outcome: last_role_outcome(&rows),
             harness: "pi".into(),
-            harness_version: String::new(),
-            run_dir: String::new(),
+            harness_version: header
+                .map(|h| text::field_str(h, "version"))
+                .unwrap_or_default(),
+            run_dir: header
+                .map(|h| text::field_str(h, "cwd"))
+                .unwrap_or_default(),
             num_events: 0,
-            has_subagents: rows.iter().any(|r| {
-                r.value
-                    .pointer("/message/content")
-                    .and_then(|v| v.as_array())
-                    .is_some_and(|blocks| {
-                        blocks.iter().any(|b| {
-                            text::field_str(b, "type") == "toolCall"
-                                && text::field_str(b, "name") == "subagent"
-                        })
-                    })
-            }),
-            subagent_count: 0,
+            has_subagents: kids > 0,
+            subagent_count: kids,
             context_tokens_used: None,
-        };
-        let _ = stamp;
-        Ok(meta)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../tests/fixtures/harness/pi/sessions/tmp-probe/2026-08-09T12-00-00-000Z_019fe000-0000-7000-8000-000000000001.jsonl",
+        )
+    }
+
+    #[test]
+    fn list_meta_window_title_and_last_turn() {
+        let path = fixture();
+        let meta = Pi
+            .list_meta(&path, "019fe000-0000-7000-8000-000000000001")
+            .unwrap();
+        assert_eq!(meta.title, "Reply with PI_PROBE_OK");
+        assert_eq!(meta.turn_outcome, "complete");
+        assert_eq!(meta.model_id, "xai/grok-4.5");
     }
 }

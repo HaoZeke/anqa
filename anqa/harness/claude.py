@@ -10,8 +10,7 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -313,212 +312,6 @@ def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> 
     )
 
 
-def _agent_children(rows: Sequence[JsonObject]) -> dict[str, tuple[str, str]]:
-    """Map Agent/Task tool_use id → (agentId, agentType)."""
-    found: dict[str, tuple[str, str]] = {}
-    for row in rows:
-        if str(row.get("type") or "") != "user":
-            continue
-        tur = json_mapping(row.get("toolUseResult"))
-        agent = str(tur.get("agentId") or "").strip()
-        if not agent:
-            continue
-        typ = str(tur.get("agentType") or "").strip()
-        call_id = ""
-        for block in _content_blocks(json_mapping(row.get("message"))):
-            if str(block.get("type") or "") == "tool_result":
-                call_id = str(block.get("tool_use_id") or "").strip()
-                break
-        if call_id:
-            found[call_id] = (agent, typ)
-    return found
-
-
-def _tool_names(rows: Sequence[JsonObject]) -> dict[str, str]:
-    names: dict[str, str] = {}
-    for row in rows:
-        if str(row.get("type") or "") != "assistant":
-            continue
-        for block in _content_blocks(json_mapping(row.get("message"))):
-            if str(block.get("type") or "") != "tool_use":
-                continue
-            call_id = str(block.get("id") or "").strip()
-            name = str(block.get("name") or "").strip()
-            if call_id and name:
-                names[call_id] = name
-    return names
-
-
-def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
-    events: list[TraceEvent] = []
-    children = _agent_children(rows)
-    names = _tool_names(rows)
-    turn = 0
-    for row in rows:
-        typ = str(row.get("type") or "")
-        ts = Stamp.epoch(row.get("timestamp"))
-        if typ == "user":
-            events.extend(_user_events(row, ts, turn, names))
-            msg = json_mapping(row.get("message"))
-            if not _is_tool_result_user(msg) and _text_of(msg.get("content")).strip():
-                turn += 1
-            continue
-        if typ == "assistant":
-            events.extend(_assistant_events(row, ts, children))
-    for i, ev in enumerate(events):
-        ev.index = i
-    return events
-
-
-def _user_events(
-    row: JsonObject,
-    ts: int | None,
-    turn: int,
-    names: dict[str, str],
-) -> list[TraceEvent]:
-    msg = json_mapping(row.get("message"))
-    if _is_tool_result_user(msg):
-        return [_tool_result_event(row, ts, names)]
-    text = _text_of(msg.get("content"))
-    if not text.strip():
-        return []
-    return [
-        TraceEvent(
-            index=0,
-            event_type=et.TURN_STARTED,
-            timestamp=ts,
-            content=f"turn_number={turn}",
-        ),
-        TraceEvent(
-            index=0,
-            event_type=et.USER_MESSAGE_CHUNK,
-            timestamp=ts,
-            content=text,
-        ),
-    ]
-
-
-def _assistant_events(
-    row: JsonObject,
-    ts: int | None,
-    children: dict[str, tuple[str, str]],
-) -> list[TraceEvent]:
-    out: list[TraceEvent] = []
-    for block in _content_blocks(json_mapping(row.get("message"))):
-        kind = str(block.get("type") or "")
-        if kind == "thinking":
-            out.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.AGENT_THOUGHT_CHUNK,
-                    timestamp=ts,
-                    content=str(block.get("thinking") or block.get("text") or ""),
-                )
-            )
-        elif kind == "text":
-            out.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.AGENT_MESSAGE_CHUNK,
-                    timestamp=ts,
-                    content=str(block.get("text") or ""),
-                )
-            )
-        elif kind == "tool_use":
-            out.extend(_tool_use_events(block, ts, children))
-    return out
-
-
-def _tool_use_events(
-    block: JsonObject,
-    ts: int | None,
-    children: dict[str, tuple[str, str]],
-) -> list[TraceEvent]:
-    raw = block.get("input")
-    bag = ToolInputBag(raw if isinstance(raw, dict) else {})
-    name = str(block.get("name") or "tool").strip() or "tool"
-    call_id = str(block.get("id") or "")
-    events = [
-        TraceEvent(
-            index=0,
-            event_type=et.TOOL_CALL,
-            timestamp=ts,
-            content=name,
-            tool_name=name,
-            tool_call_id=call_id,
-            raw_input=bag,
-        )
-    ]
-    if name in _AGENT_TOOLS:
-        child, typ = children.get(call_id, ("", str(bag.as_str("subagent_type") or "")))
-        if not child:
-            child = str(bag.as_str("agentId") or "").strip()
-        if child:
-            desc = str(bag.as_str("description") or "").strip()
-            events.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.SUBAGENT_SPAWNED,
-                    timestamp=ts,
-                    content=f"spawned {typ}: {desc}".strip(),
-                    raw_input=ToolInputBag(
-                        {
-                            "child_session_id": child,
-                            "subagent_type": typ,
-                            "description": desc,
-                        }
-                    ),
-                )
-            )
-    return events
-
-
-def _tool_result_event(
-    row: JsonObject,
-    ts: int | None,
-    names: dict[str, str],
-) -> TraceEvent:
-    msg = json_mapping(row.get("message"))
-    call_id = ""
-    text = ""
-    for block in _content_blocks(msg):
-        if str(block.get("type") or "") != "tool_result":
-            continue
-        call_id = str(block.get("tool_use_id") or call_id)
-        text = _text_of(block.get("content"))
-    tur = json_mapping(row.get("toolUseResult"))
-    if not text:
-        text = _text_of(tur.get("content") or tur.get("stdout") or tur)
-    child = str(tur.get("agentId") or "").strip()
-    typ = str(tur.get("agentType") or "").strip()
-    name = names.get(call_id, "tool")
-    if child:
-        return TraceEvent(
-            index=0,
-            event_type=et.SUBAGENT_FINISHED,
-            timestamp=ts,
-            content=text[:400],
-            tool_name=name,
-            tool_call_id=call_id,
-            raw_input=ToolInputBag(
-                {
-                    "child_session_id": child,
-                    "subagent_type": typ,
-                    "status": str(tur.get("status") or "completed"),
-                    "output": text[:2000],
-                }
-            ),
-        )
-    return TraceEvent(
-        index=0,
-        event_type=et.TOOL_CALL_UPDATE,
-        timestamp=ts,
-        content=text,
-        tool_name=name,
-        tool_call_id=call_id,
-    )
-
-
 class ClaudeAdapter:
     """Read-only Claude Code jsonl adapter."""
 
@@ -566,15 +359,12 @@ class ClaudeAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import JsonlFile
+        from ..core import list_meta
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"claude session not found: {sid}")
-        rows = JsonlFile(path).window()
-        if not rows:
-            raise FileNotFoundError(f"claude session not found: {sid}")
-        return _meta_from_rows(rows, path, sid)
+        return list_meta(self.id, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, sid = _jsonl_from_ref(ref, self.root())

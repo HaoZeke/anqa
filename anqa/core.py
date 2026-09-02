@@ -103,7 +103,13 @@ def store_stamp(harness: str, locator: Path | str, session_id: str) -> tuple[flo
 
 def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
     """List-grade meta from the native store."""
-    row = _native.store_list_meta(harness, str(locator), session_id)
+    try:
+        row = _native.store_list_meta(harness, str(locator), session_id)
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "not found" in msg:
+            raise FileNotFoundError(msg) from exc
+        raise
     return SessionMeta(
         session_id=str(row.get("session_id") or session_id),
         session_dir=Path(str(row.get("locator") or locator)),

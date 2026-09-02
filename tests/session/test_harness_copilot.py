@@ -64,6 +64,13 @@ def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_list_meta_does_not_map_the_window() -> None:
+    _install_store()
+    meta = CopilotAdapter().load_meta(Path(f"copilot:{_SID}"))
+    assert meta.title == "Reply with COPILOT_PROBE_OK"
+    assert meta.turn_outcome != ""
+
+
 def test_catalog_lists_copilot_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)

@@ -13,15 +13,13 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from .. import event_types as et
-from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, json_mapping
+from ..models import JsonObject, ListStatus, SessionMeta, TraceEvent, json_mapping
 from ..session.tagged_blocks import operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
 
 CURSOR_HARNESS_ID = "cursor"
-_CANCELLED = frozenset({"cancelled", "canceled", "aborted", "interrupted", "error"})
 _MODEL_NAME = re.compile(r'"modelName"\s*:\s*"([^"]+)"')
 
 
@@ -173,81 +171,6 @@ def _turn_outcome(rows: Sequence[JsonObject]) -> str:
     return from_last(status)
 
 
-def _from_message(index: int, row: JsonObject) -> list[TraceEvent]:
-    role = str(row.get("role") or "")
-    content = json_mapping(row.get("message")).get("content")
-    events: list[TraceEvent] = []
-    if role == "user":
-        text = operator_prompt_text(_blocks_text(content))
-        events.append(
-            TraceEvent(
-                index=index,
-                event_type=et.USER_MESSAGE_CHUNK,
-                content=text,
-                update_index=index,
-            )
-        )
-        return events
-    if role != "assistant":
-        return events
-    text = _blocks_text(content)
-    if text:
-        events.append(
-            TraceEvent(
-                index=index,
-                event_type=et.AGENT_MESSAGE_CHUNK,
-                content=text,
-                update_index=index,
-            )
-        )
-    if not isinstance(content, list):
-        return events
-    for part in content:
-        if not isinstance(part, dict):
-            continue
-        if str(part.get("type") or "") != "tool_use":
-            continue
-        name = str(part.get("name") or "").strip()
-        raw = part.get("input")
-        bag = json_mapping(raw) if isinstance(raw, dict) else {}
-        events.append(
-            TraceEvent(
-                index=index,
-                event_type=et.TOOL_CALL,
-                tool_name=name,
-                tool_call_id=str(part.get("id") or ""),
-                raw_input=ToolInputBag(bag),
-                update_index=index,
-            )
-        )
-    return events
-
-
-def _from_row(index: int, row: JsonObject) -> list[TraceEvent]:
-    typ = str(row.get("type") or "")
-    if typ == "turn_ended":
-        status = str(row.get("status") or "").strip()
-        ended = status.casefold() in _CANCELLED
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TURN_ENDED if ended else et.TURN_COMPLETED,
-                content=status,
-                update_index=index,
-            )
-        ]
-    if str(row.get("role") or ""):
-        return _from_message(index, row)
-    return []
-
-
-def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
-    events: list[TraceEvent] = []
-    for i, row in enumerate(rows):
-        events.extend(_from_row(i, row))
-    return events
-
-
 def _meta_from(rows: Sequence[JsonObject], path: Path, sid: str, header: JsonObject) -> SessionMeta:
     created = Stamp.iso(header.get("createdAtMs"))
     updated = Stamp.iso(header.get("updatedAtMs")) or created
@@ -263,7 +186,7 @@ def _meta_from(rows: Sequence[JsonObject], path: Path, sid: str, header: JsonObj
         updated_at=updated,
         duration_seconds=duration,
         run_dir=str(header.get("cwd") or "").strip(),
-        num_events=len(_timeline_for(rows)),
+        num_events=0,
         tool_call_count=_count_tools(rows),
         turn_outcome=_turn_outcome(rows),
         harness=CURSOR_HARNESS_ID,
@@ -353,14 +276,12 @@ class CursorAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import JsonlFile
+        from ..core import list_meta
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"cursor session not found: {sid}")
-        rows = JsonlFile(path).window()
-        header = _find_meta(self.root(), sid)
-        return _meta_from(rows, path, sid, header)
+        return list_meta(self.id, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, sid = _jsonl_from_ref(ref, self.root())

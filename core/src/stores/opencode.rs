@@ -70,17 +70,8 @@ fn events_from_event_records(records: &[Record]) -> Vec<Event> {
             turn += 1;
         } else {
             for part in msg_parts {
-                let kind = text::field_str(&part, "type");
                 let praw = serde_json::to_string(&part).unwrap_or_default();
-                if kind == "text" {
-                    events.push(
-                        Event::new(EventType::AgentMessageChunk)
-                            .with_content(text::field_str(&part, "text"))
-                            .with_raw(praw),
-                    );
-                } else if kind == "tool" {
-                    events.extend(tool_events(&part, &praw));
-                }
+                events.extend(map_part(&part, &praw));
             }
         }
     }
@@ -133,26 +124,38 @@ fn events_from_message_records(records: &[Record]) -> Vec<Event> {
             turn += 1;
         } else {
             for (part, praw) in msg_parts {
-                let kind = text::field_str(&part, "type");
-                if kind == "text" {
-                    events.push(
-                        Event::new(EventType::AgentMessageChunk)
-                            .with_content(text::field_str(&part, "text"))
-                            .with_raw(praw),
-                    );
-                } else if kind == "reasoning" {
-                    events.push(
-                        Event::new(EventType::AgentThoughtChunk)
-                            .with_content(text::field_str(&part, "text"))
-                            .with_raw(praw),
-                    );
-                } else if kind == "tool" {
-                    events.extend(tool_events(&part, &praw));
-                }
+                events.extend(map_part(&part, &praw));
             }
         }
     }
     events
+}
+
+fn map_part(part: &Value, raw: &str) -> Vec<Event> {
+    match text::field_str(part, "type").as_str() {
+        "text" => vec![Event::new(EventType::AgentMessageChunk)
+            .with_content(text::field_str(part, "text"))
+            .with_raw(raw)],
+        "reasoning" => vec![Event::new(EventType::AgentThoughtChunk)
+            .with_content(text::field_str(part, "text"))
+            .with_raw(raw)],
+        "tool" => tool_events(part, raw),
+        "compaction" => vec![Event::new(EventType::CompactionCheckpoint)
+            .with_content(text::field_str(part, "text"))
+            .with_raw(raw)],
+        "permission" | "snapshot" | "step" => vec![Event::new(EventType::System)
+            .with_content(text::field_str(part, "type"))
+            .with_raw(raw)],
+        "file" | "patch" => {
+            let name = text::field_str(part, "type");
+            let mut ev = Event::new(EventType::ToolCall)
+                .with_content(&name)
+                .with_raw(raw);
+            ev.tool_name = name;
+            vec![ev]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn tool_events(part: &Value, raw: &str) -> Vec<Event> {
@@ -1041,6 +1044,41 @@ mod tests {
             "lower max seq must full replay, not keep a stale tail"
         );
         assert_eq!(OpenCode.stamp(&db, "ses_a").1, 2);
+
+        let _ = std::fs::remove_file(&db);
+        let _ = std::fs::remove_dir(db.parent().unwrap());
+    }
+
+    #[test]
+    fn opencode_event_table_maps_reasoning_to_thought() {
+        let db = temp_db("reason");
+        let con = open_rw(&db);
+        create_event_table(&con);
+        insert_event(
+            &con,
+            1,
+            "ses_a",
+            0,
+            "message.updated.1",
+            r#"{"info":{"id":"msg_a","role":"assistant","sessionID":"ses_a"}}"#,
+        );
+        insert_event(
+            &con,
+            2,
+            "ses_a",
+            1,
+            "message.part.updated.1",
+            r#"{"part":{"id":"prt_a","messageID":"msg_a","sessionID":"ses_a","type":"reasoning","text":"think it through"}}"#,
+        );
+        drop(con);
+
+        let events = crate::timeline("opencode", &db, "ses_a").unwrap();
+        let thoughts: Vec<&str> = events
+            .iter()
+            .filter(|ev| ev.event_type == EventType::AgentThoughtChunk)
+            .map(|ev| ev.content.as_str())
+            .collect();
+        assert_eq!(thoughts, ["think it through"]);
 
         let _ = std::fs::remove_file(&db);
         let _ = std::fs::remove_dir(db.parent().unwrap());

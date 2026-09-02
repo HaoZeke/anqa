@@ -1,6 +1,6 @@
 //! Codex rollout jsonl.
 
-use crate::event::{Event, EventType, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
 use crate::jsonl::{self, JsonlRow};
 use crate::store::Store;
 use crate::text;
@@ -212,5 +212,193 @@ impl Store for Codex {
 
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         records.iter().flat_map(from_row).collect()
+    }
+
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_file() {
+            return Err(format!("codex session not found: {session_id}"));
+        }
+        let rows = jsonl::window(locator);
+        if rows.is_empty() {
+            return Err(format!("codex session not found: {session_id}"));
+        }
+        Ok(meta_from_window(&rows, locator, session_id))
+    }
+}
+
+const TURN_SIGNALS: &[&str] = &["task_started", "task_complete", "turn_aborted"];
+
+fn payload(row: &Value) -> Value {
+    row.get("payload").cloned().unwrap_or(Value::Null)
+}
+
+fn meta_row(rows: &[JsonlRow]) -> Value {
+    for row in rows {
+        if text::field_str(&row.value, "type") == "session_meta" {
+            return payload(&row.value);
+        }
+    }
+    Value::Null
+}
+
+fn first_user_title(rows: &[JsonlRow]) -> String {
+    for row in rows {
+        if text::field_str(&row.value, "type") != "response_item" {
+            continue;
+        }
+        let pl = payload(&row.value);
+        if text::field_str(&pl, "type") != "message" || text::field_str(&pl, "role") != "user" {
+            continue;
+        }
+        let body = blocks_text(pl.get("content").unwrap_or(&Value::Null), "input_text");
+        if body.is_empty() || is_env_context(&body) {
+            continue;
+        }
+        return text::first_line(&body, 120);
+    }
+    String::new()
+}
+
+fn model_from_rows(rows: &[JsonlRow]) -> String {
+    for row in rows.iter().rev() {
+        let typ = text::field_str(&row.value, "type");
+        let pl = payload(&row.value);
+        if typ == "turn_context" {
+            let mid = text::field_str(&pl, "model");
+            if !mid.is_empty() {
+                return mid;
+            }
+        }
+        if typ == "event_msg" && text::field_str(&pl, "type") == "thread_settings_applied" {
+            let settings = pl.get("thread_settings").cloned().unwrap_or(Value::Null);
+            let mid = text::field_str(&settings, "model");
+            if !mid.is_empty() {
+                return mid;
+            }
+        }
+    }
+    String::new()
+}
+
+fn last_turn_signal(rows: &[JsonlRow]) -> String {
+    let mut last = String::new();
+    for row in rows {
+        if text::field_str(&row.value, "type") != "event_msg" {
+            continue;
+        }
+        let typ = text::field_str(&payload(&row.value), "type");
+        if TURN_SIGNALS.contains(&typ.as_str()) {
+            last = typ;
+        }
+    }
+    last
+}
+
+fn count_tools(rows: &[JsonlRow]) -> u32 {
+    rows.iter()
+        .filter(|row| {
+            if text::field_str(&row.value, "type") != "response_item" {
+                return false;
+            }
+            let pt = text::field_str(&payload(&row.value), "type");
+            pt == "custom_tool_call" || pt == "function_call"
+        })
+        .count() as u32
+}
+
+fn count_subagents(rows: &[JsonlRow]) -> u32 {
+    rows.iter()
+        .filter(|row| {
+            if text::field_str(&row.value, "type") != "event_msg" {
+                return false;
+            }
+            let pl = payload(&row.value);
+            if text::field_str(&pl, "type") != "item_completed" {
+                return false;
+            }
+            let item = pl.get("item").cloned().unwrap_or(Value::Null);
+            text::field_str(&item, "type") == "SubAgentActivity"
+                && text::field_str(&item, "kind") == "started"
+        })
+        .count() as u32
+}
+
+fn meta_from_window(rows: &[JsonlRow], path: &Path, session_id: &str) -> ListMeta {
+    let header = meta_row(rows);
+    let mut sid = text::field_str(&header, "session_id");
+    if sid.is_empty() {
+        sid = text::field_str(&header, "id");
+    }
+    if sid.is_empty() {
+        sid = session_id.to_string();
+    }
+    let created = {
+        let ts = text::field_iso(&header, "timestamp");
+        if ts.is_empty() {
+            rows.first()
+                .map(|r| text::field_iso(&r.value, "timestamp"))
+                .unwrap_or_default()
+        } else {
+            ts
+        }
+    };
+    let mut last_ts = created.clone();
+    for row in rows {
+        let ts = text::field_iso(&row.value, "timestamp");
+        if !ts.is_empty() {
+            last_ts = ts;
+        }
+    }
+    let kids = count_subagents(rows);
+    let model = model_from_rows(rows);
+    ListMeta {
+        session_id: sid,
+        locator: path.to_path_buf(),
+        model_id: if model.is_empty() {
+            "unknown".into()
+        } else {
+            model
+        },
+        title: first_user_title(rows),
+        created_at: created.clone(),
+        updated_at: last_ts.clone(),
+        duration_seconds: text::duration_secs(
+            text::epoch_secs(&Value::String(created)),
+            text::epoch_secs(&Value::String(last_ts)),
+        ),
+        tool_call_count: count_tools(rows),
+        turn_outcome: {
+            let mapped = ListStatus::from_token(&last_turn_signal(rows));
+            if mapped != ListStatus::Idle {
+                mapped.as_str().into()
+            } else {
+                String::new()
+            }
+        },
+        harness: "codex".into(),
+        harness_version: text::field_str(&header, "cli_version"),
+        run_dir: text::field_str(&header, "cwd"),
+        num_events: 0,
+        has_subagents: kids > 0,
+        subagent_count: kids,
+        context_tokens_used: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_meta_window_title_and_last_turn() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../tests/fixtures/harness/codex/sessions/2026/08/30/rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-000000000001.jsonl",
+        );
+        let meta = Codex
+            .list_meta(&path, "aaaaaaaa-1111-4111-8111-000000000001")
+            .unwrap();
+        assert_eq!(meta.title, "Reply with CODEX_PROBE_OK");
+        assert_eq!(meta.turn_outcome, "complete");
+        assert_eq!(meta.model_id, "gpt-5.4");
     }
 }

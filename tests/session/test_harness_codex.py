@@ -65,6 +65,13 @@ def test_load_meta_does_not_read_the_full_transcript(monkeypatch) -> None:
     assert meta.list_status_label() == "complete"
 
 
+def test_list_meta_does_not_map_the_window() -> None:
+    _install_store()
+    meta = CodexAdapter().load_meta(Path(f"codex:{_SID}"))
+    assert meta.title == "Reply with CODEX_PROBE_OK"
+    assert meta.turn_outcome != ""
+
+
 def test_session_diff_reads_exec_apply_patch(tmp_path: Path) -> None:
     path = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-000000000099.jsonl"
     payload = {

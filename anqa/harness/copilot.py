@@ -11,8 +11,7 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -106,135 +105,6 @@ def _turn_outcome(events: list[JsonObject]) -> str:
     return from_last(_last_turn_type(events))
 
 
-def _text_of(raw: object) -> str:
-    if isinstance(raw, str):
-        return raw
-    if isinstance(raw, dict):
-        return str(raw.get("content") or raw.get("text") or "").strip()
-    return ""
-
-
-def _timeline_for(events: list[JsonObject]) -> list[TraceEvent]:
-    out: list[TraceEvent] = []
-    for i, row in enumerate(events):
-        ev = _event_from_row(i, row)
-        if ev is not None:
-            out.append(ev)
-    return out
-
-
-def _event_from_row(index: int, row: JsonObject) -> TraceEvent | None:
-    typ = str(row.get("type") or "").strip()
-    data = json_mapping(row.get("data"))
-    ts = Stamp.epoch(row.get("timestamp"))
-    eid = str(row.get("id") or "")
-    if typ in {"session.start", "assistant.turn_start"}:
-        return TraceEvent(
-            index=index,
-            event_type=et.TURN_STARTED,
-            timestamp=ts,
-            content="",
-            update_index=index,
-        )
-    if typ == "assistant.turn_end":
-        return TraceEvent(
-            index=index,
-            event_type=et.TURN_ENDED,
-            timestamp=ts,
-            content="",
-            update_index=index,
-        )
-    if typ == "session.shutdown":
-        return TraceEvent(
-            index=index,
-            event_type=et.TURN_COMPLETED,
-            timestamp=ts,
-            content=str(data.get("shutdownType") or "").strip(),
-            update_index=index,
-        )
-    if typ == "user.message":
-        return TraceEvent(
-            index=index,
-            event_type=et.USER_MESSAGE_CHUNK,
-            timestamp=ts,
-            content=_text_of(data.get("content")),
-            update_index=index,
-        )
-    if typ == "assistant.message":
-        return TraceEvent(
-            index=index,
-            event_type=et.AGENT_MESSAGE_CHUNK,
-            timestamp=ts,
-            content=_text_of(data.get("content")),
-            update_index=index,
-        )
-    if typ == "tool.execution_start":
-        args = json_mapping(data.get("arguments"))
-        name = str(data.get("toolName") or "").strip()
-        return TraceEvent(
-            index=index,
-            event_type=et.TOOL_CALL,
-            timestamp=ts,
-            tool_name=name,
-            tool_call_id=str(data.get("toolCallId") or eid),
-            content="",
-            raw_input=ToolInputBag(args),
-            update_index=index,
-        )
-    if typ == "tool.execution_complete":
-        ok = data.get("success") is True
-        return TraceEvent(
-            index=index,
-            event_type=et.TOOL_CALL_UPDATE,
-            timestamp=ts,
-            tool_call_id=str(data.get("toolCallId") or eid),
-            content=_text_of(data.get("result")),
-            is_error=not ok,
-            update_index=index,
-        )
-    if typ == "subagent.started":
-        name = str(data.get("agentName") or data.get("agentDisplayName") or "").strip()
-        child = str(row.get("agentId") or data.get("agentId") or "").strip()
-        return TraceEvent(
-            index=index,
-            event_type=et.SUBAGENT_SPAWNED,
-            timestamp=ts,
-            content=name,
-            tool_call_id=str(data.get("toolCallId") or ""),
-            raw_input=ToolInputBag(
-                {
-                    "child_session_id": child,
-                    "subagent_id": child,
-                    "subagent_type": str(data.get("agentType") or ""),
-                    "description": str(data.get("agentDescription") or name),
-                }
-            ),
-            update_index=index,
-        )
-    if typ == "subagent.completed":
-        child = str(row.get("agentId") or data.get("agentId") or "").strip()
-        cancelled = data.get("cancelled") is True
-        return TraceEvent(
-            index=index,
-            event_type=et.SUBAGENT_FINISHED,
-            timestamp=ts,
-            content=str(data.get("agentName") or "").strip(),
-            tool_call_id=str(data.get("toolCallId") or ""),
-            raw_input=ToolInputBag(
-                {
-                    "child_session_id": child,
-                    "subagent_id": child,
-                    "status": "cancelled" if cancelled else "completed",
-                    "duration_ms": data.get("durationMs"),
-                    "tool_calls": data.get("totalToolCalls"),
-                    "tokens_used": data.get("totalTokens"),
-                }
-            ),
-            update_index=index,
-        )
-    return None
-
-
 def _model_from_events(events: list[JsonObject]) -> str:
     for row in reversed(events):
         typ = str(row.get("type") or "")
@@ -284,7 +154,7 @@ def _meta_from_row(row: sqlite3.Row, db: Path, events: list[JsonObject]) -> Sess
         updated_at=updated,
         duration_seconds=duration,
         run_dir=cwd,
-        num_events=len(_timeline_for(events)),
+        num_events=0,
         tool_call_count=_count_tools(events),
         turn_outcome=_turn_outcome(events),
         harness=COPILOT_HARNESS_ID,
@@ -336,18 +206,13 @@ class CopilotAdapter:
         return None
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from ..core import list_meta
+
         db, sid = _db_from_ref(ref, self.db())
         if not sid:
             raise FileNotFoundError("copilot session id is required")
         db = _assert_readable(db)
-        with _connect(db) as con:
-            row = _session_row(con, sid)
-            if row is None:
-                raise FileNotFoundError(f"copilot session not found: {sid}")
-            from .jsonl_list import JsonlFile
-
-            events = JsonlFile(_events_path(db, sid)).window()
-            return _meta_from_row(row, db, events)
+        return list_meta(self.id, db, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         db, sid = _db_from_ref(ref, self.db())

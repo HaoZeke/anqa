@@ -162,12 +162,101 @@ pub fn epoch(val: &Value) -> Option<i64> {
 /// ISO-ish stamp from epoch seconds or a string field.
 #[must_use]
 pub fn iso_from(val: &Value) -> String {
+    iso_stamp(val)
+}
+
+/// UTC `YYYY-MM-DDTHH:MM:SSZ`, or the original offset string when already stamped.
+#[must_use]
+pub fn iso_stamp(val: &Value) -> String {
     if let Some(s) = val.as_str() {
-        if !s.is_empty() {
-            return s.to_string();
+        let t = s.trim();
+        if t.is_empty() {
+            return String::new();
         }
+        if t.ends_with('Z')
+            || t.ends_with('z')
+            || t.get(10..).is_some_and(|rest| rest.contains('+'))
+        {
+            return t.replace('z', "Z");
+        }
+        if let Some(sec) = epoch_secs(val) {
+            return iso_secs(sec);
+        }
+        return t.to_string();
     }
-    String::new()
+    epoch_secs(val).map(iso_secs).unwrap_or_default()
+}
+
+#[must_use]
+pub fn field_iso(obj: &Value, key: &str) -> String {
+    obj.get(key).map(iso_stamp).unwrap_or_default()
+}
+
+/// Unix seconds. Milliseconds (`> 1e12`) are divided.
+#[must_use]
+pub fn epoch_secs(val: &Value) -> Option<i64> {
+    let n = parse_ts_value(val)?;
+    if n > 1_000_000_000_000 {
+        Some(n / 1000)
+    } else if n > 0 {
+        Some(n)
+    } else {
+        None
+    }
+}
+
+#[must_use]
+pub fn iso_millis(ms: i64) -> String {
+    if ms <= 0 {
+        return String::new();
+    }
+    let secs = if ms > 1_000_000_000_000 {
+        ms / 1000
+    } else {
+        ms
+    };
+    iso_secs(secs)
+}
+
+#[must_use]
+pub fn iso_secs(secs: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400);
+    let hour = tod / 3600;
+    let min = (tod % 3600) / 60;
+    let sec = tod % 60;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+    (year, month as i64, day as i64)
+}
+
+#[must_use]
+pub fn duration_secs(start: Option<i64>, end: Option<i64>) -> f64 {
+    match (start, end) {
+        (Some(s), Some(e)) if s > 0 && e > 0 => (e - s).max(0) as f64,
+        _ => 0.0,
+    }
+}
+
+#[must_use]
+pub fn first_line(s: &str, max: usize) -> String {
+    s.lines().next().unwrap_or("").chars().take(max).collect()
 }
 
 pub fn index_events(events: &mut [crate::event::Event]) {

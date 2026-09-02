@@ -1,6 +1,6 @@
 //! Copilot session-store.db plus events.jsonl.
 
-use crate::event::{Event, EventType, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
 use crate::jsonl;
 use crate::store::Store;
 use crate::text;
@@ -167,6 +167,165 @@ impl Store for Copilot {
         };
         jsonl::file_stamp(&path)
     }
+
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if session_id.is_empty() {
+            return Err("copilot session id is required".into());
+        }
+        if !locator.is_file() {
+            return Err(format!("copilot database not found: {}", locator.display()));
+        }
+        let con = Connection::open_with_flags(locator, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| e.to_string())?;
+        let row = con
+            .query_row(
+                "SELECT id, cwd, summary, created_at, updated_at FROM sessions WHERE id = ?1",
+                [session_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1).unwrap_or_default(),
+                        r.get::<_, String>(2).unwrap_or_default(),
+                        r.get::<_, rusqlite::types::Value>(3)?,
+                        r.get::<_, rusqlite::types::Value>(4)?,
+                    ))
+                },
+            )
+            .map_err(|_| format!("copilot session not found: {session_id}"))?;
+        let events = jsonl::window(&events_path(locator, session_id));
+        Ok(meta_from_row(locator, &row, &events))
+    }
+}
+
+const TURN_SIGNALS: &[&str] = &[
+    "assistant.turn_start",
+    "tool.execution_start",
+    "subagent.started",
+    "session.shutdown",
+    "assistant.turn_end",
+];
+
+fn sql_stamp(val: &rusqlite::types::Value) -> String {
+    match val {
+        rusqlite::types::Value::Text(s) => text::iso_stamp(&Value::String(s.clone())),
+        rusqlite::types::Value::Integer(n) => text::iso_millis(*n),
+        rusqlite::types::Value::Real(n) => text::iso_millis(*n as i64),
+        _ => String::new(),
+    }
+}
+
+fn sql_epoch(val: &rusqlite::types::Value) -> Option<i64> {
+    match val {
+        rusqlite::types::Value::Text(s) => text::epoch_secs(&Value::String(s.clone())),
+        rusqlite::types::Value::Integer(n) => text::epoch_secs(&Value::Number((*n).into())),
+        rusqlite::types::Value::Real(n) => text::epoch_secs(&Value::from(*n)),
+        _ => None,
+    }
+}
+
+fn last_turn_type(events: &[crate::jsonl::JsonlRow]) -> String {
+    let mut last = String::new();
+    for ev in events {
+        let typ = text::field_str(&ev.value, "type");
+        if TURN_SIGNALS.contains(&typ.as_str()) {
+            last = typ;
+        }
+    }
+    last
+}
+
+fn model_from_events(events: &[crate::jsonl::JsonlRow]) -> String {
+    for row in events.iter().rev() {
+        let typ = text::field_str(&row.value, "type");
+        let data = row.value.get("data").cloned().unwrap_or(Value::Null);
+        if matches!(
+            typ.as_str(),
+            "assistant.message" | "tool.execution_start" | "session.shutdown"
+        ) {
+            let mid = text::field_str(&data, "model");
+            if !mid.is_empty() {
+                return mid;
+            }
+            let mid = text::field_str(&data, "currentModel");
+            if !mid.is_empty() {
+                return mid;
+            }
+        }
+    }
+    String::new()
+}
+
+fn version_from_events(events: &[crate::jsonl::JsonlRow]) -> String {
+    for row in events {
+        if text::field_str(&row.value, "type") != "session.start" {
+            continue;
+        }
+        let ver = text::field_str(
+            &row.value.get("data").cloned().unwrap_or(Value::Null),
+            "copilotVersion",
+        );
+        if !ver.is_empty() {
+            return ver;
+        }
+    }
+    String::new()
+}
+
+fn count_type(events: &[crate::jsonl::JsonlRow], want: &str) -> u32 {
+    events
+        .iter()
+        .filter(|row| text::field_str(&row.value, "type") == want)
+        .count() as u32
+}
+
+fn meta_from_row(
+    db: &Path,
+    row: &(
+        String,
+        String,
+        String,
+        rusqlite::types::Value,
+        rusqlite::types::Value,
+    ),
+    events: &[crate::jsonl::JsonlRow],
+) -> ListMeta {
+    let (sid, cwd, summary, created_raw, updated_raw) = row;
+    let created = sql_stamp(created_raw);
+    let mut updated = sql_stamp(updated_raw);
+    if updated.is_empty() {
+        updated = created.clone();
+    }
+    let kids = count_type(events, "subagent.started");
+    let model = model_from_events(events);
+    ListMeta {
+        session_id: sid.clone(),
+        locator: db.to_path_buf(),
+        model_id: if model.is_empty() {
+            "unknown".into()
+        } else {
+            model
+        },
+        title: summary.trim().to_string(),
+        created_at: created,
+        updated_at: updated,
+        duration_seconds: text::duration_secs(sql_epoch(created_raw), sql_epoch(updated_raw)),
+        tool_call_count: count_type(events, "tool.execution_start"),
+        turn_outcome: {
+            let mapped = ListStatus::from_token(&last_turn_type(events));
+            if mapped != ListStatus::Idle {
+                mapped.as_str().into()
+            } else {
+                String::new()
+            }
+        },
+        harness: "copilot".into(),
+        harness_version: version_from_events(events),
+        run_dir: cwd.trim().to_string(),
+        num_events: 0,
+        has_subagents: kids > 0,
+        subagent_count: kids,
+        context_tokens_used: None,
+    }
 }
 
 #[cfg(test)]
@@ -195,6 +354,17 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, format!("{line}\n")).unwrap();
         path
+    }
+
+    #[test]
+    fn list_meta_window_title_and_last_turn() {
+        let db = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/harness/copilot/session-store.db");
+        let meta =
+            crate::list_meta("copilot", &db, "aaaaaaaa-1111-4111-8111-000000000001").unwrap();
+        assert_eq!(meta.title, "Reply with COPILOT_PROBE_OK");
+        assert_eq!(meta.turn_outcome, "complete");
+        assert_eq!(meta.model_id, "gpt-5-mini");
     }
 
     #[test]

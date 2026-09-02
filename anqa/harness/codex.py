@@ -10,8 +10,7 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -137,191 +136,6 @@ def _subagent_item(row: JsonObject) -> JsonObject | None:
     return item
 
 
-def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
-    events: list[TraceEvent] = []
-    for i, row in enumerate(rows):
-        evs = _events_from_row(i, row)
-        events.extend(evs)
-    return events
-
-
-def _events_from_row(index: int, row: JsonObject) -> list[TraceEvent]:
-    typ = str(row.get("type") or "")
-    ts = Stamp.epoch(row.get("timestamp"))
-    pl = json_mapping(row.get("payload"))
-    if typ == "event_msg":
-        return _from_event_msg(index, ts, pl)
-    if typ == "response_item":
-        return _from_response_item(index, ts, pl)
-    return []
-
-
-def _from_event_msg(index: int, ts: int | None, pl: JsonObject) -> list[TraceEvent]:
-    kind = str(pl.get("type") or "")
-    if kind == "task_started":
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TURN_STARTED,
-                timestamp=ts,
-                content="",
-                update_index=index,
-            )
-        ]
-    if kind == "task_complete":
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TURN_COMPLETED,
-                timestamp=ts,
-                content="",
-                update_index=index,
-            )
-        ]
-    if kind == "turn_aborted":
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TURN_ENDED,
-                timestamp=ts,
-                content=str(pl.get("reason") or "").strip(),
-                update_index=index,
-            )
-        ]
-    item = json_mapping(pl.get("item")) if kind == "item_completed" else {}
-    if str(item.get("type") or "") == "SubAgentActivity":
-        ev = _from_subagent_item(index, ts, item)
-        return [ev] if ev is not None else []
-    return []
-
-
-def _from_subagent_item(index: int, ts: int | None, item: JsonObject) -> TraceEvent | None:
-    kind = str(item.get("kind") or "").strip()
-    child = str(item.get("agent_thread_id") or "").strip()
-    path = str(item.get("agent_path") or "").strip()
-    typ = path.rsplit("/", 1)[-1] if path else ""
-    if kind == "started":
-        return TraceEvent(
-            index=index,
-            event_type=et.SUBAGENT_SPAWNED,
-            timestamp=ts,
-            content=path or typ,
-            raw_input=ToolInputBag(
-                {
-                    "child_session_id": child,
-                    "subagent_id": child,
-                    "subagent_type": typ,
-                    "description": path,
-                }
-            ),
-            update_index=index,
-        )
-    if kind in {"completed", "interrupted"}:
-        return TraceEvent(
-            index=index,
-            event_type=et.SUBAGENT_FINISHED,
-            timestamp=ts,
-            content=path or typ,
-            raw_input=ToolInputBag(
-                {
-                    "child_session_id": child,
-                    "subagent_id": child,
-                    "status": "cancelled" if kind == "interrupted" else "completed",
-                }
-            ),
-            update_index=index,
-        )
-    return None
-
-
-def _from_response_item(index: int, ts: int | None, pl: JsonObject) -> list[TraceEvent]:
-    kind = str(pl.get("type") or "")
-    if kind == "message":
-        role = str(pl.get("role") or "")
-        if role == "user":
-            text = _blocks_text(pl.get("content"), kinds=frozenset({"input_text"}))
-            if _is_environment_context(text):
-                return []
-            return [
-                TraceEvent(
-                    index=index,
-                    event_type=et.USER_MESSAGE_CHUNK,
-                    timestamp=ts,
-                    content=text,
-                    update_index=index,
-                )
-            ]
-        if role == "assistant":
-            text = _blocks_text(pl.get("content"), kinds=frozenset({"output_text"}))
-            return [
-                TraceEvent(
-                    index=index,
-                    event_type=et.AGENT_MESSAGE_CHUNK,
-                    timestamp=ts,
-                    content=text,
-                    update_index=index,
-                )
-            ]
-        return []
-    if kind == "custom_tool_call":
-        name = str(pl.get("name") or "").strip()
-        raw = pl.get("input")
-        bag = json_mapping(raw)
-        if not bag and isinstance(raw, str) and raw.strip():
-            bag = as_json_object({"command": raw})
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TOOL_CALL,
-                timestamp=ts,
-                tool_name=name,
-                tool_call_id=str(pl.get("call_id") or pl.get("id") or ""),
-                raw_input=ToolInputBag(bag),
-                update_index=index,
-            )
-        ]
-    if kind == "custom_tool_call_output":
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TOOL_CALL_UPDATE,
-                timestamp=ts,
-                tool_call_id=str(pl.get("call_id") or pl.get("id") or ""),
-                content=_blocks_text(
-                    pl.get("output"), kinds=frozenset({"input_text", "output_text"})
-                ),
-                update_index=index,
-            )
-        ]
-    if kind == "function_call":
-        name = str(pl.get("name") or "").strip()
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TOOL_CALL,
-                timestamp=ts,
-                tool_name=name,
-                tool_call_id=str(pl.get("call_id") or pl.get("id") or ""),
-                raw_input=ToolInputBag(json_mapping(pl.get("arguments"))),
-                update_index=index,
-            )
-        ]
-    if kind == "function_call_output":
-        return [
-            TraceEvent(
-                index=index,
-                event_type=et.TOOL_CALL_UPDATE,
-                timestamp=ts,
-                tool_call_id=str(pl.get("call_id") or pl.get("id") or ""),
-                content=_blocks_text(
-                    pl.get("output"), kinds=frozenset({"input_text", "output_text"})
-                ),
-                update_index=index,
-            )
-        ]
-    return []
-
-
 def _meta_from_rows(rows: Sequence[JsonObject], path: Path, sid: str) -> SessionMeta:
     header = _meta_row(rows)
     sid = str(header.get("session_id") or header.get("id") or sid).strip() or sid
@@ -342,7 +156,7 @@ def _meta_from_rows(rows: Sequence[JsonObject], path: Path, sid: str) -> Session
         updated_at=last_ts or created,
         duration_seconds=duration,
         run_dir=str(header.get("cwd") or "").strip(),
-        num_events=len(_timeline_for(rows)),
+        num_events=0,
         tool_call_count=_count_tools(rows),
         turn_outcome=_turn_outcome(rows),
         harness=CODEX_HARNESS_ID,
@@ -459,15 +273,12 @@ class CodexAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .jsonl_list import JsonlFile
+        from ..core import list_meta
 
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"codex session not found: {sid}")
-        rows = JsonlFile(path).window()
-        if not rows:
-            raise FileNotFoundError(f"codex session not found: {sid}")
-        return _meta_from_rows(rows, path, sid)
+        return list_meta(self.id, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, sid = _jsonl_from_ref(ref, self.root())

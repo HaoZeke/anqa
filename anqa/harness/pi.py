@@ -9,8 +9,7 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from .. import event_types as et
-from ..models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -339,10 +338,12 @@ class PiAdapter:
         return _ref_for_file(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from ..core import list_meta
+
         path, sid = _jsonl_from_ref(ref, self.root())
         if not path.is_file():
             raise FileNotFoundError(f"pi session not found: {sid}")
-        return _list_meta(path, sid)
+        return list_meta(self.id, path, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         path, sid = _jsonl_from_ref(ref, self.root())
@@ -420,213 +421,3 @@ class PiAdapter:
 
         path, _sid = _jsonl_from_ref(ref, self.root())
         unlink_file(path, stop_at=self.root())
-
-
-def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
-    events: list[TraceEvent] = []
-    turn = 0
-    for row in rows:
-        if str(row.get("type") or "") != "message":
-            continue
-        msg = json_mapping(row.get("message"))
-        role = str(msg.get("role") or "")
-        ts = Stamp.epoch(row.get("timestamp") or msg.get("timestamp"))
-        if role == "user":
-            events.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.TURN_STARTED,
-                    timestamp=ts,
-                    content=f"turn_number={turn}",
-                )
-            )
-            events.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.USER_MESSAGE_CHUNK,
-                    timestamp=ts,
-                    content=_text_of(msg.get("content")),
-                )
-            )
-            turn += 1
-            continue
-        if role == "toolResult":
-            events.extend(_tool_result_events(msg, ts))
-            continue
-        if role == "assistant":
-            events.extend(_assistant_events(msg, ts))
-    for i, ev in enumerate(events):
-        ev.index = i
-    return events
-
-
-def _assistant_events(msg: JsonObject, ts: int | None) -> list[TraceEvent]:
-    out: list[TraceEvent] = []
-    content = msg.get("content")
-    blocks = content if isinstance(content, list) else []
-    for block in blocks:
-        if not isinstance(block, dict):
-            continue
-        kind = str(block.get("type") or "")
-        if kind == "thinking":
-            out.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.AGENT_THOUGHT_CHUNK,
-                    timestamp=ts,
-                    content=str(block.get("thinking") or block.get("text") or ""),
-                )
-            )
-        elif kind == "text":
-            out.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.AGENT_MESSAGE_CHUNK,
-                    timestamp=ts,
-                    content=str(block.get("text") or ""),
-                )
-            )
-        elif kind == "toolCall":
-            raw = block.get("arguments")
-            bag = ToolInputBag(raw if isinstance(raw, dict) else {})
-            name = str(block.get("name") or "tool").strip() or "tool"
-            call_id = str(block.get("id") or "")
-            out.append(
-                TraceEvent(
-                    index=0,
-                    event_type=et.TOOL_CALL,
-                    timestamp=ts,
-                    content=name,
-                    tool_name=name,
-                    tool_call_id=call_id,
-                    raw_input=bag,
-                )
-            )
-            if name == "subagent":
-                out.extend(_subagent_spawn_events(bag, call_id, ts))
-    return out
-
-
-def _subagent_spawn_events(bag: ToolInputBag, call_id: str, ts: int | None) -> list[TraceEvent]:
-    raw = bag.get("tasks")
-    tasks = raw if isinstance(raw, list) else []
-    out: list[TraceEvent] = []
-    for i, task in enumerate(tasks):
-        if not isinstance(task, dict):
-            continue
-        agent = str(task.get("agent") or "worker").strip() or "worker"
-        desc = str(task.get("task") or "").strip()
-        sid = f"{call_id}:{i}"
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.SUBAGENT_SPAWNED,
-                timestamp=ts,
-                content=f"spawned {agent}: {desc}".strip(),
-                raw_input=ToolInputBag(
-                    {
-                        "subagent_id": sid,
-                        "subagent_type": agent,
-                        "description": desc[:320],
-                    }
-                ),
-            )
-        )
-    return out
-
-
-def _last_assistant_text(messages: object) -> str:
-    if not isinstance(messages, list):
-        return ""
-    text = ""
-    for item in messages:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("role") or "") != "assistant":
-            continue
-        body = _text_of(item.get("content")).strip()
-        if body:
-            text = body
-    return text
-
-
-def _subagent_finish_events(msg: JsonObject, ts: int | None) -> list[TraceEvent]:
-    call_id = str(msg.get("toolCallId") or "")
-    details = json_mapping(msg.get("details"))
-    results: list[JsonObject] = []
-    raw = details.get("results")
-    if isinstance(raw, list):
-        results = [json_mapping(item) for item in raw if isinstance(item, dict)]
-    if not results:
-        return [
-            TraceEvent(
-                index=0,
-                event_type=et.SUBAGENT_FINISHED,
-                timestamp=ts,
-                content=_text_of(msg.get("content"))[:400],
-                tool_name="subagent",
-                tool_call_id=call_id,
-                is_error=bool(msg.get("isError")),
-                raw_input=ToolInputBag(
-                    {
-                        "subagent_id": f"{call_id}:0",
-                        "subagent_type": "worker",
-                        "status": "failed" if msg.get("isError") else "completed",
-                        "output": _text_of(msg.get("content")),
-                    }
-                ),
-            )
-        ]
-    out: list[TraceEvent] = []
-    for i, item in enumerate(results):
-        agent = str(item.get("agent") or "worker").strip() or "worker"
-        text = _last_assistant_text(item.get("messages")) or _text_of(item.get("task"))
-        code = item.get("exitCode")
-        failed = isinstance(code, int) and code != 0
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.SUBAGENT_FINISHED,
-                timestamp=ts,
-                content=text[:400],
-                tool_name="subagent",
-                tool_call_id=call_id,
-                is_error=failed,
-                raw_input=ToolInputBag(
-                    {
-                        "subagent_id": f"{call_id}:{i}",
-                        "subagent_type": agent,
-                        "status": "failed" if failed else "completed",
-                        "output": text,
-                    }
-                ),
-            )
-        )
-    return out
-
-
-def _tool_result_events(msg: JsonObject, ts: int | None) -> list[TraceEvent]:
-    name = str(msg.get("toolName") or "tool").strip() or "tool"
-    if name == "subagent":
-        return _subagent_finish_events(msg, ts)
-    return [_tool_result_event(msg, ts)]
-
-
-def _tool_result_event(msg: JsonObject, ts: int | None) -> TraceEvent:
-    name = str(msg.get("toolName") or "tool").strip() or "tool"
-    return TraceEvent(
-        index=0,
-        event_type=et.TOOL_CALL_UPDATE,
-        timestamp=ts,
-        content=_text_of(msg.get("content")),
-        tool_name=name,
-        tool_call_id=str(msg.get("toolCallId") or ""),
-        is_error=bool(msg.get("isError")),
-    )
-
-
-__all__ = [
-    "PI_HARNESS_ID",
-    "PiAdapter",
-    "default_sessions_root",
-]

@@ -1,6 +1,6 @@
 //! Gemini CLI jsonl conversation.
 
-use crate::event::{Event, EventType, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
 use crate::jsonl;
 use crate::store::Store;
 use crate::text;
@@ -315,6 +315,235 @@ impl Store for Gemini {
         let messages: Vec<Value> = records.iter().map(|r| r.value.clone()).collect();
         timeline_of(&messages)
     }
+
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_file() {
+            return Err(format!("gemini session not found: {session_id}"));
+        }
+        let (meta, messages) = conversation_window(locator);
+        let sid = {
+            let id = text::field_str(&meta, "sessionId");
+            if id.is_empty() {
+                session_id.to_string()
+            } else {
+                id
+            }
+        };
+        if sid.is_empty() {
+            return Err(format!("gemini session not found: {session_id}"));
+        }
+        Ok(meta_from_conversation(&meta, &messages, locator, &sid))
+    }
+}
+
+fn conversation_window(path: &Path) -> (Value, Vec<Value>) {
+    let mut metadata = Map::new();
+    let mut messages: HashMap<String, Value> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for row in jsonl::window(path) {
+        let val = &row.value;
+        if !text::field_str(val, "sessionId").is_empty() && val.get("$set").is_none() {
+            if let Some(obj) = val.as_object() {
+                for (k, v) in obj {
+                    if k != "messages" {
+                        metadata.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        if let Some(patch) = val.get("$set").and_then(|v| v.as_object()) {
+            if let Some(raw) = patch.get("messages").and_then(|v| v.as_array()) {
+                messages.clear();
+                order.clear();
+                for item in raw {
+                    let id = text::field_str(item, "id");
+                    if id.is_empty() {
+                        continue;
+                    }
+                    if !messages.contains_key(&id) {
+                        order.push(id.clone());
+                    }
+                    messages.insert(id, item.clone());
+                }
+            }
+            for (k, v) in patch {
+                if k != "messages" {
+                    metadata.insert(k.clone(), v.clone());
+                }
+            }
+            continue;
+        }
+        let typ = text::field_str(val, "type");
+        let mid = text::field_str(val, "id");
+        if typ == "message_update" && !mid.is_empty() {
+            if let Some(existing) = messages.get_mut(&mid) {
+                if let (Some(a), Some(b)) = (existing.as_object_mut(), val.as_object()) {
+                    let kept = text::field_str(&Value::Object(a.clone()), "type");
+                    for (k, v) in b {
+                        a.insert(k.clone(), v.clone());
+                    }
+                    if !kept.is_empty() {
+                        a.insert("type".into(), Value::String(kept));
+                    }
+                }
+            }
+            continue;
+        }
+        if !mid.is_empty() && matches!(typ.as_str(), "user" | "gemini" | "error") {
+            if !messages.contains_key(&mid) {
+                order.push(mid.clone());
+            }
+            messages.insert(mid, val.clone());
+        }
+    }
+    let list = order
+        .iter()
+        .filter_map(|id| messages.get(id).cloned())
+        .collect();
+    (Value::Object(metadata), list)
+}
+
+fn project_root_cwd(path: &Path) -> String {
+    for folder in [path.parent(), path.parent().and_then(|p| p.parent())]
+        .into_iter()
+        .flatten()
+    {
+        let marker = folder.join(".project_root");
+        if let Ok(text) = std::fs::read_to_string(marker) {
+            if let Some(line) = text.lines().next() {
+                let cwd = line.trim();
+                if !cwd.is_empty() {
+                    return cwd.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+fn first_user_title(messages: &[Value], summary: &str) -> String {
+    let summary = summary.trim();
+    if !summary.is_empty() {
+        return text::first_line(summary, 80);
+    }
+    for msg in messages {
+        if text::field_str(msg, "type") != "user" {
+            continue;
+        }
+        let body = text::text_of(msg.get("content").unwrap_or(&Value::Null));
+        if body.trim().is_empty() || is_chrome(&body) {
+            continue;
+        }
+        let text_body = user_query_body(&body);
+        if !text_body.is_empty() {
+            return text::first_line(&text_body, 80);
+        }
+    }
+    String::new()
+}
+
+fn user_query_body(text_in: &str) -> String {
+    if let Some(start) = text_in.find("<user_query>") {
+        if let Some(end) = text_in[start..].find("</user_query>") {
+            return text_in[start + 12..start + end].trim().to_string();
+        }
+    }
+    text_in.trim().to_string()
+}
+
+fn turn_outcome(messages: &[Value]) -> String {
+    let mut last: Option<&Value> = None;
+    for msg in messages {
+        let typ = text::field_str(msg, "type");
+        if matches!(typ.as_str(), "user" | "gemini" | "error") {
+            last = Some(msg);
+        }
+    }
+    let Some(last) = last else {
+        return String::new();
+    };
+    let typ = text::field_str(last, "type");
+    if typ == "user" {
+        return ListStatus::Idle.as_str().into();
+    }
+    if typ == "error" {
+        return ListStatus::Cancelled.as_str().into();
+    }
+    if let Some(tools) = last.get("toolCalls").and_then(|v| v.as_array()) {
+        for item in tools {
+            let mapped = ListStatus::from_token(&text::field_str(item, "status"));
+            if mapped == ListStatus::Running {
+                return mapped.as_str().into();
+            }
+        }
+    }
+    ListStatus::Complete.as_str().into()
+}
+
+fn meta_from_conversation(meta: &Value, messages: &[Value], path: &Path, sid: &str) -> ListMeta {
+    let mut created = text::field_iso(meta, "startTime");
+    let mut updated = text::field_iso(meta, "lastUpdated");
+    if updated.is_empty() {
+        updated = created.clone();
+    }
+    if let Some(last) = messages.last() {
+        let ts = text::field_iso(last, "timestamp");
+        if !ts.is_empty() {
+            updated = ts;
+        }
+    }
+    if created.is_empty() {
+        if let Some(first) = messages.first() {
+            created = text::field_iso(first, "timestamp");
+        }
+    }
+    let mut model = String::new();
+    let mut tools = 0u32;
+    for msg in messages {
+        if text::field_str(msg, "type") != "gemini" {
+            continue;
+        }
+        if model.is_empty() {
+            model = text::field_str(msg, "model");
+        }
+        if let Some(calls) = msg.get("toolCalls").and_then(|v| v.as_array()) {
+            tools += calls.len() as u32;
+        }
+    }
+    let mut cwd = String::new();
+    if let Some(dirs) = meta.get("directories").and_then(|v| v.as_array()) {
+        if let Some(first) = dirs.first() {
+            cwd = text::as_str(first);
+        }
+    }
+    if cwd.is_empty() {
+        cwd = project_root_cwd(path);
+    }
+    ListMeta {
+        session_id: sid.to_string(),
+        locator: path.to_path_buf(),
+        model_id: if model.is_empty() {
+            "unknown".into()
+        } else {
+            model
+        },
+        title: first_user_title(messages, &text::field_str(meta, "summary")),
+        created_at: created.clone(),
+        updated_at: updated.clone(),
+        duration_seconds: text::duration_secs(
+            text::epoch_secs(&Value::String(created)),
+            text::epoch_secs(&Value::String(updated)),
+        ),
+        tool_call_count: tools,
+        turn_outcome: turn_outcome(messages),
+        harness: "gemini".into(),
+        harness_version: String::new(),
+        run_dir: cwd,
+        num_events: 0,
+        has_subagents: false,
+        subagent_count: 0,
+        context_tokens_used: None,
+    }
 }
 
 #[cfg(test)]
@@ -331,6 +560,19 @@ mod tests {
             .filter(|ev| ev.event_type == EventType::UserMessageChunk)
             .map(|ev| ev.content.as_str())
             .collect()
+    }
+
+    #[test]
+    fn list_meta_window_title_and_last_turn() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../tests/fixtures/harness/gemini/tmp/probe-ws/chats/session-2026-08-09T12-00-aaaaaaaa.jsonl",
+        );
+        let meta = Gemini
+            .list_meta(&path, "aaaaaaaa-1111-4111-8111-000000000001")
+            .unwrap();
+        assert_eq!(meta.title, "Reply with GEMINI_PROBE_OK");
+        assert_eq!(meta.turn_outcome, "complete");
+        assert_eq!(meta.model_id, "gemini-2.5-pro");
     }
 
     #[test]

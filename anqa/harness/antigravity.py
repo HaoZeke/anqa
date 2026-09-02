@@ -14,8 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .. import event_types as et
-from ..models import JsonObject, ListStatus, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..models import JsonObject, ListStatus, SessionMeta, TraceEvent
 from ..stamp import Stamp
 from .ref import SessionRef
 from .status import from_last
@@ -278,134 +277,6 @@ def _meta_for(root: Path, db: Path, session_id: str) -> SessionMeta:
     )
 
 
-def _timeline_for(rows: Sequence[JsonObject]) -> list[TraceEvent]:
-    events: list[TraceEvent] = []
-    turn = 0
-    last_tool = ""
-    for row in rows:
-        typ = str(row.get("type") or "")
-        ts = Stamp.epoch(row.get("created_at"))
-        if typ == "USER_INPUT":
-            events.extend(_user_events(row, ts, turn))
-            if _tag_body(str(row.get("content") or ""), _USER_REQUEST):
-                turn += 1
-            continue
-        if typ == "PLANNER_RESPONSE":
-            more, last_tool = _planner_events(row, ts, last_tool)
-            events.extend(more)
-            continue
-        if typ == "GENERIC":
-            events.append(_generic_event(row, ts, last_tool))
-            continue
-        if typ == "SYSTEM_MESSAGE":
-            text = str(row.get("content") or "")
-            if text.strip():
-                events.append(
-                    TraceEvent(
-                        index=0,
-                        event_type=et.SYSTEM,
-                        timestamp=ts,
-                        content=text,
-                    )
-                )
-    for i, ev in enumerate(events):
-        ev.index = i
-    return events
-
-
-def _user_events(row: JsonObject, ts: int | None, turn: int) -> list[TraceEvent]:
-    raw = str(row.get("content") or "")
-    request = _tag_body(raw, _USER_REQUEST)
-    out: list[TraceEvent] = []
-    if request:
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.TURN_STARTED,
-                timestamp=ts,
-                content=f"turn_number={turn}",
-            )
-        )
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.USER_MESSAGE_CHUNK,
-                timestamp=ts,
-                content=request,
-            )
-        )
-    plan = _tag_body(raw, _USER_PLAN)
-    if plan:
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.PLAN,
-                timestamp=ts,
-                content=plan,
-            )
-        )
-    return out
-
-
-def _planner_events(
-    row: JsonObject, ts: int | None, last_tool: str
-) -> tuple[list[TraceEvent], str]:
-    out: list[TraceEvent] = []
-    thinking = row.get("thinking")
-    if isinstance(thinking, str) and thinking.strip():
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.AGENT_THOUGHT_CHUNK,
-                timestamp=ts,
-                content=thinking,
-            )
-        )
-    text = row.get("content")
-    if isinstance(text, str) and text.strip():
-        out.append(
-            TraceEvent(
-                index=0,
-                event_type=et.AGENT_MESSAGE_CHUNK,
-                timestamp=ts,
-                content=text,
-            )
-        )
-    calls = row.get("tool_calls")
-    if isinstance(calls, list):
-        for item in calls:
-            if not isinstance(item, dict):
-                continue
-            ev = _tool_call_event(as_json_object(item), ts)
-            out.append(ev)
-            last_tool = ev.tool_name or last_tool
-    return out, last_tool
-
-
-def _tool_call_event(call: JsonObject, ts: int | None) -> TraceEvent:
-    name = str(call.get("name") or "tool").strip() or "tool"
-    raw = call.get("args")
-    bag = ToolInputBag(raw if isinstance(raw, dict) else {})
-    return TraceEvent(
-        index=0,
-        event_type=et.TOOL_CALL,
-        timestamp=ts,
-        content=name,
-        tool_name=name,
-        raw_input=bag,
-    )
-
-
-def _generic_event(row: JsonObject, ts: int | None, last_tool: str) -> TraceEvent:
-    return TraceEvent(
-        index=0,
-        event_type=et.TOOL_CALL_UPDATE,
-        timestamp=ts,
-        content=str(row.get("content") or ""),
-        tool_name=last_tool or "tool",
-    )
-
-
 class AntigravityAdapter:
     """Read-only Antigravity conversation adapter."""
 
@@ -480,11 +351,12 @@ class AntigravityAdapter:
         )
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from ..core import list_meta
+
         db, sid = _paths_from_ref(ref, self.root())
         if not db.is_file():
             raise FileNotFoundError(f"antigravity session not found: {sid}")
-        root = self._store_root_for(db)
-        return _meta_for(root, db, sid)
+        return list_meta(self.id, db, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         db, sid = _paths_from_ref(ref, self.root())
