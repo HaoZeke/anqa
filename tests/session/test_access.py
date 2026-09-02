@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from anqa.session.access import (
     LocalSessionAccess,
+    RemoteSessionAccess,
     catalog_list_next_offset,
     filter_session_catalog,
 )
@@ -191,3 +192,35 @@ def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
 
     got = access.session_overview(session.name)
     assert got.get("sessionId") == session.name or "path" in got
+
+
+@pytest.mark.asyncio
+async def test_remote_access_session_diff_forwards() -> None:
+    """Attached terminal client loads Diff through session/diff."""
+
+    class _Client:
+        async def session_diff(self, session: str) -> dict[str, object]:
+            return {
+                "sessionId": session,
+                "source": "rewind_points",
+                "points": [
+                    {
+                        "key": "1",
+                        "source": "rewind_points",
+                        "files": [
+                            {
+                                "path": "app.py",
+                                "kind": "edit",
+                                "added": 1,
+                                "removed": 0,
+                                "unified": "+x\n",
+                            }
+                        ],
+                    }
+                ],
+            }
+
+    access = RemoteSessionAccess(_Client())  # type: ignore[arg-type]
+    body = await access.session_diff("grok:sess")
+    assert body["source"] == "rewind_points"
+    assert body["points"][0]["files"][0]["path"] == "app.py"

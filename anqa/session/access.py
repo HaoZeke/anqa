@@ -403,6 +403,15 @@ class RemoteSessionAccess:
             content_chars=content_chars,
         )
 
+    async def session_turns(self, session: str, query: str = "") -> JsonObject:
+        return await self._client.session_turns(session, query=query)
+
+    async def session_diff(self, session: str) -> JsonObject:
+        return await self._client.session_diff(session)
+
+    async def notes_list(self, session: str) -> JsonObject:
+        return await self._client.notes_list(session)
+
     async def notes_upsert(
         self,
         session: str,

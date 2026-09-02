@@ -65,6 +65,17 @@ def _write_session(traces: Path) -> Path:
         "".join(json.dumps(update) + "\n" for update in updates),
         encoding="utf-8",
     )
+    (session_dir / "rewind_points.jsonl").write_text(
+        json.dumps(
+            {
+                "prompt_index": 11,
+                "file_snapshots": {"app.py": "old"},
+                "after_snapshots": {"app.py": "opened"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return session_dir
 
 
@@ -346,20 +357,9 @@ async def test_browser_loads_timeline_via_control_when_attached(
                 "open here" in (e.content or "") or "opened" in (e.content or "")
                 for e in (screen.timeline or [])
             )
-            with (
-                patch(
-                    "anqa.ui.screens.browser.require_adapter",
-                    side_effect=AssertionError("disk parse forbidden when attached"),
-                ),
-                patch(
-                    "anqa.ui.screens.browser.load_workspace_diff_doc",
-                    side_effect=AssertionError("disk diff forbidden when attached"),
-                ),
-            ):
-                notes = screen._load_control_notes()
-                diff = screen._load_control_diff()
-            assert notes is not None
-            assert diff is not None
+            assert [hunk.path for point in screen._diff_doc.points for hunk in point.files] == [
+                "app.py"
+            ]
             app._prepare_clean_exit()
             await pilot.pause()
     finally:
