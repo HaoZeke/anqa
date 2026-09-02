@@ -239,18 +239,30 @@ def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
 def test_list_meta_without_event_count_does_not_parse_timeline(tmp_path: Path, monkeypatch) -> None:
     """Catalog list-meta must not walk updates.jsonl for a count."""
     import anqa.harness.grok_parse as parse_mod
-    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = _write_summary_session(tmp_path)
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
 
-    def boom(*_a: object, **_k: object) -> list[object]:
-        raise AssertionError("list-meta must not parse the timeline")
+    def boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("list-meta must not use the Python ingest")
 
     monkeypatch.setattr(parse_mod, "parse_timeline", boom)
-    meta = load_session_meta_list(sd)
+    monkeypatch.setattr(parse_mod, "load_session_meta_list", boom)
+    meta = GrokAdapter().load_meta(sd)
     assert meta.title == "t"
+    assert meta.harness == "grok"
     assert meta.num_events == 0
+
+
+def test_parse_timeline_does_not_use_python_ingest(monkeypatch) -> None:
+    import anqa.harness.grok_parse as parse_mod
+
+    def boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("adapter timeline must use anqa.core")
+
+    monkeypatch.setattr(parse_mod, "parse_timeline", boom)
+    events = GrokAdapter().parse_timeline(_MINIMAL)
+    assert events
 
 
 def test_ref_for_id_does_not_discover_every_session(tmp_path: Path, monkeypatch) -> None:

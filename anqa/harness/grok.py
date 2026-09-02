@@ -17,8 +17,7 @@ from pathlib import Path
 from ..fs_watch import TRACE_FILE_HINTS
 from ..models import JsonObject, SessionMeta, TraceEvent, json_as_str
 from ..session.sources import collect_host_session_dirs
-from .grok_parse import _looks_like_session_dir, find_sessions, load_session_meta_list
-from .grok_parse import parse_timeline as parse_grok_timeline
+from .grok_parse import _looks_like_session_dir, find_sessions
 from .grok_paths import default_sessions_root
 from .ref import SessionRef
 
@@ -136,26 +135,25 @@ def looks_like(ref: Path | str) -> bool:
 def load_meta(ref: Path | str) -> SessionMeta:
     """Load list-grade metadata for a Grok session directory.
 
-    Wraps :func:`anqa.harness.grok_parse.load_session_meta_list`.
-
     :param ref: Session directory path.
     :returns: Populated :class:`~anqa.models.SessionMeta`.
     """
+    from ..core import list_meta
+
     path = Path(ref).expanduser()
-    meta = load_session_meta_list(path)
-    meta.harness = GROK_HARNESS_ID
-    return meta
+    return list_meta(GROK_HARNESS_ID, path, path.name)
 
 
 def parse_timeline(ref: Path | str) -> list[TraceEvent]:
     """Parse a Grok session directory into a linear timeline.
 
-    Wraps :func:`anqa.harness.grok_parse.parse_timeline`.
-
     :param ref: Session directory path.
     :returns: Coalesced :class:`~anqa.models.TraceEvent` rows.
     """
-    return parse_grok_timeline(Path(ref).expanduser())
+    from ..core import timeline_events
+
+    path = Path(ref).expanduser()
+    return timeline_events(GROK_HARNESS_ID, path, path.name)
 
 
 def watch_hints() -> tuple[str, ...]:
@@ -193,15 +191,17 @@ class GrokAdapter:
         return _ref_for_dir(path)
 
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
-        if isinstance(ref, SessionRef):
-            return load_meta(ref.locator)
-        return load_meta(ref)
+        from ..core import list_meta
+
+        loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        sid = ref.session_id if isinstance(ref, SessionRef) else loc.name
+        return list_meta(self.id, loc, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         from ..core import timeline_events
 
         loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
-        sid = ref.session_id if isinstance(ref, SessionRef) else Path(loc).name
+        sid = ref.session_id if isinstance(ref, SessionRef) else loc.name
         return timeline_events(self.id, loc, sid)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
@@ -224,14 +224,14 @@ class GrokAdapter:
         return open_directory_archive(src, dest_root)
 
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
-        from .grok_parse import load_session_meta
-
-        return load_session_meta(SessionRef.path(ref))
+        return self.load_meta(ref)
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
-        from .grok_parse import session_timeline_stamp
+        from ..core import store_stamp
 
-        return session_timeline_stamp(SessionRef.path(ref))
+        loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        sid = ref.session_id if isinstance(ref, SessionRef) else loc.name
+        return store_stamp(self.id, loc, sid)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         from .grok_parse import session_trace_mtime
@@ -248,9 +248,10 @@ class GrokAdapter:
         return block if isinstance(block, dict) else None
 
     def list_turn_outcome(self, ref: SessionRef | Path | str) -> str:
-        from .grok_parse import list_turn_outcome_for_dir
-
-        return list_turn_outcome_for_dir(SessionRef.path(ref))
+        try:
+            return (self.load_meta(ref).turn_outcome or "").strip()
+        except FileNotFoundError:
+            return ""
 
     def delete_session(self, ref: SessionRef | Path | str) -> None:
         from ..session.delete import prune_empty_parents_after_session_delete, rmtree_robust

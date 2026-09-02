@@ -132,6 +132,25 @@ def test_adapter_for_path_returns_matching_adapter(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("hid", sorted(HARNESS_IDS))
+def test_adapter_survives_python_ingest_boom(hid: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catalog list and timeline come from anqa.core, not leftover Python mappers."""
+    import anqa.harness.grok_parse as grok_parse
+
+    def boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("product path must not call leftover Python ingest")
+
+    item, ref = _bind(hid)
+    monkeypatch.setattr(grok_parse, "parse_timeline", boom)
+    monkeypatch.setattr(grok_parse, "load_session_meta_list", boom)
+    monkeypatch.setattr("anqa.json_lines.json_lines", boom)
+    meta = item.load_meta(ref)
+    assert meta.harness == hid
+    assert meta.title == _SURFACE[hid]["title"]
+    events = item.parse_timeline(ref)
+    assert events
+
+
+@pytest.mark.parametrize("hid", sorted(HARNESS_IDS))
 def test_session_surfaces_on_committed_fixture(hid: str, tmp_path: Path) -> None:
     want = _SURFACE[hid]
     item, ref = _bind(hid)

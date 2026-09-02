@@ -9,10 +9,9 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent
 from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 PI_HARNESS_ID = "pi"
 
@@ -20,22 +19,6 @@ PI_HARNESS_ID = "pi"
 def default_sessions_root() -> Path:
     """Host Pi sessions tree (resolved at call time)."""
     return Path.home() / ".pi" / "agent" / "sessions"
-
-
-def _text_of(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        bits: list[str] = []
-        for item in content:
-            if isinstance(item, str) and item.strip():
-                bits.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text")
-                if text:
-                    bits.append(str(text))
-        return "\n".join(bits)
-    return ""
 
 
 def _header(path: Path) -> JsonObject | None:
@@ -137,159 +120,6 @@ def _ref_for_file(path: Path) -> SessionRef | None:
         session_id=sid,
         locator=loc,
         cwd=cwd,
-    )
-
-
-def _model_from_rows(rows: Sequence[JsonObject]) -> str:
-    provider = ""
-    model = ""
-    for row in rows:
-        if str(row.get("type") or "") != "model_change":
-            continue
-        provider = str(row.get("provider") or provider).strip()
-        model = str(row.get("modelId") or model).strip()
-    if provider and model:
-        return f"{provider}/{model}"
-    return model or provider or "unknown"
-
-
-def _first_user_title(rows: Sequence[JsonObject]) -> str:
-    for row in rows:
-        if str(row.get("type") or "") != "message":
-            continue
-        msg = json_mapping(row.get("message"))
-        if str(msg.get("role") or "") != "user":
-            continue
-        text = _text_of(msg.get("content")).strip()
-        if text:
-            return text.splitlines()[0][:80]
-    return ""
-
-
-def _turn_outcome(rows: Sequence[JsonObject]) -> str:
-    """List status from the last message. Finished assistants carry stopReason."""
-    last: JsonObject | None = None
-    for row in rows:
-        if str(row.get("type") or "") == "message":
-            last = row
-    if last is None:
-        return ""
-    msg = json_mapping(last.get("message"))
-    role = str(msg.get("role") or "")
-    if role == "toolResult":
-        return from_last("running")
-    if role == "user":
-        return from_last(role)
-    if role != "assistant":
-        return from_last(role)
-    stop = str(msg.get("stopReason") or "").strip()
-    if stop.casefold().replace("_", "") == "tooluse":
-        return from_last("running")
-    return from_last(stop)
-
-
-def _list_meta(path: Path, session_id: str) -> SessionMeta:
-    """Header + tail only. Catalog must not read the full jsonl."""
-    from .jsonl_list import JsonlFile
-    from .status import from_last
-
-    transcript = JsonlFile(path)
-    header = transcript.first_object() or {}
-    sid = str(header.get("id") or session_id or _session_id_from_name(path)).strip()
-    created = Stamp.iso(header.get("timestamp"))
-    cwd = str(header.get("cwd") or "").strip()
-    version = str(header.get("version") or "").strip()
-    title = ""
-    model = ""
-    outcome = ""
-    tools = 0
-    sub_n = 0
-    if str(header.get("type") or "") == "message":
-        msg = json_mapping(header.get("message"))
-        if str(msg.get("role") or "") == "user":
-            title = _text_of(msg.get("content")).splitlines()[0][:80]
-    for row in transcript.last_objects():
-        if str(row.get("type") or "") == "model_change":
-            mid = str(row.get("modelId") or "").strip()
-            if mid:
-                prov = str(row.get("provider") or "").strip()
-                model = f"{prov}/{mid}" if prov else mid
-        if str(row.get("type") or "") != "message":
-            continue
-        msg = json_mapping(row.get("message"))
-        role = str(msg.get("role") or "")
-        if role == "user":
-            if not title:
-                title = _text_of(msg.get("content")).splitlines()[0][:80]
-            outcome = from_last("user")
-        if role == "assistant":
-            stop = str(msg.get("stopReason") or "").strip()
-            if stop.casefold().replace("_", "") == "tooluse":
-                outcome = from_last("running")
-            elif stop:
-                outcome = from_last(stop)
-            content = msg.get("content")
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and str(block.get("type") or "") == "toolCall":
-                        tools += 1
-                        if str(block.get("name") or "") == "subagent":
-                            tasks = block.get("arguments")
-                            bag = json_mapping(tasks) if isinstance(tasks, dict) else {}
-                            raw = bag.get("tasks")
-                            if isinstance(raw, list):
-                                sub_n += len(raw)
-        if role == "toolResult":
-            outcome = from_last("running")
-    return transcript.list_meta(
-        session_id=sid,
-        harness=PI_HARNESS_ID,
-        title=title,
-        model_id=model,
-        created_at=created,
-        turn_outcome=outcome,
-        tool_call_count=tools,
-        harness_version=version,
-        run_dir=cwd,
-        has_subagents=sub_n > 0,
-        subagent_count=sub_n,
-    )
-
-
-def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> SessionMeta:
-    header = next((r for r in rows if str(r.get("type") or "") == "session"), {})
-    sid = str(header.get("id") or session_id or _session_id_from_name(path)).strip()
-    created = Stamp.iso(header.get("timestamp"))
-    last_ts = created
-    tools = 0
-    for row in rows:
-        ts = Stamp.iso(row.get("timestamp"))
-        if ts:
-            last_ts = ts
-        msg = json_mapping(row.get("message")) if str(row.get("type") or "") == "message" else {}
-        content = msg.get("content")
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and str(block.get("type") or "") == "toolCall":
-                    tools += 1
-    start = Stamp.epoch(header.get("timestamp"))
-    end = Stamp.epoch(last_ts)
-    duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
-    cwd = str(header.get("cwd") or "").strip()
-    version = str(header.get("version") or "").strip()
-    return SessionMeta(
-        session_id=sid,
-        session_dir=path,
-        model_id=_model_from_rows(rows),
-        title=_first_user_title(rows),
-        created_at=created,
-        updated_at=last_ts,
-        duration_seconds=duration,
-        tool_call_count=tools,
-        run_dir=cwd,
-        turn_outcome=_turn_outcome(rows),
-        harness=PI_HARNESS_ID,
-        harness_version=version,
     )
 
 

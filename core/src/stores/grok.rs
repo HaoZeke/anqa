@@ -1,6 +1,6 @@
 //! Grok session directory (`updates.jsonl` + `events.jsonl`).
 
-use crate::event::{Event, EventType, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, ListStatus, SessionLocator};
 use crate::jsonl;
 use crate::scan::keep_updates_line;
 use crate::store::Store;
@@ -251,7 +251,7 @@ fn map_events_row(row: &crate::store::Record, events: &mut Vec<Event>) {
             events.push(ev);
         }
         EventType::TurnEnded => {
-            let outcome = text::field_str(&row.value, "outcome");
+            let outcome = turn_end_outcome(&row.value);
             let mut ev = Event::new(EventType::TurnEnded)
                 .with_ts(ts)
                 .with_content(format!("turn ended  outcome={outcome}"))
@@ -399,6 +399,13 @@ impl Store for Grok {
         events
     }
 
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_dir() {
+            return Err(format!("grok session not found: {session_id}"));
+        }
+        Ok(list_meta_of(locator, session_id))
+    }
+
     fn stamp(&self, locator: &Path, session_id: &str) -> crate::event::FileStamp {
         let _ = session_id;
         jsonl::pair_stamp(
@@ -406,6 +413,246 @@ impl Store for Grok {
             &locator.join("events.jsonl"),
         )
     }
+}
+
+fn read_json(path: &Path) -> Value {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(Value::Null)
+}
+
+fn one_line(raw: &str) -> String {
+    text::first_line(&raw.split_whitespace().collect::<Vec<_>>().join(" "), 80)
+}
+
+fn apply_summary(meta: &mut ListMeta, dir: &Path) {
+    let data = read_json(&dir.join("summary.json"));
+    if data.is_null() {
+        return;
+    }
+    let model = text::field_str(&data, "current_model_id");
+    if !model.is_empty() {
+        meta.model_id = model;
+    }
+    let title = text::field_str(&data, "generated_title");
+    let title = if title.is_empty() {
+        text::field_str(&data, "session_summary")
+    } else {
+        title
+    };
+    if !title.is_empty() && !title.trim_start().starts_with('<') {
+        meta.title = one_line(&title);
+    }
+    meta.created_at = text::field_str(&data, "created_at");
+    meta.updated_at = text::field_str(&data, "updated_at");
+    if let Some(n) = text::field_i64(&data, "num_messages") {
+        meta.num_events = n.max(0) as u32;
+    }
+}
+
+fn apply_goal_title(meta: &mut ListMeta, dir: &Path) {
+    if !meta.title.is_empty() {
+        return;
+    }
+    let data = read_json(&dir.join("goal").join("state.json"));
+    let objective = text::field_str(&data, "objective");
+    if !objective.is_empty() {
+        meta.title = one_line(&objective);
+    }
+}
+
+fn apply_signals(meta: &mut ListMeta, dir: &Path) {
+    let sig = read_json(&dir.join("signals.json"));
+    if sig.is_null() {
+        return;
+    }
+    if let Some(n) = text::field_i64(&sig, "toolCallCount") {
+        meta.tool_call_count = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "sessionDurationSeconds") {
+        meta.duration_seconds = n.max(0) as f64;
+    }
+    let mid = text::field_str(&sig, "primaryModelId");
+    let mid = if mid.is_empty() {
+        sig.get("modelsUsed")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .map(text::as_str)
+            .unwrap_or_default()
+    } else {
+        mid
+    };
+    if !mid.is_empty()
+        && (meta.model_id.is_empty()
+            || matches!(meta.model_id.as_str(), "unknown" | "v9" | "grok-build"))
+    {
+        meta.model_id = mid;
+    }
+    if let Some(n) = text::field_i64(&sig, "contextTokensUsed") {
+        meta.context_tokens_used = Some(n.max(0));
+    }
+}
+
+fn apply_run(meta: &mut ListMeta, dir: &Path) {
+    let run = read_json(&dir.join("run.json"));
+    if run.is_null() {
+        return;
+    }
+    let mid = text::field_str(&run, "model");
+    if !mid.is_empty()
+        && (meta.model_id.is_empty()
+            || matches!(meta.model_id.as_str(), "unknown" | "v9" | "grok-build"))
+    {
+        meta.model_id = mid;
+    }
+}
+
+const LIST_TURN_UPDATES: &[&str] = &[
+    "turn_completed",
+    "session_recap",
+    "turn_ended",
+    "turn_started",
+    "user_message_chunk",
+    "agent_message_chunk",
+    "tool_call",
+    "tool_call_update",
+    "plan",
+];
+
+const OPEN_TURN_UPDATES: &[&str] = &[
+    "agent_message_chunk",
+    "tool_call",
+    "tool_call_update",
+    "plan",
+];
+
+fn updates_tail_types(dir: &Path) -> Vec<String> {
+    jsonl::window(&dir.join("updates.jsonl"))
+        .into_iter()
+        .filter_map(|row| {
+            let update = row.value.pointer("/params/update")?;
+            let kind = text::field_str(update, "sessionUpdate");
+            if kind.is_empty() {
+                None
+            } else {
+                Some(kind)
+            }
+        })
+        .collect()
+}
+
+fn outcome_from_update_types(types: &[String]) -> (String, bool) {
+    let mut status = String::new();
+    let mut opened = false;
+    let mut reopened = false;
+    for etype in types {
+        if !LIST_TURN_UPDATES.contains(&etype.as_str()) {
+            continue;
+        }
+        if ListStatus::from_token(etype) == ListStatus::Complete {
+            status = "completed".into();
+            opened = false;
+        } else if etype == "user_message_chunk" || etype == "turn_started" {
+            reopened = opened || status == "completed";
+            status.clear();
+            opened = true;
+        } else if OPEN_TURN_UPDATES.contains(&etype.as_str()) && (opened || status != "completed") {
+            status = "running".into();
+        }
+    }
+    (status, reopened)
+}
+
+fn turn_end_outcome(ev: &Value) -> String {
+    let outcome = text::field_str(ev, "outcome");
+    let outcome = if outcome.is_empty() {
+        text::field_str(ev, "status")
+    } else {
+        outcome
+    };
+    let category = text::field_str(ev, "cancellation_category");
+    let trigger = ev
+        .get("cancellation_context")
+        .map(|ctx| text::field_str(ctx, "trigger"))
+        .unwrap_or_default();
+    if category == "mid_turn_abort" && trigger == "send_now" {
+        return "interjected".into();
+    }
+    if outcome.is_empty() {
+        "unknown".into()
+    } else {
+        outcome
+    }
+}
+
+fn events_runtime(dir: &Path) -> (String, bool) {
+    let rows = jsonl::cached_records(&dir.join("events.jsonl"), Some(keep_events_line));
+    let mut turn_outcome = String::new();
+    let mut open_starts: i32 = 0;
+    for row in rows {
+        let et = text::field_str(&row.value, "type");
+        match et.as_str() {
+            "turn_started" => open_starts += 1,
+            "turn_ended" => {
+                turn_outcome = turn_end_outcome(&row.value);
+                open_starts = (open_starts - 1).max(0);
+            }
+            "error" | "session_error" | "turn_error" | "fatal_error" if turn_outcome.is_empty() => {
+                turn_outcome = "error".into();
+            }
+            _ => {}
+        }
+    }
+    (turn_outcome, open_starts > 0)
+}
+
+fn list_turn_outcome(dir: &Path) -> String {
+    let types = updates_tail_types(dir);
+    let (from_updates, reopened) = outcome_from_update_types(&types);
+    let last = types
+        .iter()
+        .rev()
+        .find(|t| LIST_TURN_UPDATES.contains(&t.as_str()))
+        .cloned()
+        .unwrap_or_default();
+    if from_updates == "completed" {
+        return from_updates;
+    }
+    if from_updates == "running" {
+        if reopened {
+            return from_updates;
+        }
+        let (outcome, has_open) = events_runtime(dir);
+        if !has_open && !outcome.is_empty() {
+            return outcome;
+        }
+        return from_updates;
+    }
+    if !last.is_empty() {
+        return String::new();
+    }
+    let (outcome, has_open) = events_runtime(dir);
+    if has_open {
+        return String::new();
+    }
+    if !outcome.is_empty() {
+        return outcome;
+    }
+    if dir.join("anqa-interrupted.json").is_file() {
+        return "interrupted".into();
+    }
+    String::new()
+}
+
+fn list_meta_of(dir: &Path, session_id: &str) -> ListMeta {
+    let mut meta = ListMeta::for_session("grok", dir, session_id);
+    apply_summary(&mut meta, dir);
+    apply_goal_title(&mut meta, dir);
+    apply_signals(&mut meta, dir);
+    apply_run(&mut meta, dir);
+    meta.turn_outcome = list_turn_outcome(dir);
+    meta
 }
 
 #[cfg(test)]
@@ -629,5 +876,25 @@ mod tests {
         assert!(!keep_line(first));
         assert!(keep_line(user));
         assert!(keep_line(tool));
+    }
+
+    #[test]
+    fn list_meta_title_and_completed_turn() {
+        let dir = grok_dir("list-meta");
+        fs::write(
+            dir.join("summary.json"),
+            r#"{"generated_title":"Snapshot minimal"}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("updates.jsonl"),
+            r#"{"params":{"update":{"sessionUpdate":"turn_completed"}}}"#,
+        )
+        .unwrap();
+        let meta = Grok.list_meta(&dir, "sess").unwrap();
+        assert_eq!(meta.title, "Snapshot minimal");
+        assert_eq!(meta.turn_outcome, "completed");
+        assert_eq!(meta.harness, "grok");
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

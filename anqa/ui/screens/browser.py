@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from contextlib import suppress
 from pathlib import Path
+from typing import cast
 
 from textual import on, work
 from textual.app import ComposeResult
@@ -53,6 +54,7 @@ from ...notes import (
     notes_snapshot,
     upsert_note,
 )
+from ...session.access import RemoteSessionAccess
 from ...session.control_views import overview_stat_counters
 from ...session.event_search import (
     ensure_indexed,
@@ -825,13 +827,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return f"{self.meta.harness}:{self.meta.session_id}"
         return str(self.session_dir)
 
-    def _control_access(self) -> object:
+    def _control_access(self) -> RemoteSessionAccess:
         """Attached session access, or raise if the owner is missing."""
         app = resolve_ui_app(self)
         access = getattr(app, "session_access", lambda: None)()
         if access is None:
             raise RuntimeError("control session access unavailable")
-        return access
+        return cast(RemoteSessionAccess, access)
 
     def _load_control_first_page(self) -> int:
         """Overview + first ``session/timeline`` page. Returns the owner total."""
@@ -845,12 +847,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         access = self._control_access()
         ref = self._session_control_ref()
-        session_overview = getattr(access, "session_overview", None)
-        if not callable(session_overview):
-            raise RuntimeError("control session access unavailable")
 
         async def _ov() -> object:
-            return await session_overview(ref)
+            return await access.session_overview(ref)
 
         overview = asyncio.run(_ov())
         ov = as_json_object(overview) if isinstance(overview, dict) else {}
@@ -1379,12 +1378,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         access = self._control_access()
         ref = self._session_control_ref()
-        notes_list = getattr(access, "notes_list", None)
-        if not callable(notes_list):
-            return NotesDoc()
 
         async def _nl() -> object:
-            return await notes_list(ref)
+            return await access.notes_list(ref)
 
         snap = asyncio.run(_nl())
         if not isinstance(snap, dict):
@@ -1427,12 +1423,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         access = self._control_access()
         ref = self._session_control_ref()
-        session_diff = getattr(access, "session_diff", None)
-        if not callable(session_diff):
-            return WorkspaceDiff(())
 
         async def _df() -> object:
-            return await session_diff(ref)
+            return await access.session_diff(ref)
 
         body = asyncio.run(_df())
         if not isinstance(body, dict):

@@ -220,19 +220,17 @@ def test_fat_overview_parses_only_opened_session(
     keep = write_fat_session(traces, "keep-fat", turns=60, title="Keep fat")
     write_fat_session(traces, "skip-fat", turns=80, title="Skip fat")
     parsed: list[str] = []
-    real = parser_mod.parse_timeline
 
-    def tracked(session_dir: Path) -> list[object]:
+    def boom(session_dir: Path) -> list[object]:
         parsed.append(Path(session_dir).name)
-        return real(session_dir)
+        raise AssertionError("overview and paged timeline must not parse_timeline")
 
-    monkeypatch.setattr("anqa.harness.grok.parse_timeline", tracked)
+    monkeypatch.setattr("anqa.harness.grok.parse_timeline", boom)
     ov = build_session_overview(keep)
     assert ov["turns"]["total"] >= 50
     tl = build_session_timeline(keep, offset=0, limit=40)
     assert tl["events"]
-    assert "keep-fat" in parsed
-    assert "skip-fat" not in parsed
+    assert parsed == []
 
 
 @pytest.mark.asyncio
