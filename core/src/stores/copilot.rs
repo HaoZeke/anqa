@@ -168,3 +168,80 @@ impl Store for Copilot {
         jsonl::file_stamp(&path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "anqa-copilot-{label}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_events(root: &Path, sid: &str, line: &str) -> PathBuf {
+        let path = root.join("session-state").join(sid).join("events.jsonl");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("{line}\n")).unwrap();
+        path
+    }
+
+    #[test]
+    fn copilot_stamp_follows_that_session_events_file() {
+        let dir = temp_dir("stamp");
+        let db = dir.join("session-store.db");
+        fs::write(&db, b"shared").unwrap();
+        write_events(&dir, "sid-a", r#"{"type":"user.message","id":"a1"}"#);
+        write_events(
+            &dir,
+            "sid-b",
+            r#"{"type":"user.message","id":"session-b-longer"}"#,
+        );
+
+        let stamp_a = crate::stamp("copilot", &db, "sid-a").unwrap();
+        let stamp_b = crate::stamp("copilot", &db, "sid-b").unwrap();
+        assert_ne!(stamp_a, stamp_b);
+
+        let mut b = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("session-state").join("sid-b").join("events.jsonl"))
+            .unwrap();
+        writeln!(b, r#"{{"type":"user.message","id":"b2"}}"#).unwrap();
+        drop(b);
+
+        assert_eq!(
+            crate::stamp("copilot", &db, "sid-a").unwrap(),
+            stamp_a,
+            "growing B must not change A"
+        );
+        assert_ne!(crate::stamp("copilot", &db, "sid-b").unwrap(), stamp_b);
+
+        fs::write(&db, b"shared-and-grown").unwrap();
+        assert_eq!(
+            crate::stamp("copilot", &db, "sid-a").unwrap(),
+            stamp_a,
+            "shared db must not be the stamp"
+        );
+
+        let mut a = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("session-state").join("sid-a").join("events.jsonl"))
+            .unwrap();
+        writeln!(a, r#"{{"type":"user.message","id":"a2"}}"#).unwrap();
+        drop(a);
+        assert_ne!(crate::stamp("copilot", &db, "sid-a").unwrap(), stamp_a);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

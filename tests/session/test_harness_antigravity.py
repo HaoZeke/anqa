@@ -212,3 +212,23 @@ def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
         members = tf.getnames()
     assert f"{_SID}/{_SID}.db" in members
     assert f"{_SID}/transcript.jsonl" in members
+
+
+def test_timeline_stamp_follows_that_session_transcript() -> None:
+    db = _install_store()
+    adapter = AntigravityAdapter()
+    ref_a = Path(f"antigravity:{_SID}")
+    stamp_a = adapter.timeline_stamp(ref_a)
+    root = db.parent.parent
+    events_b = root / "brain" / _RUNNING_SID / ".system_generated" / "logs" / "transcript.jsonl"
+    events_b.write_text(
+        events_b.read_text(encoding="utf-8") + '{"type":"USER_INPUT","content":"later-b"}\n',
+        encoding="utf-8",
+    )
+    assert adapter.timeline_stamp(ref_a) == stamp_a
+    events_a = root / "brain" / _SID / ".system_generated" / "logs" / "transcript.jsonl"
+    events_a.write_text(
+        events_a.read_text(encoding="utf-8") + '{"type":"USER_INPUT","content":"later-a"}\n',
+        encoding="utf-8",
+    )
+    assert adapter.timeline_stamp(ref_a) != stamp_a

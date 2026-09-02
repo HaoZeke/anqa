@@ -546,12 +546,10 @@ class AntigravityAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         db, sid = _paths_from_ref(ref, self.root())
-        stamp = Stamp.file(db)
         root = self._store_root_for(db) if db.is_file() else self.root()
-        tstamp = Stamp.file(_transcript_path(root, sid))
-        if tstamp[0] > stamp[0]:
-            return tstamp
-        return stamp
+        from ..core import store_stamp
+
+        return store_stamp(self.id, root, sid)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]

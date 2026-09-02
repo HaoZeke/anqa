@@ -186,3 +186,24 @@ def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
     with tarfile.open(inner, "r:gz") as tf:
         members = tf.getnames()
     assert f"{_SID}/events.jsonl" in members
+
+
+def test_timeline_stamp_follows_that_session_events_file() -> None:
+    db = _install_store()
+    adapter = CopilotAdapter()
+    ref_a = Path(f"copilot:{_SID}")
+    stamp_a = adapter.timeline_stamp(ref_a)
+    events_b = db.parent / "session-state" / _RUNNING_SID / "events.jsonl"
+    events_b.write_text(
+        events_b.read_text(encoding="utf-8") + '{"type":"user.message","id":"later-b"}\n',
+        encoding="utf-8",
+    )
+    assert adapter.timeline_stamp(ref_a) == stamp_a
+    db.write_bytes(db.read_bytes() + b"\x00")
+    assert adapter.timeline_stamp(ref_a) == stamp_a
+    events_a = db.parent / "session-state" / _SID / "events.jsonl"
+    events_a.write_text(
+        events_a.read_text(encoding="utf-8") + '{"type":"user.message","id":"later-a"}\n',
+        encoding="utf-8",
+    )
+    assert adapter.timeline_stamp(ref_a) != stamp_a

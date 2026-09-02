@@ -84,6 +84,23 @@ def native_overview(harness: str, locator: Path | str, session_id: str) -> JsonO
     return as_json_object(row) if isinstance(row, Mapping) else {}
 
 
+def store_stamp(harness: str, locator: Path | str, session_id: str) -> tuple[float, int, int, int]:
+    """Per-session timeline stamp for *session_id* at *locator*.
+
+    :param harness: Adapter id (``copilot``, ``antigravity``, …).
+    :param locator: Session file, directory, or database path.
+    :param session_id: Store session id.
+    :return: ``(mtime, size, extra_mtime, extra_size)``.
+    """
+    row = _native.store_stamp(harness, str(locator), session_id)
+    return (
+        _as_float(row[0]),
+        _as_int(row[1]),
+        _as_int(row[2]),
+        _as_int(row[3]),
+    )
+
+
 def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
     """List-grade meta from the native store."""
     row = _native.store_list_meta(harness, str(locator), session_id)
@@ -173,6 +190,7 @@ __all__ = [
     "list_meta",
     "native_overview",
     "store_ids",
+    "store_stamp",
     "timeline_events",
     "timeline_page",
 ]

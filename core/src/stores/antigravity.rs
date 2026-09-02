@@ -196,3 +196,104 @@ impl Store for Antigravity {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "anqa-antigravity-{label}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_transcript(root: &Path, sid: &str, line: &str) -> PathBuf {
+        let path = root
+            .join("brain")
+            .join(sid)
+            .join(".system_generated")
+            .join("logs")
+            .join("transcript.jsonl");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("{line}\n")).unwrap();
+        path
+    }
+
+    #[test]
+    fn antigravity_stamp_follows_that_session_transcript() {
+        let root = temp_dir("stamp");
+        write_transcript(&root, "sid-a", r#"{"type":"USER_INPUT","content":"a1"}"#);
+        write_transcript(
+            &root,
+            "sid-b",
+            r#"{"type":"USER_INPUT","content":"session-b-longer"}"#,
+        );
+        fs::create_dir_all(root.join("conversations")).unwrap();
+        fs::write(root.join("conversations").join("sid-a.db"), b"db-a").unwrap();
+        fs::write(root.join("conversations").join("sid-b.db"), b"db-bbbb").unwrap();
+
+        let stamp_a = crate::stamp("antigravity", &root, "sid-a").unwrap();
+        let stamp_b = crate::stamp("antigravity", &root, "sid-b").unwrap();
+        assert_ne!(stamp_a, stamp_b);
+
+        let mut b = fs::OpenOptions::new()
+            .append(true)
+            .open(
+                root.join("brain")
+                    .join("sid-b")
+                    .join(".system_generated")
+                    .join("logs")
+                    .join("transcript.jsonl"),
+            )
+            .unwrap();
+        writeln!(b, r#"{{"type":"USER_INPUT","content":"b2"}}"#).unwrap();
+        drop(b);
+
+        assert_eq!(
+            crate::stamp("antigravity", &root, "sid-a").unwrap(),
+            stamp_a,
+            "growing B must not change A"
+        );
+        assert_ne!(
+            crate::stamp("antigravity", &root, "sid-b").unwrap(),
+            stamp_b
+        );
+
+        fs::write(root.join("conversation_summaries.db"), b"shared").unwrap();
+        assert_eq!(
+            crate::stamp("antigravity", &root, "sid-a").unwrap(),
+            stamp_a,
+            "shared store files must not be the stamp"
+        );
+
+        let mut a = fs::OpenOptions::new()
+            .append(true)
+            .open(
+                root.join("brain")
+                    .join("sid-a")
+                    .join(".system_generated")
+                    .join("logs")
+                    .join("transcript.jsonl"),
+            )
+            .unwrap();
+        writeln!(a, r#"{{"type":"USER_INPUT","content":"a2"}}"#).unwrap();
+        drop(a);
+        assert_ne!(
+            crate::stamp("antigravity", &root, "sid-a").unwrap(),
+            stamp_a
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+}

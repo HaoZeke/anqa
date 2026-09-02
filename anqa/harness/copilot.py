@@ -442,9 +442,9 @@ class CopilotAdapter:
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         db, sid = _db_from_ref(ref, self.db())
-        ev = Stamp.file(_events_path(db, sid)) if sid else (0.0, 0, 0, 0)
-        store = Stamp.file(db)
-        return (max(ev[0], store[0]), ev[1] + store[1], ev[2], ev[3])
+        from ..core import store_stamp
+
+        return store_stamp(self.id, db, sid)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]
