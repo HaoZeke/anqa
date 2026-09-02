@@ -25,6 +25,7 @@ def _write_session(root: Path, name: str) -> Path:
                 "info": {"id": name},
                 "generated_title": "View session",
                 "model": "grok-test",
+                "num_messages": 3,
             }
         ),
         encoding="utf-8",

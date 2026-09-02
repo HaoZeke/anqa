@@ -842,6 +842,23 @@ anqad status          # exit 0 if live
 A second `anqad -d` reports already running. Quitting a client leaves the
 control process up.
 
+## Logging
+
+`anqad` writes `anqa.*` logs to stderr. Level is `ANQA_SERVE_LOG_LEVEL`
+(default `INFO`). `INFO` prints startup and `session/list` timing.
+`DEBUG` prints every method with arguments, duration, and a result
+summary.
+
+```bash
+ANQA_SERVE_LOG_LEVEL=DEBUG anqad            # foreground (Ctrl-C)
+ANQA_SERVE_LOG_LEVEL=DEBUG anqad restart    # replace a live process
+```
+
+A live process keeps the level it started with. Restart after changing
+the variable. Detached (`-d`) appends the same stream next to the
+socket: `$XDG_RUNTIME_DIR/anqa/control.sock.log`, or
+`~/.anqa/run/control.sock.log` when `XDG_RUNTIME_DIR` is unset.
+
 ## Socket
 
 Default path: `$XDG_RUNTIME_DIR/anqa/control.sock`, or

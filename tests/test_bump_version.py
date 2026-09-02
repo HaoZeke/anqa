@@ -26,9 +26,9 @@ def _seed(root: Path, *, version: str = "0.2.0") -> None:
     hud = root / "desktop"
     hud.mkdir()
     (hud / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
-    scan = root / "scan"
-    scan.mkdir()
-    (scan / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
+    core = root / "core"
+    core.mkdir()
+    (core / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
     (root / "Cargo.lock").write_text(
         f'name = "anqa-hud"\nversion = "{version}"\nname = "anqa-core"\nversion = "{version}"\n',
         encoding="utf-8",
@@ -63,7 +63,7 @@ def test_bump_rewrites_declarations_and_changelog(tmp_path: Path) -> None:
     lock = (tmp_path / "Cargo.lock").read_text(encoding="utf-8")
     assert 'name = "anqa-hud"\nversion = "0.2.1"' in lock
     assert 'name = "anqa-core"\nversion = "0.2.1"' in lock
-    assert 'version = "0.2.1"' in (tmp_path / "scan" / "Cargo.toml").read_text(encoding="utf-8")
+    assert 'version = "0.2.1"' in (tmp_path / "core" / "Cargo.toml").read_text(encoding="utf-8")
     log = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## 0.2.1 - 2026-08-15" in log
     assert "- a thing" in log

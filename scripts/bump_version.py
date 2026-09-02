@@ -89,7 +89,7 @@ def bump(root: Path, new: str, date: str) -> None:
         template='version = "{}"',
     )
     replace_assignment(
-        root / "scan" / "Cargo.toml",
+        root / "core" / "Cargo.toml",
         old,
         new,
         template='version = "{}"',

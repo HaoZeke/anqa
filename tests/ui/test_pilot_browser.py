@@ -1342,6 +1342,9 @@ async def test_browser_control_paints_first_page_before_remainder(
                 content_chars=int(kwargs.get("content_chars") or 500),
             )
 
+        async def notes_list(self, _ref: str) -> object:
+            return {"notes": []}
+
     access = _Access()
     app = _host_app(work, traces)
     app.is_control_client = lambda: True  # type: ignore[method-assign]
@@ -1401,6 +1404,9 @@ async def test_browser_control_end_of_list_fetches_next_page(
                 limit=int(kwargs.get("limit") or 1),
                 content_chars=int(kwargs.get("content_chars") or 500),
             )
+
+        async def notes_list(self, _ref: str) -> object:
+            return {"notes": []}
 
     access = _Access()
     app = _host_app(work, traces)
@@ -1462,6 +1468,9 @@ async def test_browser_control_turn_pick_refetches_that_turn(
                 content_chars=int(kwargs.get("content_chars") or 500),
             )
 
+        async def notes_list(self, _ref: str) -> object:
+            return {"notes": []}
+
     access = _Access()
     app = _host_app(work, traces)
     app.is_control_client = lambda: True  # type: ignore[method-assign]
@@ -1512,6 +1521,9 @@ async def test_browser_open_event_asks_owner_ceiling(tmp_path: Path) -> None:
                 at_index=at if isinstance(at, int) else None,
                 content_chars=int(kwargs.get("content_chars") or 500),
             )
+
+        async def notes_list(self, _ref: str) -> object:
+            return {"notes": []}
 
     access = _Access()
     app = _host_app(work, traces)

@@ -42,11 +42,11 @@
       "turnIndex": 0,
       "type": "agent_message_chunk",
       "typeLabel": "agent message chunk",
-      "updateIndex": 1
+      "updateIndex": 0
     },
     {
-      "content": "",
-      "contentLength": 0,
+      "content": "read_file",
+      "contentLength": 9,
       "contentTruncated": false,
       "harnessChrome": false,
       "heading": "read_file",
@@ -66,7 +66,7 @@
       "turnIndex": 0,
       "type": "tool_call",
       "typeLabel": "tool call",
-      "updateIndex": 2
+      "updateIndex": 0
     }
   ],
   "limit": 50,

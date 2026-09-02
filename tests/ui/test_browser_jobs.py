@@ -236,6 +236,9 @@ async def test_status_only_overview_refresh_paints_jobs_table(tmp_path: Path) ->
                 content_chars=int(kwargs.get("content_chars") or 500),
             )
 
+        async def notes_list(self, _ref: str) -> object:
+            return {"notes": []}
+
     class _Attached(_Host):
         def is_control_client(self) -> bool:
             return True
