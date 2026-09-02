@@ -285,8 +285,44 @@ fn map_events_row(row: &crate::store::Record, events: &mut Vec<Event>) {
     }
 }
 
+fn session_update_token(line: &[u8]) -> Option<&str> {
+    const KEY: &[u8] = br#""sessionUpdate""#;
+    let at = memchr::memmem::find(line, KEY)?;
+    let rest = line.get(at + KEY.len()..)?;
+    let mut i = 0;
+    while i < rest.len() && rest[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if rest.get(i) != Some(&b':') {
+        return None;
+    }
+    i += 1;
+    while i < rest.len() && rest[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if rest.get(i) != Some(&b'"') {
+        return None;
+    }
+    i += 1;
+    let start = i;
+    while i < rest.len() && rest[i] != b'"' {
+        i += 1;
+    }
+    std::str::from_utf8(rest.get(start..i)?).ok()
+}
+
+fn keep_line(line: &[u8]) -> bool {
+    if !keep_updates_line(line) {
+        return false;
+    }
+    match session_update_token(line) {
+        None => true,
+        Some(token) => !matches!(EventType::parse(token), EventType::Other(_)),
+    }
+}
+
 fn read_updates(dir: &Path) -> Vec<crate::store::Record> {
-    jsonl::cached_records(&dir.join("updates.jsonl"), Some(keep_updates_line))
+    jsonl::cached_records(&dir.join("updates.jsonl"), Some(keep_line))
 }
 
 fn read_events(dir: &Path) -> Vec<crate::store::Record> {
@@ -580,5 +616,18 @@ mod tests {
         assert_eq!(users, ["fresh"]);
 
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn keep_line_skips_runtime_session_update() {
+        let phase = br#"{"params":{"update":{"sessionUpdate":"phase_changed","phase":"act"}}}"#;
+        let first = br#"{"params":{"update":{"sessionUpdate":"first_token"}}}"#;
+        let user =
+            br#"{"params":{"update":{"sessionUpdate":"user_message_chunk","content":"hi"}}}"#;
+        let tool = br#"{"params":{"update":{"sessionUpdate":"tool_call","toolName":"read_file"}}}"#;
+        assert!(!keep_line(phase));
+        assert!(!keep_line(first));
+        assert!(keep_line(user));
+        assert!(keep_line(tool));
     }
 }
