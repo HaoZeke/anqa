@@ -11,19 +11,10 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent
 from .ref import SessionRef
 
 COPILOT_HARNESS_ID = "copilot"
-_TURN_SIGNALS = frozenset(
-    {
-        "assistant.turn_start",
-        "tool.execution_start",
-        "subagent.started",
-        "session.shutdown",
-        "assistant.turn_end",
-    }
-)
 
 
 def default_store_root() -> Path:
@@ -88,36 +79,6 @@ def _list_session_rows(con: sqlite3.Connection) -> list[sqlite3.Row]:
             "FROM sessions ORDER BY updated_at DESC"
         )
     )
-
-
-def _last_turn_type(events: list[JsonObject]) -> str:
-    last = ""
-    for ev in events:
-        typ = str(ev.get("type") or "").strip()
-        if typ in _TURN_SIGNALS:
-            last = typ
-    return last
-
-
-def _model_from_events(events: list[JsonObject]) -> str:
-    for row in reversed(events):
-        typ = str(row.get("type") or "")
-        data = json_mapping(row.get("data"))
-        if typ in {"assistant.message", "tool.execution_start", "session.shutdown"}:
-            mid = str(data.get("model") or data.get("currentModel") or "").strip()
-            if mid:
-                return mid
-    return ""
-
-
-def _version_from_events(events: list[JsonObject]) -> str:
-    for row in events:
-        if str(row.get("type") or "") != "session.start":
-            continue
-        ver = str(json_mapping(row.get("data")).get("copilotVersion") or "").strip()
-        if ver:
-            return ver
-    return ""
 
 
 class CopilotAdapter:

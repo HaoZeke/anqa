@@ -218,6 +218,12 @@ fn rows_from_reader<R: Read>(reader: BufReader<R>, limit: usize, keep_tail: bool
     }
 }
 
+/// Objects in the last 64 KiB. Small files are read whole.
+#[must_use]
+pub fn tail(path: &Path) -> Vec<JsonlRow> {
+    last_objects(path, 10_000)
+}
+
 /// Header plus tail objects. Files at or under 64 KiB are read once.
 pub fn window(path: &Path) -> Vec<JsonlRow> {
     let size = match path.metadata() {

@@ -1090,7 +1090,7 @@ const OPEN_TURN_UPDATES: &[&str] = &[
 ];
 
 fn updates_tail_types(dir: &Path) -> Vec<String> {
-    jsonl::window(&dir.join("updates.jsonl"))
+    jsonl::tail(&dir.join("updates.jsonl"))
         .into_iter()
         .filter_map(|row| {
             let update = row.value.pointer("/params/update")?;
@@ -1518,6 +1518,43 @@ mod tests {
         assert_eq!(meta.title, "Snapshot minimal");
         assert_eq!(meta.turn_outcome, "completed");
         assert_eq!(meta.harness, "grok");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn list_meta_reads_completed_from_updates_tail_not_header() {
+        let dir = grok_dir("list-meta-tail");
+        let mut u = fs::File::create(dir.join("updates.jsonl")).unwrap();
+        writeln!(
+            u,
+            r#"{{"params":{{"update":{{"sessionUpdate":"user_message_chunk","content":"hi"}}}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            u,
+            r#"{{"params":{{"update":{{"sessionUpdate":"tool_call","toolName":"read_file"}}}}}}"#
+        )
+        .unwrap();
+        let pad = format!(
+            r#"{{"params":{{"update":{{"sessionUpdate":"phase_changed","phase":"{}"}}}}}}"#,
+            "x".repeat(180)
+        );
+        for _ in 0..400 {
+            writeln!(u, "{pad}").unwrap();
+        }
+        writeln!(
+            u,
+            r#"{{"params":{{"update":{{"sessionUpdate":"turn_completed"}}}}}}"#
+        )
+        .unwrap();
+        for _ in 0..20 {
+            writeln!(u, "{pad}").unwrap();
+        }
+        drop(u);
+        let size = fs::metadata(dir.join("updates.jsonl")).unwrap().len();
+        assert!(size > 64 * 1024, "fixture must exceed the 64 KiB window");
+        let meta = Grok.list_meta(&dir, "sess").unwrap();
+        assert_eq!(meta.turn_outcome, "completed");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

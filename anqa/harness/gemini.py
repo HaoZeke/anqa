@@ -12,7 +12,6 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..json_lines import json_lines
 from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object
 from ..session.tagged_blocks import operator_prompt_text
 from ..stamp import Stamp
@@ -63,69 +62,6 @@ def _session_id_from_name(path: Path) -> str:
     if stem.startswith("session-") and "-" in stem:
         return stem.rsplit("-", 1)[-1]
     return stem
-
-
-def _load_conversation(path: Path) -> tuple[JsonObject, list[JsonObject]]:
-    metadata: JsonObject = {}
-    messages: dict[str, JsonObject] = {}
-
-    def _put_messages(raw: object) -> None:
-        messages.clear()
-        if not isinstance(raw, list):
-            return
-        for item in raw:
-            if isinstance(item, dict) and item.get("id"):
-                messages[str(item["id"])] = as_json_object(item)
-
-    def _rewind(target: str) -> None:
-        if not target:
-            messages.clear()
-            return
-        keys = list(messages)
-        if target not in messages:
-            messages.clear()
-            return
-        drop = False
-        for key in keys:
-            if key == target:
-                drop = True
-            if drop:
-                del messages[key]
-
-    for row in json_lines(path):
-        if "$rewindTo" in row:
-            _rewind(str(row.get("$rewindTo") or ""))
-            continue
-        patch = row.get("$set")
-        if isinstance(patch, dict):
-            if "messages" in patch:
-                _put_messages(patch.get("messages"))
-            for key, val in patch.items():
-                if key != "messages":
-                    metadata[str(key)] = val
-            continue
-        typ = str(row.get("type") or "")
-        mid = str(row.get("id") or "").strip()
-        if typ == "message_update" and mid:
-            if mid in messages:
-                kept = str(messages[mid].get("type") or typ)
-                merged = as_json_object({**messages[mid], **row})
-                merged["type"] = kept
-                messages[mid] = merged
-            continue
-        if mid and typ in {"user", "gemini", "error"}:
-            messages[mid] = row
-            continue
-        if mid and ("type" in row or "content" in row) and "sessionId" not in row:
-            messages[mid] = row
-            continue
-        if str(row.get("sessionId") or "").strip():
-            for key, val in row.items():
-                if key == "messages":
-                    _put_messages(val)
-                else:
-                    metadata[str(key)] = val
-    return metadata, list(messages.values())
 
 
 def _jsonl_from_ref(ref: SessionRef | Path | str, root: Path) -> tuple[Path, str]:

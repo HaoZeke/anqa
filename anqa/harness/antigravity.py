@@ -7,7 +7,6 @@ One conversation is ``conversations/<uuid>.db``. The readable timeline is
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import tarfile
 from collections.abc import Sequence
@@ -20,7 +19,6 @@ from .ref import SessionRef
 ANTIGRAVITY_HARNESS_ID = "antigravity"
 _USER_REQUEST = "USER_REQUEST"
 _USER_PLAN = "PLAN"
-_GEMINI_MODEL = re.compile(rb"gemini-[a-z0-9][a-z0-9.-]*", re.IGNORECASE)
 
 
 def default_store_root() -> Path:
@@ -72,31 +70,6 @@ def _transcript_path(root: Path, session_id: str) -> Path:
 
 def _summaries_db(root: Path) -> Path:
     return root / "conversation_summaries.db"
-
-
-def _model_from_conversation_db(db: Path) -> str:
-    """Last ``gemini-…`` id written in conversation metadata blobs."""
-    if not db.is_file():
-        return ""
-    found = ""
-    try:
-        with _connect(db) as con:
-            for table, col in (
-                ("executor_metadata", "data"),
-                ("gen_metadata", "data"),
-                ("steps", "step_payload"),
-            ):
-                try:
-                    rows = con.execute(f"SELECT {col} FROM {table}").fetchall()
-                except sqlite3.Error:
-                    continue
-                for (data,) in rows:
-                    blob = data if isinstance(data, bytes) else str(data).encode()
-                    for match in _GEMINI_MODEL.finditer(blob):
-                        found = match.group(0).decode("ascii")
-    except sqlite3.Error:
-        return found
-    return found
 
 
 def _load_summary(root: Path, session_id: str) -> JsonObject:
