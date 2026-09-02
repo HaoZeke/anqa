@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import _core
 from .. import event_types as et
 from ..core import list_meta
 from ..models import (
@@ -425,8 +426,8 @@ class OpenCodeAdapter:
         return self.load_meta(ref)
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
-        db, _sid = _db_from_ref(ref, self.db())
-        return Stamp.file(db)
+        db, sid = _db_from_ref(ref, self.db())
+        return _core.store_stamp(self.id, str(db), sid)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         return self.timeline_stamp(ref)[0]

@@ -1,33 +1,32 @@
 //! OpenCode sqlite session store.
 
-use crate::event::{Event, EventType, ListMeta, SessionLocator};
-use crate::store::Store;
+use crate::event::{Event, EventType, FileStamp, ListMeta, SessionLocator};
+use crate::store::{Record, Store};
 use crate::text;
 use rusqlite::Connection;
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
-fn timeline_from_events(con: &Connection, session_id: &str) -> Result<Vec<Event>, String> {
-    let mut stmt = con
-        .prepare("SELECT type, data FROM event WHERE aggregate_id = ?1 ORDER BY seq ASC, id ASC")
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([session_id], |row| {
-            Ok((
-                row.get::<_, String>(0).unwrap_or_default(),
-                row.get::<_, String>(1).unwrap_or_default(),
-            ))
-        })
-        .map_err(|e| e.to_string())?;
+fn event_type_of(rec: &Record) -> String {
+    text::field_str(&rec.value, "type")
+}
+
+fn event_data(rec: &Record) -> Value {
+    rec.value.get("data").cloned().unwrap_or(Value::Null)
+}
+
+fn events_from_event_records(records: &[Record]) -> Vec<Event> {
     let mut messages: Vec<(String, Value)> = Vec::new();
-    let mut parts: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
-    for row in rows.flatten() {
-        let data: Value = serde_json::from_str(&row.1).unwrap_or(Value::Null);
-        if row.0.starts_with("session.") {
+    let mut parts: HashMap<String, Vec<Value>> = HashMap::new();
+    for rec in records {
+        let typ = event_type_of(rec);
+        let data = event_data(rec);
+        if typ.starts_with("session.") {
             continue;
         }
-        if row.0.contains("part") {
+        if typ.contains("part") {
             if let Some(part) = data.get("part") {
                 let mid = text::field_str(part, "messageID");
                 if !mid.is_empty() {
@@ -36,7 +35,7 @@ fn timeline_from_events(con: &Connection, session_id: &str) -> Result<Vec<Event>
             }
             continue;
         }
-        if row.0.starts_with("message.") {
+        if typ.starts_with("message.") {
             if let Some(info) = data.get("info") {
                 let mid = text::field_str(info, "id");
                 if !mid.is_empty() {
@@ -85,7 +84,75 @@ fn timeline_from_events(con: &Connection, session_id: &str) -> Result<Vec<Event>
             }
         }
     }
-    Ok(events)
+    events
+}
+
+fn events_from_message_records(records: &[Record]) -> Vec<Event> {
+    let mut parts: HashMap<String, Vec<(Value, String)>> = HashMap::new();
+    let mut messages: Vec<(String, Value, String)> = Vec::new();
+    for rec in records {
+        let table = text::field_str(&rec.value, "table");
+        let data = rec.value.get("data").cloned().unwrap_or(Value::Null);
+        if table == "part" {
+            let mid = text::field_str(&rec.value, "message_id");
+            parts.entry(mid).or_default().push((data, rec.raw.clone()));
+            continue;
+        }
+        if table == "message" {
+            messages.push((text::field_str(&rec.value, "id"), data, rec.raw.clone()));
+        }
+    }
+    let mut events = Vec::new();
+    let mut turn = 0i32;
+    for (mid, data, raw) in messages {
+        let role = text::field_str(&data, "role");
+        let msg_parts = parts.get(&mid).cloned().unwrap_or_default();
+        if role == "user" {
+            let mut start = Event::new(EventType::TurnStarted)
+                .with_content(format!("turn_number={turn}"))
+                .with_raw(&raw);
+            start.turn_number = Some(turn);
+            events.push(start);
+            let mut text_body = String::new();
+            for (part, _) in &msg_parts {
+                if text::field_str(part, "type") == "text" {
+                    let t = text::field_str(part, "text");
+                    if !t.is_empty() {
+                        text_body.push_str(&t);
+                    }
+                }
+            }
+            if text_body.is_empty() {
+                text_body = text::text_of(data.get("content").unwrap_or(&Value::Null));
+            }
+            events.push(
+                Event::new(EventType::UserMessageChunk)
+                    .with_content(text_body)
+                    .with_raw(raw),
+            );
+            turn += 1;
+        } else {
+            for (part, praw) in msg_parts {
+                let kind = text::field_str(&part, "type");
+                if kind == "text" {
+                    events.push(
+                        Event::new(EventType::AgentMessageChunk)
+                            .with_content(text::field_str(&part, "text"))
+                            .with_raw(praw),
+                    );
+                } else if kind == "reasoning" {
+                    events.push(
+                        Event::new(EventType::AgentThoughtChunk)
+                            .with_content(text::field_str(&part, "text"))
+                            .with_raw(praw),
+                    );
+                } else if kind == "tool" {
+                    events.extend(tool_events(&part, &praw));
+                }
+            }
+        }
+    }
+    events
 }
 
 fn tool_events(part: &Value, raw: &str) -> Vec<Event> {
@@ -154,6 +221,171 @@ fn tool_events(part: &Value, raw: &str) -> Vec<Event> {
 }
 
 pub struct OpenCode;
+
+#[derive(Default)]
+struct EventCursor {
+    last_seq: Option<i64>,
+    records: Vec<Record>,
+}
+
+static EVENT_CURSORS: LazyLock<Mutex<HashMap<(PathBuf, String), EventCursor>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn encode_stamp(n: i64) -> FileStamp {
+    let n = n.max(0) as u64;
+    (n as f64, n, 0, 0)
+}
+
+fn max_seq(con: &Connection, session_id: &str) -> Option<i64> {
+    con.query_row(
+        "SELECT MAX(seq) FROM event WHERE aggregate_id = ?1",
+        [session_id],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .ok()
+    .flatten()
+}
+
+fn max_row_time(con: &Connection, session_id: &str) -> i64 {
+    let mut best = 0i64;
+    if table_exists(con, "message") {
+        if let Ok(val) = con.query_row(
+            "SELECT MAX(time_updated) FROM message WHERE session_id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<i64>>(0),
+        ) {
+            best = best.max(val.unwrap_or(0));
+        }
+    }
+    if table_exists(con, "part") {
+        if let Ok(val) = con.query_row(
+            "SELECT MAX(time_updated) FROM part WHERE session_id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<i64>>(0),
+        ) {
+            best = best.max(val.unwrap_or(0));
+        }
+    }
+    best
+}
+
+fn event_row(seq: i64, typ: String, data: String) -> Record {
+    let parsed = json_object(&data);
+    Record {
+        raw: data,
+        value: serde_json::json!({
+            "seq": seq,
+            "type": typ,
+            "data": parsed,
+        }),
+    }
+}
+
+impl EventCursor {
+    fn sync(&mut self, con: &Connection, session_id: &str) -> Result<(), String> {
+        let max = max_seq(con, session_id);
+        if self.last_seq.is_some() && self.last_seq == max {
+            return Ok(());
+        }
+        if max.is_none()
+            || self
+                .last_seq
+                .is_some_and(|last| max.is_some_and(|cur| cur < last))
+        {
+            self.records.clear();
+            self.last_seq = None;
+        }
+        let Some(cur) = max else {
+            return Ok(());
+        };
+        let after = self.last_seq.unwrap_or(-1);
+        let mut stmt = con
+            .prepare(
+                "SELECT seq, type, data FROM event \
+                 WHERE aggregate_id = ?1 AND seq > ?2 ORDER BY seq ASC, id ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![session_id, after], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1).unwrap_or_default(),
+                    row.get::<_, String>(2).unwrap_or_default(),
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows.flatten() {
+            self.records.push(event_row(row.0, row.1, row.2));
+        }
+        self.last_seq = Some(cur);
+        Ok(())
+    }
+}
+
+fn cached_event_records(
+    locator: &Path,
+    session_id: &str,
+    con: &Connection,
+) -> Result<Vec<Record>, String> {
+    let key = (locator.to_path_buf(), session_id.to_string());
+    let mut guard = EVENT_CURSORS.lock().unwrap_or_else(|err| err.into_inner());
+    let cursor = guard.entry(key).or_default();
+    cursor.sync(con, session_id)?;
+    Ok(cursor.records.clone())
+}
+
+fn message_records(con: &Connection, session_id: &str) -> Result<Vec<Record>, String> {
+    let mut out = Vec::new();
+    let mut stmt = con
+        .prepare("SELECT id, data FROM message WHERE session_id = ?1 ORDER BY time_created, id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([session_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1).unwrap_or_default(),
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in rows.flatten() {
+        let parsed = json_object(&row.1);
+        out.push(Record {
+            raw: row.1,
+            value: serde_json::json!({
+                "table": "message",
+                "id": row.0,
+                "data": parsed,
+            }),
+        });
+    }
+    if table_exists(con, "part") {
+        let mut pstmt = con
+            .prepare(
+                "SELECT message_id, data FROM part WHERE session_id = ?1 ORDER BY time_created, id",
+            )
+            .map_err(|e| e.to_string())?;
+        let prows = pstmt
+            .query_map([session_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1).unwrap_or_default(),
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for prow in prows.flatten() {
+            let parsed = json_object(&prow.1);
+            out.push(Record {
+                raw: prow.1,
+                value: serde_json::json!({
+                    "table": "part",
+                    "message_id": prow.0,
+                    "data": parsed,
+                }),
+            });
+        }
+    }
+    Ok(out)
+}
 
 fn open_ro(path: &Path) -> Result<Connection, String> {
     Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -606,19 +838,38 @@ impl Store for OpenCode {
         out
     }
 
-    fn records(
-        &self,
-        locator: &Path,
-        session_id: &str,
-    ) -> Result<Vec<crate::store::Record>, String> {
+    fn records(&self, locator: &Path, session_id: &str) -> Result<Vec<Record>, String> {
         if !locator.is_file() {
             return Err(format!("opencode session not found: {session_id}"));
+        }
+        let con = open_ro(locator)?;
+        if table_exists(&con, "message") {
+            return message_records(&con, session_id);
+        }
+        if table_exists(&con, "event") {
+            return cached_event_records(locator, session_id, &con);
         }
         Ok(Vec::new())
     }
 
-    fn events(&self, _records: &[crate::store::Record]) -> Vec<Event> {
-        Vec::new()
+    fn events(&self, records: &[Record]) -> Vec<Event> {
+        if records.iter().any(|rec| rec.value.get("seq").is_some()) {
+            events_from_event_records(records)
+        } else {
+            events_from_message_records(records)
+        }
+    }
+
+    fn stamp(&self, locator: &Path, session_id: &str) -> FileStamp {
+        let Ok(con) = open_ro(locator) else {
+            return (0.0, 0, 0, 0);
+        };
+        if table_exists(&con, "event") {
+            if let Some(seq) = max_seq(&con, session_id) {
+                return encode_stamp(seq);
+            }
+        }
+        encode_stamp(max_row_time(&con, session_id))
     }
 
     fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
@@ -645,103 +896,171 @@ impl Store for OpenCode {
         meta.has_subagents = kids > 0;
         Ok(meta)
     }
+}
 
-    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
-        let con = open_ro(locator)?;
-        let mut events = Vec::new();
-        if table_exists(&con, "event") && !table_exists(&con, "message") {
-            let mut events = timeline_from_events(&con, session_id)?;
-            Event::carry_turn_numbers(&mut events);
-            text::index_events(&mut events);
-            return Ok(events);
-        }
-        if table_exists(&con, "message") {
-            let mut stmt = con
-                .prepare(
-                    "SELECT id, data FROM message WHERE session_id = ?1 ORDER BY time_created, id",
-                )
-                .map_err(|e| e.to_string())?;
-            let rows = stmt
-                .query_map([session_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1).unwrap_or_default(),
-                    ))
-                })
-                .map_err(|e| e.to_string())?;
-            let mut parts: std::collections::HashMap<String, Vec<Value>> =
-                std::collections::HashMap::new();
-            if table_exists(&con, "part") {
-                if let Ok(mut pstmt) =
-                    con.prepare("SELECT message_id, data FROM part WHERE session_id = ?1 ORDER BY time_created, id")
-                {
-                    if let Ok(prows) = pstmt.query_map([session_id], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1).unwrap_or_default(),
-                        ))
-                    }) {
-                        for prow in prows.flatten() {
-                            let data: Value = serde_json::from_str(&prow.1).unwrap_or(Value::Null);
-                            parts.entry(prow.0).or_default().push(data);
-                        }
-                    }
-                }
-            }
-            let mut turn = 0i32;
-            for row in rows.flatten() {
-                let data: Value = serde_json::from_str(&row.1).unwrap_or(Value::Null);
-                let role = text::field_str(&data, "role");
-                let msg_parts = parts.get(&row.0).cloned().unwrap_or_default();
-                if role == "user" {
-                    let mut start = Event::new(EventType::TurnStarted)
-                        .with_content(format!("turn_number={turn}"))
-                        .with_raw(&row.1);
-                    start.turn_number = Some(turn);
-                    events.push(start);
-                    let mut text_body = String::new();
-                    for part in &msg_parts {
-                        if text::field_str(part, "type") == "text" {
-                            let t = text::field_str(part, "text");
-                            if !t.is_empty() {
-                                text_body.push_str(&t);
-                            }
-                        }
-                    }
-                    if text_body.is_empty() {
-                        text_body = text::text_of(data.get("content").unwrap_or(&Value::Null));
-                    }
-                    events.push(
-                        Event::new(EventType::UserMessageChunk)
-                            .with_content(text_body)
-                            .with_raw(row.1),
-                    );
-                    turn += 1;
-                } else {
-                    for part in msg_parts {
-                        let kind = text::field_str(&part, "type");
-                        let raw = serde_json::to_string(&part).unwrap_or_default();
-                        if kind == "text" {
-                            events.push(
-                                Event::new(EventType::AgentMessageChunk)
-                                    .with_content(text::field_str(&part, "text"))
-                                    .with_raw(raw),
-                            );
-                        } else if kind == "reasoning" {
-                            events.push(
-                                Event::new(EventType::AgentThoughtChunk)
-                                    .with_content(text::field_str(&part, "text"))
-                                    .with_raw(raw),
-                            );
-                        } else if kind == "tool" {
-                            events.extend(tool_events(&part, &raw));
-                        }
-                    }
-                }
-            }
-        }
-        Event::carry_turn_numbers(&mut events);
-        text::index_events(&mut events);
-        Ok(events)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::EventType;
+    use rusqlite::Connection;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "anqa-opencode-{label}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("opencode.db")
+    }
+
+    fn open_rw(path: &Path) -> Connection {
+        Connection::open(path).unwrap()
+    }
+
+    fn create_event_table(con: &Connection) {
+        con.execute_batch(
+            "CREATE TABLE event (
+                id INTEGER PRIMARY KEY,
+                aggregate_id TEXT,
+                seq INTEGER,
+                type TEXT,
+                data TEXT
+            )",
+        )
+        .unwrap();
+    }
+
+    fn insert_event(con: &Connection, id: i64, aid: &str, seq: i64, typ: &str, data: &str) {
+        con.execute(
+            "INSERT INTO event (id, aggregate_id, seq, type, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, aid, seq, typ, data],
+        )
+        .unwrap();
+    }
+
+    fn user_message(aid: &str, mid: &str, text: &str) -> (String, String) {
+        let info = format!(
+            r#"{{"sessionID":"{aid}","info":{{"id":"{mid}","role":"user","sessionID":"{aid}"}}}}"#
+        );
+        let part = format!(
+            r#"{{"sessionID":"{aid}","part":{{"id":"prt_{mid}","messageID":"{mid}","sessionID":"{aid}","type":"text","text":"{text}"}}}}"#
+        );
+        (info, part)
+    }
+
+    fn user_texts(events: &[Event]) -> Vec<&str> {
+        events
+            .iter()
+            .filter(|ev| ev.event_type == EventType::UserMessageChunk)
+            .map(|ev| ev.content.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn opencode_stamp_is_per_session() {
+        let db = temp_db("stamp");
+        let con = open_rw(&db);
+        create_event_table(&con);
+        let (a_info, a_part) = user_message("ses_a", "msg_a", "alpha");
+        insert_event(
+            &con,
+            1,
+            "ses_a",
+            0,
+            "session.created.1",
+            r#"{"info":{"id":"ses_a"}}"#,
+        );
+        insert_event(&con, 2, "ses_a", 1, "message.updated.1", &a_info);
+        insert_event(&con, 3, "ses_a", 2, "message.part.updated.1", &a_part);
+        let (b_info, b_part) = user_message("ses_b", "msg_b", "bravo");
+        insert_event(
+            &con,
+            4,
+            "ses_b",
+            0,
+            "session.created.1",
+            r#"{"info":{"id":"ses_b"}}"#,
+        );
+        insert_event(&con, 5, "ses_b", 1, "message.updated.1", &b_info);
+        insert_event(&con, 6, "ses_b", 2, "message.part.updated.1", &b_part);
+        drop(con);
+
+        let stamp_a = OpenCode.stamp(&db, "ses_a");
+        let stamp_b = OpenCode.stamp(&db, "ses_b");
+        assert_eq!(
+            stamp_a.1, 2,
+            "stamp is that session MAX(seq), not the db file"
+        );
+        assert_eq!(stamp_b.1, 2);
+
+        let con = open_rw(&db);
+        let (b2_info, b2_part) = user_message("ses_b", "msg_b2", "bravo2");
+        insert_event(&con, 7, "ses_b", 3, "message.updated.1", &b2_info);
+        insert_event(&con, 8, "ses_b", 4, "message.part.updated.1", &b2_part);
+        drop(con);
+
+        assert_eq!(
+            OpenCode.stamp(&db, "ses_a"),
+            stamp_a,
+            "writes to B must not change stamp A"
+        );
+        assert_eq!(OpenCode.stamp(&db, "ses_b").1, 4);
+
+        let _ = std::fs::remove_file(&db);
+        let _ = std::fs::remove_dir(db.parent().unwrap());
+    }
+
+    #[test]
+    fn opencode_timeline_resumes_after_last_seq() {
+        let db = temp_db("resume");
+        let con = open_rw(&db);
+        create_event_table(&con);
+        let (info, part) = user_message("ses_a", "msg_1", "hello");
+        insert_event(
+            &con,
+            1,
+            "ses_a",
+            0,
+            "session.created.1",
+            r#"{"info":{"id":"ses_a"}}"#,
+        );
+        insert_event(&con, 2, "ses_a", 1, "message.updated.1", &info);
+        insert_event(&con, 3, "ses_a", 2, "message.part.updated.1", &part);
+        drop(con);
+
+        let first = crate::timeline("opencode", &db, "ses_a").unwrap();
+        assert_eq!(user_texts(&first), ["hello"]);
+        assert_eq!(OpenCode.stamp(&db, "ses_a").1, 2);
+
+        let con = open_rw(&db);
+        let (info2, part2) = user_message("ses_a", "msg_2", "again");
+        insert_event(&con, 4, "ses_a", 3, "message.updated.1", &info2);
+        insert_event(&con, 5, "ses_a", 4, "message.part.updated.1", &part2);
+        drop(con);
+
+        let appended = crate::timeline("opencode", &db, "ses_a").unwrap();
+        assert_eq!(user_texts(&appended), ["hello", "again"]);
+        assert_eq!(OpenCode.stamp(&db, "ses_a").1, 4);
+
+        let con = open_rw(&db);
+        con.execute("DELETE FROM event WHERE seq > 2", []).unwrap();
+        drop(con);
+
+        let replayed = crate::timeline("opencode", &db, "ses_a").unwrap();
+        assert_eq!(
+            user_texts(&replayed),
+            ["hello"],
+            "lower max seq must full replay, not keep a stale tail"
+        );
+        assert_eq!(OpenCode.stamp(&db, "ses_a").1, 2);
+
+        let _ = std::fs::remove_file(&db);
+        let _ = std::fs::remove_dir(db.parent().unwrap());
     }
 }
