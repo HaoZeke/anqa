@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
-from anqa.harness.grok_parse import find_sessions, load_session_meta
+from anqa.harness.grok import load_meta
+from anqa.harness.grok_parse import find_sessions
 from anqa.ui.data_table import cursor_row_key
 from textual.widgets import DataTable
 
@@ -100,7 +101,7 @@ def test_populate_session_table_adds_row(tmp_path: Path):
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sd = _write_minimal_session(traces)
-    meta = load_session_meta(sd)
+    meta = load_meta(sd)
     assert meta is not None
 
     app = AnqaApp(traces_path=traces)

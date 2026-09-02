@@ -13,11 +13,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ..json_lines import json_lines
-from ..models import JsonObject, ListStatus, SessionMeta, TraceEvent, as_json_object
+from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object
 from ..session.tagged_blocks import operator_prompt_text
 from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 GEMINI_HARNESS_ID = "gemini"
 _PENDING_TOOL = frozenset(
@@ -279,91 +278,6 @@ def _is_resumable(msg: JsonObject) -> bool:
     tools = msg.get("toolCalls")
     return (isinstance(thoughts, list) and bool(thoughts)) or (
         isinstance(tools, list) and bool(tools)
-    )
-
-
-def _first_user_title(messages: Sequence[JsonObject], summary: str) -> str:
-    if summary.strip():
-        return summary.strip()[:80]
-    for msg in messages:
-        if str(msg.get("type") or "") != "user":
-            continue
-        text = operator_prompt_text(_text_of(msg.get("content"))).strip()
-        if text:
-            return text.splitlines()[0][:80]
-    return ""
-
-
-def _turn_outcome(messages: Sequence[JsonObject]) -> str:
-    last: JsonObject | None = None
-    for msg in messages:
-        typ = str(msg.get("type") or "")
-        if typ in {"user", "gemini", "error"}:
-            last = msg
-    if last is None:
-        return ""
-    typ = str(last.get("type") or "")
-    if typ == "user":
-        return from_last("user")
-    if typ == "error":
-        return from_last("error")
-    tools = last.get("toolCalls")
-    if isinstance(tools, list):
-        for item in tools:
-            if not isinstance(item, dict):
-                continue
-            mapped = from_last(str(item.get("status") or "").strip())
-            if mapped is ListStatus.RUNNING:
-                return mapped
-    return from_last("complete")
-
-
-def _meta_from_conversation(
-    meta: JsonObject,
-    messages: Sequence[JsonObject],
-    path: Path,
-    session_id: str,
-) -> SessionMeta:
-    sid = str(meta.get("sessionId") or session_id).strip()
-    created = Stamp.iso(meta.get("startTime"))
-    updated = Stamp.iso(meta.get("lastUpdated")) or created
-    if messages:
-        last_ts = Stamp.iso(messages[-1].get("timestamp"))
-        if last_ts:
-            updated = last_ts
-        if not created:
-            created = Stamp.iso(messages[0].get("timestamp"))
-    model = ""
-    tools = 0
-    for msg in messages:
-        if str(msg.get("type") or "") != "gemini":
-            continue
-        if not model:
-            model = str(msg.get("model") or "").strip()
-        calls = msg.get("toolCalls")
-        if isinstance(calls, list):
-            tools += len(calls)
-    start = Stamp.epoch(created)
-    end = Stamp.epoch(updated)
-    duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
-    cwd = ""
-    dirs = meta.get("directories")
-    if isinstance(dirs, list) and dirs:
-        cwd = str(dirs[0] or "").strip()
-    if not cwd:
-        cwd = _project_root_cwd(path)
-    return SessionMeta(
-        session_id=sid,
-        session_dir=path,
-        model_id=model or "unknown",
-        title=_first_user_title(messages, str(meta.get("summary") or "")),
-        created_at=created,
-        updated_at=updated,
-        duration_seconds=duration,
-        tool_call_count=tools,
-        run_dir=cwd,
-        turn_outcome=_turn_outcome(messages),
-        harness=GEMINI_HARNESS_ID,
     )
 
 

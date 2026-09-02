@@ -10,10 +10,9 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_mapping
+from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object
 from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 CLAUDE_HARNESS_ID = "claude"
 _CHROME_TYPES = frozenset(
@@ -207,109 +206,8 @@ def _is_tool_result_user(msg: JsonObject) -> bool:
     return all(str(b.get("type") or "") == "tool_result" for b in blocks)
 
 
-def _title_from_rows(rows: Sequence[JsonObject]) -> str:
-    for row in rows:
-        if str(row.get("type") or "") == "ai-title":
-            title = str(row.get("aiTitle") or "").strip()
-            if title:
-                return title[:80]
-    for row in rows:
-        if str(row.get("type") or "") != "user":
-            continue
-        msg = json_mapping(row.get("message"))
-        if _is_tool_result_user(msg):
-            continue
-        text = _text_of(msg.get("content")).strip()
-        if text:
-            return text.splitlines()[0][:80]
-    return ""
-
-
-def _turn_outcome(rows: Sequence[JsonObject]) -> str:
-    """List status from the last user/assistant row. Chrome rows are ignored."""
-    last: JsonObject | None = None
-    for row in rows:
-        typ = str(row.get("type") or "")
-        if typ in _CHROME_TYPES:
-            continue
-        if typ in {"user", "assistant"}:
-            last = row
-    if last is None:
-        return ""
-    typ = str(last.get("type") or "")
-    msg = json_mapping(last.get("message"))
-    if typ == "user":
-        return from_last("user")
-    stop = str(msg.get("stop_reason") or "").strip()
-    if stop.casefold().replace("_", "") == "tooluse":
-        return from_last("running")
-    return from_last(stop)
-
-
 def _child_dir(path: Path, session_id: str) -> Path:
     return path.parent / session_id / "subagents"
-
-
-def _count_children(path: Path, session_id: str) -> int:
-    folder = _child_dir(path, session_id)
-    if not folder.is_dir():
-        return 0
-    try:
-        return sum(1 for item in folder.iterdir() if item.is_file() and item.suffix == ".jsonl")
-    except OSError:
-        return 0
-
-
-def _meta_from_rows(rows: Sequence[JsonObject], path: Path, session_id: str) -> SessionMeta:
-    sid = session_id or _session_id_from_name(path)
-    created = ""
-    last_ts = ""
-    version = ""
-    model = ""
-    cwd = ""
-    branch = ""
-    tools = 0
-    for row in rows:
-        ts = Stamp.iso(row.get("timestamp"))
-        if ts:
-            last_ts = ts
-            if not created:
-                created = ts
-        if not sid:
-            sid = str(row.get("sessionId") or sid).strip()
-        if not version:
-            version = str(row.get("version") or "").strip()
-        if not cwd:
-            cwd = str(row.get("cwd") or "").strip()
-        if not branch:
-            branch = str(row.get("gitBranch") or "").strip()
-        msg = json_mapping(row.get("message"))
-        if not model:
-            model = str(msg.get("model") or "").strip()
-        for block in _content_blocks(msg):
-            if str(block.get("type") or "") == "tool_use":
-                tools += 1
-    start = Stamp.epoch(created)
-    end = Stamp.epoch(last_ts)
-    duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
-    children = _count_children(path, sid)
-    return SessionMeta(
-        session_id=sid,
-        session_dir=path,
-        model_id=model or "unknown",
-        title=_title_from_rows(rows),
-        created_at=created,
-        updated_at=last_ts,
-        duration_seconds=duration,
-        tool_call_count=tools,
-        run_dir=cwd,
-        git_branch=branch,
-        turn_outcome=_turn_outcome(rows),
-        harness=CLAUDE_HARNESS_ID,
-        harness_version=version,
-        has_subagents=children > 0,
-        subagent_count=children,
-    )
 
 
 class ClaudeAdapter:

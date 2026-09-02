@@ -140,8 +140,8 @@ def test_adapter_survives_python_ingest_boom(hid: str, monkeypatch: pytest.Monke
         raise AssertionError("product path must not call leftover Python ingest")
 
     item, ref = _bind(hid)
-    monkeypatch.setattr(grok_parse, "parse_timeline", boom)
-    monkeypatch.setattr(grok_parse, "load_session_meta_list", boom)
+    monkeypatch.setattr(grok_parse, "parse_timeline", boom, raising=False)
+    monkeypatch.setattr(grok_parse, "load_session_meta_list", boom, raising=False)
     monkeypatch.setattr("anqa.json_lines.json_lines", boom)
     meta = item.load_meta(ref)
     assert meta.harness == hid

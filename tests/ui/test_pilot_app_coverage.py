@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
-from anqa.harness.grok_parse import load_session_meta
+from anqa.harness.grok import load_meta
 from anqa.session.query import CatalogQueryRow, row_matches_query
 from anqa.ui.app import (
     AnqaApp,
@@ -107,7 +107,7 @@ def _prime_catalog(app: AnqaApp, traces: Path) -> None:
 
     rows: list[tuple[object, str]] = []
     for session_dir in find_sessions(traces):
-        meta = load_session_meta(session_dir)
+        meta = load_meta(session_dir)
         if meta is not None:
             rows.append((meta, app._derive_label(session_dir, traces)))
     app._meta_only = rows  # type: ignore[assignment]
@@ -196,13 +196,13 @@ class TestSessionSortTs:
 
     def test_iso_timestamp(self, tmp_path: Path) -> None:
         sd = _write_session(tmp_path / "t", "s1")
-        meta = load_session_meta(sd)
+        meta = load_meta(sd)
         ts = AnqaApp._session_sort_ts(meta)
         assert ts > 0
 
     def test_empty_timestamps_uses_mtime(self, tmp_path: Path) -> None:
         sd = _write_session(tmp_path / "t", "s2")
-        meta = load_session_meta(sd)
+        meta = load_meta(sd)
         meta.created_at = ""
         meta.updated_at = ""
         ts = AnqaApp._session_sort_ts(meta)
@@ -210,7 +210,7 @@ class TestSessionSortTs:
 
     def test_naive_datetime_handled(self, tmp_path: Path) -> None:
         sd = _write_session(tmp_path / "t", "s3")
-        meta = load_session_meta(sd)
+        meta = load_meta(sd)
         meta.created_at = "2026-01-01T00:00:00"
         meta.updated_at = ""
         ts = AnqaApp._session_sort_ts(meta)
@@ -1281,7 +1281,7 @@ def test_session_query_model_and_task_tokens(tmp_path: Path) -> None:
         git_repo="https://github.com/test/repo",
         summary_text="Important fix",
     )
-    meta = load_session_meta(sd)
+    meta = load_meta(sd)
     row = CatalogQueryRow.from_meta(meta, "lab")
     assert row_matches_query(row, "model:alpha")
     assert row_matches_query(row, "task:task-fix")

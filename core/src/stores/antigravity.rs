@@ -531,6 +531,7 @@ fn meta_for(root: &Path, db: &Path, session_id: &str) -> ListMeta {
         has_subagents: kids > 0,
         subagent_count: kids,
         context_tokens_used: None,
+        ..Default::default()
     }
 }
 

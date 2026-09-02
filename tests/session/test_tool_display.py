@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from anqa.harness.grok_parse import parse_timeline, parse_tool_calls
+from anqa.harness.grok import parse_timeline
 from anqa.session.control_views import timeline_event_mapping
 from anqa.tool_display import (
     display_tool_output,
@@ -234,9 +234,6 @@ def test_parse_timeline_flattens_web_search_action(tmp_path: Path) -> None:
     assert "https://example.com/pike" in (result.content or "")
     call = next(e for e in events if e.event_type == "tool_call")
     assert call.raw_input.as_str("query") == "Kernighan Pike naming"
-    calls = parse_tool_calls(sd)
-    assert calls[0].raw_input.as_str("query") == "Kernighan Pike naming"
-    assert "example.com/pike" in (calls[0].result_content or "")
 
 
 def test_parse_timeline_open_page_url(tmp_path: Path) -> None:

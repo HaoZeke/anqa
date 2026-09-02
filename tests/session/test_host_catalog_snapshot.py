@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from anqa.control.contract import PROTOCOL_VERSION
-from anqa.harness.grok_parse import load_host_list_meta
+from anqa.harness.grok import load_meta
 from anqa.session.catalog import list_session_catalog, session_catalog_row
 from anqa.session.mtime_export import write_host_catalog_export
 
@@ -62,7 +62,7 @@ def test_host_catalog_row_skips_full_timeline_parse(tmp_path: Path, monkeypatch)
     def _boom(*_a: object, **_k: object) -> None:
         raise AssertionError("host list must not parse the full timeline")
 
-    monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
+    monkeypatch.setattr(parser_mod, "parse_timeline", _boom, raising=False)
     row = session_catalog_row(sd)
     assert row is not None
     assert row["title"] == "Host title"
@@ -76,8 +76,8 @@ def test_host_list_meta_tail_sets_complete_vs_running(tmp_path: Path) -> None:
     host = tmp_path / "host"
     done = _host_session(host, "done-sess", title="Done", updates=_turn_completed_line())
     live = _host_session(host, "live-sess", title="Live", updates=_chunk_line())
-    complete = load_host_list_meta(done)
-    running = load_host_list_meta(live)
+    complete = load_meta(done)
+    running = load_meta(live)
     assert complete.list_status_label() == "complete"
     assert running.list_status_label() == "idle"
     done_row = session_catalog_row(done)

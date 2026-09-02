@@ -513,7 +513,7 @@ def test_timeline_kind_workflows_keeps_workflow_tools(tmp_path: Path) -> None:
 
 def test_overview_caps_assistant_preview_for_list(tmp_path: Path) -> None:
     """session/overview keeps short assistant previews; session/turns keeps long."""
-    from anqa.harness.grok_parse import parse_timeline
+    from anqa.harness.grok import parse_timeline
     from anqa.session.control_views import (
         build_session_overview,
         build_session_turns,
@@ -877,7 +877,7 @@ def _write_jobs_workflows_session(root: Path, name: str = "sess-reuse") -> Path:
 def test_overview_reuses_jobs_when_only_timeline_grows(tmp_path: Path) -> None:
     """Timeline-only append keeps prior job/workflow rows; bookends stay first hits."""
     import anqa.session.control_views as cv
-    from anqa.harness.grok_parse import parse_timeline
+    from anqa.harness.grok import parse_timeline
     from anqa.session.jobs import SessionJobs
     from anqa.session.workflows import workflow_event_index
 

@@ -13,11 +13,9 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..models import JsonObject, ListStatus, SessionMeta, TraceEvent, json_mapping
-from ..session.tagged_blocks import operator_prompt_text
+from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 CURSOR_HARNESS_ID = "cursor"
 _MODEL_NAME = re.compile(r'"modelName"\s*:\s*"([^"]+)"')
@@ -93,104 +91,6 @@ def _find_meta(root: Path, sid: str) -> JsonObject:
     if root.name == sid and (root / "meta.json").is_file():
         return _load_json(root / "meta.json")
     return {}
-
-
-def _blocks_text(raw: object) -> str:
-    if isinstance(raw, str):
-        return raw
-    if not isinstance(raw, list):
-        return ""
-    bits: list[str] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("type") or "") != "text":
-            continue
-        text = str(item.get("text") or "").strip()
-        if text:
-            bits.append(text)
-    return "\n".join(bits)
-
-
-def _session_title(header: JsonObject, rows: Sequence[JsonObject]) -> str:
-    prompt = _first_user_title(rows)
-    if prompt:
-        return prompt
-    raw = operator_prompt_text(str(header.get("title") or "").strip())
-    return raw.splitlines()[0][:120] if raw else ""
-
-
-def _first_user_title(rows: Sequence[JsonObject]) -> str:
-    for row in rows:
-        if str(row.get("role") or "") != "user":
-            continue
-        text = operator_prompt_text(_blocks_text(json_mapping(row.get("message")).get("content")))
-        if text:
-            return text.splitlines()[0][:120]
-    return ""
-
-
-def _count_tools(rows: Sequence[JsonObject]) -> int:
-    n = 0
-    for row in rows:
-        content = json_mapping(row.get("message")).get("content")
-        if not isinstance(content, list):
-            continue
-        for part in content:
-            if isinstance(part, dict) and str(part.get("type") or "") == "tool_use":
-                n += 1
-    return n
-
-
-def _last_signal(rows: Sequence[JsonObject]) -> tuple[str, str]:
-    last_type = ""
-    last_status = ""
-    last_role = ""
-    for row in rows:
-        typ = str(row.get("type") or "").strip()
-        if typ == "turn_ended":
-            last_type = typ
-            last_status = str(row.get("status") or "").strip()
-            last_role = ""
-            continue
-        role = str(row.get("role") or "").strip()
-        if role in {"user", "assistant"}:
-            last_role = role
-            last_type = ""
-            last_status = ""
-    return last_type, last_status or last_role
-
-
-def _turn_outcome(rows: Sequence[JsonObject]) -> str:
-    kind, status = _last_signal(rows)
-    if kind == "turn_ended":
-        mapped = from_last(status)
-        if mapped is ListStatus.IDLE:
-            return ListStatus.COMPLETE
-        return mapped
-    return from_last(status)
-
-
-def _meta_from(rows: Sequence[JsonObject], path: Path, sid: str, header: JsonObject) -> SessionMeta:
-    created = Stamp.iso(header.get("createdAtMs"))
-    updated = Stamp.iso(header.get("updatedAtMs")) or created
-    start = Stamp.epoch(header.get("createdAtMs"))
-    end = Stamp.epoch(header.get("updatedAtMs"))
-    duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
-    return SessionMeta(
-        session_id=sid,
-        session_dir=path,
-        model_id=_model_from_store(default_store_root(), sid) or "unknown",
-        title=_session_title(header, rows),
-        created_at=created,
-        updated_at=updated,
-        duration_seconds=duration,
-        run_dir=str(header.get("cwd") or "").strip(),
-        num_events=0,
-        tool_call_count=_count_tools(rows),
-        turn_outcome=_turn_outcome(rows),
-        harness=CURSOR_HARNESS_ID,
-    )
 
 
 def _ref_for_file(path: Path, cwd: str = "") -> SessionRef | None:

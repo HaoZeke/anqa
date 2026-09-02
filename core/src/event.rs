@@ -257,6 +257,7 @@ pub struct Event {
     pub child_session_id: String,
     pub subagent_type: String,
     pub description: String,
+    pub images: Vec<Vec<u8>>,
 }
 
 impl Event {
@@ -277,6 +278,7 @@ impl Event {
             child_session_id: String::new(),
             subagent_type: String::new(),
             description: String::new(),
+            images: Vec::new(),
         }
     }
 
@@ -432,6 +434,16 @@ pub struct ListMeta {
     pub has_subagents: bool,
     pub subagent_count: u32,
     pub context_tokens_used: Option<i64>,
+    pub context_window_usage_pct: Option<i64>,
+    pub context_window_tokens: Option<i64>,
+    pub turn_count: u32,
+    pub error_count: u32,
+    pub tool_failure_count: u32,
+    pub lines_added: u32,
+    pub lines_removed: u32,
+    pub compaction_count: u32,
+    pub doom_loop_warnings: u32,
+    pub task_id: String,
 }
 
 impl ListMeta {

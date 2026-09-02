@@ -246,8 +246,8 @@ def test_list_meta_without_event_count_does_not_parse_timeline(tmp_path: Path, m
     def boom(*_a: object, **_k: object) -> object:
         raise AssertionError("list-meta must not use the Python ingest")
 
-    monkeypatch.setattr(parse_mod, "parse_timeline", boom)
-    monkeypatch.setattr(parse_mod, "load_session_meta_list", boom)
+    monkeypatch.setattr(parse_mod, "parse_timeline", boom, raising=False)
+    monkeypatch.setattr(parse_mod, "load_session_meta_list", boom, raising=False)
     meta = GrokAdapter().load_meta(sd)
     assert meta.title == "t"
     assert meta.harness == "grok"
@@ -260,7 +260,7 @@ def test_parse_timeline_does_not_use_python_ingest(monkeypatch) -> None:
     def boom(*_a: object, **_k: object) -> object:
         raise AssertionError("adapter timeline must use anqa.core")
 
-    monkeypatch.setattr(parse_mod, "parse_timeline", boom)
+    monkeypatch.setattr(parse_mod, "parse_timeline", boom, raising=False)
     events = GrokAdapter().parse_timeline(_MINIMAL)
     assert events
 

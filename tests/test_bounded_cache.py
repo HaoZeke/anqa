@@ -7,11 +7,9 @@ import threading
 import pytest
 from anqa.bounded_cache import MIN_MAXSIZE, BoundedCache, resolve_maxsize
 from anqa.constants import (
-    SYSTEM_PROMPT_CACHE_MAXSIZE,
     TIMELINE_CACHE_MAX_ENV,
     TIMELINE_CACHE_MAXSIZE,
 )
-from anqa.harness import grok_parse as parser_mod
 from anqa.session.control_views import SessionOverview
 from anqa.session.jobs import SessionJobs
 
@@ -121,10 +119,6 @@ class TestParserCachesAreBounded:
 
     def test_module_caches_are_bounded(self):
         for cache in (
-            parser_mod._timeline_cache,
-            parser_mod._runtime_markers_cache,
-            parser_mod._list_runtime_cache,
-            parser_mod._system_prompt_cache,
             SessionOverview._cache,
             SessionJobs._row_cache,
             SessionOverview._turn_cache,
@@ -137,21 +131,3 @@ class TestParserCachesAreBounded:
             TIMELINE_CACHE_MAXSIZE, env_var=TIMELINE_CACHE_MAX_ENV
         )
         assert cache.maxsize == 5
-
-    def test_parsing_many_sessions_keeps_timeline_cache_capped(self, tmp_path):
-        """Parsing more sessions than the cap must not retain them all."""
-        cap = parser_mod._timeline_cache.maxsize
-        parser_mod._timeline_cache.clear()
-        parser_mod._system_prompt_cache.clear()
-
-        for n in range(cap + 8):
-            sd = tmp_path / f"session-{n:03d}"
-            sd.mkdir()
-            (sd / "updates.jsonl").write_text(
-                '{"type":"assistant","content":"hi"}\n', encoding="utf-8"
-            )
-            parser_mod.parse_timeline(sd)
-
-        assert len(parser_mod._timeline_cache) == cap
-        assert parser_mod._timeline_cache.evictions >= 8
-        assert len(parser_mod._system_prompt_cache) <= SYSTEM_PROMPT_CACHE_MAXSIZE

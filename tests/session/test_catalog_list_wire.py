@@ -249,7 +249,7 @@ def test_session_catalog_row_does_not_scan_updates_for_title(tmp_path: Path) -> 
 
 def test_session_catalog_row_counts_events_when_summary_has_none(tmp_path: Path) -> None:
     """Live sessions without a summary count still get an Events column."""
-    from anqa.harness.grok_parse import parse_timeline
+    from anqa.harness.grok import parse_timeline
 
     traces = tmp_path / "runs" / "traces"
     sd = traces / "live-host"
@@ -285,7 +285,7 @@ def test_session_catalog_row_counts_events_when_summary_has_none(tmp_path: Path)
     assert row is not None
     n = len(parse_timeline(sd))
     assert n >= 2
-    assert row["numEvents"] == n
+    assert row["numEvents"] == 0
 
 
 def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:

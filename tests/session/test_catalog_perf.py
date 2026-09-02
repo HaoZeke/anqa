@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import anqa.harness.grok_parse as parser_mod
 import pytest
 from anqa.session import catalog as catalog_mod
 from anqa.session.catalog import SessionCatalogCache, list_session_catalog
@@ -96,7 +95,7 @@ def test_list_session_catalog_does_not_parse_timeline(tmp_path: Path, monkeypatc
         parsed.append(str(session_dir))
         raise AssertionError("parse_timeline must not run for catalog rows")
 
-    monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
+    monkeypatch.setattr("anqa.harness.grok.parse_timeline", _boom)
     rows = list_session_catalog(traces_path=traces, include_host=False)
     assert len(rows) == 240
     assert parsed == []
@@ -199,7 +198,7 @@ def test_fat_catalog_list_does_not_parse_timeline(
         parsed.append(Path(session_dir).name)
         raise AssertionError("parse_timeline must not run for catalog rows")
 
-    monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
+    monkeypatch.setattr("anqa.harness.grok.parse_timeline", _boom)
     rows = list_session_catalog(traces_path=traces, include_host=False)
     assert len(rows) == 6
     assert parsed == []
@@ -255,13 +254,12 @@ async def test_browser_bundle_reads_only_one_session(tmp_path: Path, monkeypatch
         encoding="utf-8",
     )
     read_dirs: list[str] = []
-    real_parse = parser_mod.parse_timeline
 
-    def tracked(session_dir: Path) -> list[object]:
+    def boom(session_dir: Path) -> list[object]:
         read_dirs.append(Path(session_dir).name)
-        return real_parse(session_dir)
+        raise AssertionError("bundle must not parse_timeline")
 
-    monkeypatch.setattr("anqa.harness.grok.parse_timeline", tracked)
+    monkeypatch.setattr("anqa.harness.grok.parse_timeline", boom)
 
     class _Access:
         async def session_overview(self, session: str) -> dict:

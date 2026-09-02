@@ -543,6 +543,7 @@ fn meta_from_conversation(meta: &Value, messages: &[Value], path: &Path, sid: &s
         has_subagents: false,
         subagent_count: 0,
         context_tokens_used: None,
+        ..Default::default()
     }
 }
 

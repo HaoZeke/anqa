@@ -360,6 +360,7 @@ fn meta_from_window(rows: &[JsonlRow], path: &Path, sid: &str, header: &Value) -
         has_subagents: false,
         subagent_count: 0,
         context_tokens_used: None,
+        ..Default::default()
     }
 }
 

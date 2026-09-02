@@ -12,9 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
-from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 COPILOT_HARNESS_ID = "copilot"
 _TURN_SIGNALS = frozenset(
@@ -101,10 +99,6 @@ def _last_turn_type(events: list[JsonObject]) -> str:
     return last
 
 
-def _turn_outcome(events: list[JsonObject]) -> str:
-    return from_last(_last_turn_type(events))
-
-
 def _model_from_events(events: list[JsonObject]) -> str:
     for row in reversed(events):
         typ = str(row.get("type") or "")
@@ -124,44 +118,6 @@ def _version_from_events(events: list[JsonObject]) -> str:
         if ver:
             return ver
     return ""
-
-
-def _count_tools(events: list[JsonObject]) -> int:
-    return sum(1 for row in events if str(row.get("type") or "") == "tool.execution_start")
-
-
-def _count_subagents(events: list[JsonObject]) -> int:
-    return sum(1 for row in events if str(row.get("type") or "") == "subagent.started")
-
-
-def _meta_from_row(row: sqlite3.Row, db: Path, events: list[JsonObject]) -> SessionMeta:
-    sid = str(row["id"])
-    created = Stamp.iso(row["created_at"])
-    updated = Stamp.iso(row["updated_at"] or row["created_at"])
-    duration = 0.0
-    start = Stamp.epoch(row["created_at"])
-    end = Stamp.epoch(row["updated_at"] or row["created_at"])
-    if start is not None and end is not None:
-        duration = max(0.0, float(end - start))
-    cwd = str(row["cwd"] or "").strip()
-    kids = _count_subagents(events)
-    return SessionMeta(
-        session_id=sid,
-        session_dir=db,
-        model_id=_model_from_events(events) or "unknown",
-        title=str(row["summary"] or "").strip(),
-        created_at=created,
-        updated_at=updated,
-        duration_seconds=duration,
-        run_dir=cwd,
-        num_events=0,
-        tool_call_count=_count_tools(events),
-        turn_outcome=_turn_outcome(events),
-        harness=COPILOT_HARNESS_ID,
-        harness_version=_version_from_events(events),
-        has_subagents=kids > 0,
-        subagent_count=kids,
-    )
 
 
 class CopilotAdapter:

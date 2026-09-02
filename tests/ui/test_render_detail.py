@@ -654,7 +654,7 @@ class TestRenderEventDetail:
         assert "No workflow run on disk" in bare or "workflow" in bare.lower()
 
     def test_schedule_inspect_uses_merged_last_fire(self, tmp_path):
-        from anqa.harness.grok_parse import parse_timeline
+        from anqa.harness.grok import parse_timeline
         from anqa.session.jobs import SessionJobs, schedule_for_event
         from anqa.ui.render_detail import render_event_detail
 

@@ -426,6 +426,7 @@ impl Store for Pi {
             has_subagents: kids > 0,
             subagent_count: kids,
             context_tokens_used: None,
+            ..Default::default()
         })
     }
 }

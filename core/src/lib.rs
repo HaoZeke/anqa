@@ -200,6 +200,11 @@ mod pybind {
         d.set_item("child_session_id", ev.child_session_id.as_str())?;
         d.set_item("subagent_type", ev.subagent_type.as_str())?;
         d.set_item("description", ev.description.as_str())?;
+        let imgs = PyList::empty(py);
+        for blob in &ev.images {
+            imgs.append(pyo3::types::PyBytes::new(py, blob))?;
+        }
+        d.set_item("images", imgs)?;
         Ok(d)
     }
 
@@ -286,6 +291,16 @@ mod pybind {
         d.set_item("has_subagents", meta.has_subagents)?;
         d.set_item("subagent_count", meta.subagent_count)?;
         d.set_item("context_tokens_used", meta.context_tokens_used)?;
+        d.set_item("context_window_usage_pct", meta.context_window_usage_pct)?;
+        d.set_item("context_window_tokens", meta.context_window_tokens)?;
+        d.set_item("turn_count", meta.turn_count)?;
+        d.set_item("error_count", meta.error_count)?;
+        d.set_item("tool_failure_count", meta.tool_failure_count)?;
+        d.set_item("lines_added", meta.lines_added)?;
+        d.set_item("lines_removed", meta.lines_removed)?;
+        d.set_item("compaction_count", meta.compaction_count)?;
+        d.set_item("doom_loop_warnings", meta.doom_loop_warnings)?;
+        d.set_item("task_id", meta.task_id)?;
         Ok(d)
     }
 

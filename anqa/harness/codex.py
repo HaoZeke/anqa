@@ -13,7 +13,6 @@ from pathlib import Path
 from ..models import JsonObject, SessionMeta, TraceEvent, json_mapping
 from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 CODEX_HARNESS_ID = "codex"
 _ROLL_ID = re.compile(
@@ -50,122 +49,6 @@ def _blocks_text(raw: object, *, kinds: frozenset[str]) -> str:
     return "\n".join(bits)
 
 
-def _meta_row(rows: Sequence[JsonObject]) -> JsonObject:
-    for row in rows:
-        if str(row.get("type") or "") == "session_meta":
-            return json_mapping(row.get("payload"))
-    return {}
-
-
-def _last_event_msg_type(rows: Sequence[JsonObject]) -> str:
-    last = ""
-    for row in rows:
-        if str(row.get("type") or "") != "event_msg":
-            continue
-        typ = str(json_mapping(row.get("payload")).get("type") or "").strip()
-        if typ in _TURN_SIGNALS:
-            last = typ
-    return last
-
-
-def _turn_outcome(rows: Sequence[JsonObject]) -> str:
-    return from_last(_last_event_msg_type(rows))
-
-
-def _model_from_rows(rows: Sequence[JsonObject]) -> str:
-    for row in reversed(rows):
-        typ = str(row.get("type") or "")
-        pl = json_mapping(row.get("payload"))
-        if typ == "turn_context":
-            mid = str(pl.get("model") or "").strip()
-            if mid:
-                return mid
-        if typ == "event_msg" and str(pl.get("type") or "") == "thread_settings_applied":
-            mid = str(json_mapping(pl.get("thread_settings")).get("model") or "").strip()
-            if mid:
-                return mid
-    return ""
-
-
-def _is_environment_context(text: str) -> bool:
-    return text.lstrip().startswith("<environment_context>")
-
-
-def _first_user_title(rows: Sequence[JsonObject]) -> str:
-    for row in rows:
-        if str(row.get("type") or "") != "response_item":
-            continue
-        pl = json_mapping(row.get("payload"))
-        if str(pl.get("type") or "") != "message" or str(pl.get("role") or "") != "user":
-            continue
-        text = _blocks_text(pl.get("content"), kinds=frozenset({"input_text"}))
-        if text and not _is_environment_context(text):
-            return text.splitlines()[0][:120]
-    return ""
-
-
-def _count_tools(rows: Sequence[JsonObject]) -> int:
-    n = 0
-    for row in rows:
-        if str(row.get("type") or "") != "response_item":
-            continue
-        pt = str(json_mapping(row.get("payload")).get("type") or "")
-        if pt in {"custom_tool_call", "function_call"}:
-            n += 1
-    return n
-
-
-def _count_subagents(rows: Sequence[JsonObject]) -> int:
-    n = 0
-    for row in rows:
-        item = _subagent_item(row)
-        if item is not None and str(item.get("kind") or "") == "started":
-            n += 1
-    return n
-
-
-def _subagent_item(row: JsonObject) -> JsonObject | None:
-    if str(row.get("type") or "") != "event_msg":
-        return None
-    pl = json_mapping(row.get("payload"))
-    if str(pl.get("type") or "") != "item_completed":
-        return None
-    item = json_mapping(pl.get("item"))
-    if str(item.get("type") or "") != "SubAgentActivity":
-        return None
-    return item
-
-
-def _meta_from_rows(rows: Sequence[JsonObject], path: Path, sid: str) -> SessionMeta:
-    header = _meta_row(rows)
-    sid = str(header.get("session_id") or header.get("id") or sid).strip() or sid
-    created = Stamp.iso(header.get("timestamp") or (rows[0].get("timestamp") if rows else ""))
-    last_ts = ""
-    for row in rows:
-        last_ts = Stamp.iso(row.get("timestamp")) or last_ts
-    start = Stamp.epoch(header.get("timestamp") or (rows[0].get("timestamp") if rows else None))
-    end = Stamp.epoch(rows[-1].get("timestamp")) if rows else None
-    duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
-    kids = _count_subagents(rows)
-    return SessionMeta(
-        session_id=sid,
-        session_dir=path,
-        model_id=_model_from_rows(rows) or "unknown",
-        title=_first_user_title(rows),
-        created_at=created,
-        updated_at=last_ts or created,
-        duration_seconds=duration,
-        run_dir=str(header.get("cwd") or "").strip(),
-        num_events=0,
-        tool_call_count=_count_tools(rows),
-        turn_outcome=_turn_outcome(rows),
-        harness=CODEX_HARNESS_ID,
-        harness_version=str(header.get("cli_version") or "").strip(),
-        has_subagents=kids > 0,
-        subagent_count=kids,
-    )
-
-
 def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
     out: list[Path] = []
     for raw in roots:
@@ -179,6 +62,13 @@ def _collect_jsonl(roots: Sequence[Path]) -> list[Path]:
 
         out.extend(sorted(find_files(path, suffix=".jsonl", name_prefix="rollout-")))
     return out
+
+
+def _meta_row(rows: Sequence[JsonObject]) -> JsonObject:
+    for row in rows:
+        if str(row.get("type") or "") == "session_meta":
+            return json_mapping(row.get("payload"))
+    return {}
 
 
 def _ref_for_file(path: Path) -> SessionRef | None:

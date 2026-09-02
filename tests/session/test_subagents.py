@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from anqa.harness.grok_parse import find_sessions, parse_timeline
+from anqa.harness.grok import parse_timeline
+from anqa.harness.grok_parse import find_sessions
 from anqa.models import ToolInputBag, TraceEvent
 from anqa.session.sources import (
     SessionScanRoot,

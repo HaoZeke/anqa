@@ -22,6 +22,448 @@ fn prompt_index(update: &Value) -> Option<i32> {
         .map(|n| n as i32)
 }
 
+fn goal_id_in_raw(raw: &str) -> String {
+    let Ok(val) = serde_json::from_str::<Value>(raw) else {
+        return String::new();
+    };
+    let gid = text::field_str(&val, "goal_id");
+    if gid.is_empty() {
+        text::field_str(&val, "goalId")
+    } else {
+        gid
+    }
+}
+
+fn subagent_finish_content(update: &Value) -> String {
+    let desc = text::field_str(update, "description");
+    if !desc.is_empty() {
+        return desc;
+    }
+    text::field_str(update, "status")
+}
+
+fn task_preview(update: &Value) -> String {
+    let command = text::field_str(update, "command");
+    let command = if command.is_empty() {
+        text::field_str(update, "display_command")
+    } else {
+        command
+    };
+    if !command.is_empty() {
+        return format!("$ {}", command.replace('\n', " "));
+    }
+    let desc = text::field_str(update, "description");
+    if !desc.is_empty() {
+        return desc;
+    }
+    let snap = update.get("task_snapshot");
+    if let Some(obj) = snap {
+        let command = text::field_str(obj, "command");
+        if !command.is_empty() {
+            return format!("$ {}", command.replace('\n', " "));
+        }
+        let out = text::field_str(obj, "output");
+        if !out.is_empty() {
+            return text::first_line(&out, 160);
+        }
+    }
+    String::new()
+}
+
+fn session_update_content(kind: &EventType, update: &Value) -> String {
+    match kind {
+        EventType::SessionRecap => text::field_str(update, "summary"),
+        EventType::GoalUpdated => {
+            let objective = text::field_str(update, "objective");
+            let status = text::field_str(update, "status");
+            let phase = text::field_str(update, "phase");
+            let last = text::field_str(update, "last_event");
+            let verdict = text::field_str(update, "last_classifier_verdict");
+            let mut bits = Vec::new();
+            if !objective.is_empty() {
+                bits.push(objective);
+            }
+            let mut mid = Vec::new();
+            if !status.is_empty() {
+                mid.push(format!("status={status}"));
+            }
+            if !phase.is_empty() {
+                mid.push(format!("phase={phase}"));
+            }
+            if !last.is_empty() {
+                mid.push(format!("last={last}"));
+            }
+            if !verdict.is_empty() {
+                mid.push(format!("verdict={verdict}"));
+            }
+            if !mid.is_empty() {
+                bits.push(mid.join(" "));
+            }
+            let detail = text::field_str(update, "last_event_detail");
+            if !detail.is_empty() {
+                bits.push(detail.chars().take(240).collect());
+            }
+            if bits.is_empty() {
+                "goal_updated".into()
+            } else {
+                bits.join("  ")
+            }
+        }
+        EventType::AutoCompactStarted => compact_started_content(update),
+        EventType::AutoCompactCompleted => compact_completed_content(update),
+        EventType::CompactionCheckpoint => compact_checkpoint_content(update),
+        EventType::HookExecution => hook_execution_row(update).0,
+        EventType::HookAnnotation => {
+            let msg = text::field_str(update, "message");
+            if msg.is_empty() {
+                "hook_annotation".into()
+            } else {
+                text::first_line(&msg, 500)
+            }
+        }
+        k if k.is_scheduled_task() => {
+            let sched = text::field_str(update, "human_schedule");
+            let prompt = text::field_str(update, "prompt");
+            let mut bits = Vec::new();
+            if !sched.is_empty() {
+                bits.push(sched);
+            }
+            if !prompt.is_empty() {
+                bits.push(text::first_line(&prompt, 48));
+            }
+            if bits.is_empty() {
+                text::field_str(update, "task_id")
+            } else {
+                bits.join(" · ")
+            }
+        }
+        _ => text::text_of(update.get("content").unwrap_or(&Value::Null)),
+    }
+}
+
+fn hook_short_name(name: &str) -> String {
+    let head = name.split(':').next().unwrap_or(name);
+    head.rsplit('/').next().unwrap_or(head).to_string()
+}
+
+fn hook_execution_row(update: &Value) -> (String, bool) {
+    let mut bits = Vec::new();
+    let event_name = text::field_str(update, "event_name");
+    if !event_name.is_empty() {
+        bits.push(event_name);
+    }
+    let tool = text::field_str(update, "tool_name");
+    if !tool.is_empty() {
+        bits.push(tool);
+    }
+    let mut failed = false;
+    let mut error = String::new();
+    if let Some(Value::Array(runs)) = update.get("runs") {
+        for run in runs {
+            let name = text::field_str(run, "name");
+            let short = if name.is_empty() {
+                "hook".into()
+            } else {
+                hook_short_name(&name)
+            };
+            let st = run.get("status");
+            let status = match st {
+                Some(Value::Object(obj)) => obj.get("status").map(text::as_str).unwrap_or_default(),
+                Some(other) => text::as_str(other),
+                None => String::new(),
+            };
+            let blocked = st
+                .and_then(|v| v.get("blocked"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let run_error = st
+                .and_then(|v| v.get("error"))
+                .map(text::as_str)
+                .unwrap_or_default();
+            let outcome = if blocked {
+                "blocked"
+            } else if status.is_empty() {
+                "ran"
+            } else {
+                status.as_str()
+            };
+            bits.push(format!("{short}:{outcome}"));
+            failed = failed || blocked || matches!(status.as_str(), "failed" | "error");
+            if error.is_empty() && !run_error.is_empty() {
+                error = run_error.chars().take(200).collect();
+            }
+        }
+    }
+    if !error.is_empty() {
+        bits.push(error);
+    }
+    let content = if bits.is_empty() {
+        "hook_execution".into()
+    } else {
+        bits.join("  ")
+    };
+    (content, failed)
+}
+
+fn compact_started_content(update: &Value) -> String {
+    let mut bits = Vec::new();
+    let reason = text::field_str(update, "reason");
+    if !reason.is_empty() {
+        bits.push(reason);
+    }
+    if let Some(pct) = update.get("percentage") {
+        let s = text::as_str(pct);
+        if !s.is_empty() {
+            bits.push(format!("{s}%"));
+        }
+    }
+    if let (Some(used), Some(window)) = (update.get("tokens_used"), update.get("context_window")) {
+        bits.push(format!("{}/{}", text::as_str(used), text::as_str(window)));
+    }
+    if bits.is_empty() {
+        "auto_compact_started".into()
+    } else {
+        bits.join("  ")
+    }
+}
+
+fn compact_completed_content(update: &Value) -> String {
+    let mut bits = Vec::new();
+    if let (Some(before), Some(after)) = (update.get("tokens_before"), update.get("tokens_after")) {
+        bits.push(format!(
+            "{} -> {}",
+            text::as_str(before),
+            text::as_str(after)
+        ));
+    }
+    if let Some(elapsed) = update.get("elapsed_ms") {
+        let s = text::as_str(elapsed);
+        if !s.is_empty() {
+            bits.push(format!("{s}ms"));
+        }
+    }
+    let preview = text::field_str(update, "summary_preview");
+    if !preview.is_empty() {
+        bits.push(preview.chars().take(240).collect());
+    }
+    if bits.is_empty() {
+        "auto_compact_completed".into()
+    } else {
+        bits.join("  ")
+    }
+}
+
+fn compact_checkpoint_content(update: &Value) -> String {
+    let mut bits = Vec::new();
+    let cid = text::field_str(update, "checkpoint_id");
+    if !cid.is_empty() {
+        bits.push(cid);
+    }
+    if let Some(pidx) = update.get("prompt_index_at_compaction") {
+        let s = text::as_str(pidx);
+        if !s.is_empty() {
+            bits.push(format!("prompt_index={s}"));
+        }
+    }
+    if bits.is_empty() {
+        "compaction_checkpoint".into()
+    } else {
+        bits.join("  ")
+    }
+}
+
+fn decode_b64(input: &str) -> Option<Vec<u8>> {
+    let s: String = input.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    if s.is_empty() {
+        return None;
+    }
+    fn val(c: u8) -> Option<u8> {
+        match c {
+            b'A'..=b'Z' => Some(c - b'A'),
+            b'a'..=b'z' => Some(c - b'a' + 26),
+            b'0'..=b'9' => Some(c - b'0' + 52),
+            b'+' | b'-' => Some(62),
+            b'/' | b'_' => Some(63),
+            b'=' => Some(0),
+            _ => None,
+        }
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        let a = val(bytes[i])?;
+        let b = val(*bytes.get(i + 1)?)?;
+        let cch = bytes.get(i + 2).copied().unwrap_or(b'=');
+        let dch = bytes.get(i + 3).copied().unwrap_or(b'=');
+        let c = val(cch)?;
+        let d = val(dch)?;
+        out.push((a << 2) | (b >> 4));
+        if cch != b'=' {
+            out.push((b << 4) | (c >> 2));
+        }
+        if dch != b'=' {
+            out.push((c << 6) | d);
+        }
+        i += 4;
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn message_parts(val: &Value) -> (String, Vec<Vec<u8>>) {
+    match val {
+        Value::String(s) => (s.clone(), Vec::new()),
+        Value::Array(items) => {
+            let mut text = String::new();
+            let mut images = Vec::new();
+            for item in items {
+                let (chunk, imgs) = message_parts(item);
+                text.push_str(&chunk);
+                images.extend(imgs);
+            }
+            (text, images)
+        }
+        Value::Object(obj) => {
+            let kind = obj.get("type").map(text::as_str).unwrap_or_default();
+            if kind == "image" {
+                let data = obj.get("data").map(text::as_str).unwrap_or_default();
+                (String::new(), decode_b64(&data).into_iter().collect())
+            } else {
+                (text::field_str(val, "text"), Vec::new())
+            }
+        }
+        _ => (String::new(), Vec::new()),
+    }
+}
+
+fn child_session_id(update: &Value) -> String {
+    let cid = text::field_str(update, "childSessionId");
+    if !cid.is_empty() {
+        return cid;
+    }
+    let cid = text::field_str(update, "child_session_id");
+    if !cid.is_empty() {
+        return cid;
+    }
+    text::field_str(update, "subagentId")
+}
+
+fn web_search_from_action(action: &Value) -> (String, String, String) {
+    if !action.is_object() {
+        return (String::new(), String::new(), String::new());
+    }
+    let query = text::field_str(action, "query");
+    let page_url = {
+        let u = text::field_str(action, "url");
+        if u.is_empty() {
+            text::field_str(action, "link")
+        } else {
+            u
+        }
+    };
+    let mut lines = Vec::new();
+    if !query.is_empty() {
+        lines.push(query.clone());
+    }
+    let mut urls = Vec::new();
+    if let Some(Value::Array(sources)) = action.get("sources") {
+        for item in sources {
+            let url = match item {
+                Value::Object(_) => {
+                    let u = text::field_str(item, "url");
+                    if u.is_empty() {
+                        text::field_str(item, "link")
+                    } else {
+                        u
+                    }
+                }
+                Value::String(s) => s.clone(),
+                _ => String::new(),
+            };
+            if url.is_empty() {
+                continue;
+            }
+            let title = if item.is_object() {
+                text::field_str(item, "title")
+            } else {
+                String::new()
+            };
+            urls.push(if title.is_empty() {
+                url
+            } else {
+                format!("{title}  {url}")
+            });
+        }
+    }
+    if !page_url.is_empty() && !urls.iter().any(|u| u.contains(&page_url)) {
+        urls.push(page_url.clone());
+    }
+    if !urls.is_empty() {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.extend(urls);
+    }
+    (lines.join("\n"), query, page_url)
+}
+
+fn web_search_from_raw(raw_output: &Value) -> (String, String, String) {
+    if !raw_output.is_object() {
+        return (String::new(), String::new(), String::new());
+    }
+    let from_action = web_search_from_action(raw_output.get("action").unwrap_or(&Value::Null));
+    if !from_action.0.is_empty() || !from_action.1.is_empty() || !from_action.2.is_empty() {
+        return from_action;
+    }
+    web_search_from_action(raw_output)
+}
+
+fn merge_json_fields(raw: &str, pairs: &[(&str, &str)]) -> String {
+    let mut obj = match serde_json::from_str::<Value>(raw) {
+        Ok(Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    for (key, val) in pairs {
+        if val.is_empty() {
+            continue;
+        }
+        if !obj.contains_key(*key) {
+            obj.insert((*key).to_string(), Value::String((*val).to_string()));
+        }
+    }
+    serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| raw.to_string())
+}
+
+fn merge_search_and_workflow(ev: &mut Event, query: &str, url: &str, raw_output: &Value) {
+    let mut pairs: Vec<(&str, String)> = Vec::new();
+    if !query.is_empty() {
+        pairs.push(("query", query.to_string()));
+    }
+    if !url.is_empty() {
+        pairs.push(("url", url.to_string()));
+    }
+    let kind = text::field_str(raw_output, "type");
+    if ev.tool_name == "workflow" || kind == "Workflow" {
+        let rid = text::field_str(raw_output, "run_id");
+        let name = text::field_str(raw_output, "name");
+        if !rid.is_empty() {
+            pairs.push(("run_id", rid));
+        }
+        if !name.is_empty() {
+            pairs.push(("name", name));
+        }
+    }
+    if pairs.is_empty() {
+        return;
+    }
+    let refs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    ev.raw = merge_json_fields(&ev.raw, &refs);
+}
+
 fn task_family_raw(update: &Value, line: &str) -> String {
     let mut merged = serde_json::Map::new();
     if let Some(Value::Object(snap)) = update.get("task_snapshot") {
@@ -41,6 +483,7 @@ fn consume_line(
     rec: &crate::store::Record,
     events: &mut Vec<Event>,
     results: &mut std::collections::HashMap<String, usize>,
+    pending: &mut std::collections::HashMap<String, usize>,
 ) {
     let val = &rec.value;
     let line = rec.raw.as_str();
@@ -55,11 +498,12 @@ fn consume_line(
         | EventType::AgentMessageChunk
         | EventType::AgentThoughtChunk => {
             let mapped = kind;
-            let content = text::text_of(update.get("content").unwrap_or(&Value::Null));
+            let (content, images) = message_parts(update.get("content").unwrap_or(&Value::Null));
             if let Some(prev) = events.last_mut() {
                 if prev.event_type == mapped {
                     if mapped != EventType::UserMessageChunk {
                         prev.content.push_str(&content);
+                        prev.images.extend(images);
                         prev.timestamp = ts.or(prev.timestamp);
                         if prev.prompt_index.is_none() {
                             prev.prompt_index = prompt_index(&update);
@@ -67,12 +511,13 @@ fn consume_line(
                         return;
                     }
                     let old = prev.content.clone();
-                    if content.is_empty() {
-                        prev.timestamp = ts.or(prev.timestamp);
-                        return;
-                    }
-                    if old.is_empty() || content.starts_with(&old) || old.starts_with(&content) {
-                        if content.len() >= old.len() {
+                    let merge = content.is_empty()
+                        || old.is_empty()
+                        || content.starts_with(&old)
+                        || old.starts_with(&content);
+                    if merge {
+                        prev.images.extend(images);
+                        if !content.is_empty() && content.len() >= old.len() {
                             prev.content = content;
                         }
                         prev.timestamp = ts.or(prev.timestamp);
@@ -88,6 +533,7 @@ fn consume_line(
                 .with_content(content)
                 .with_raw(update_raw(&update, line));
             ev.prompt_index = prompt_index(&update);
+            ev.images = images;
             events.push(ev);
         }
         EventType::ToolCall => {
@@ -110,12 +556,21 @@ fn consume_line(
                 .with_content(name.clone())
                 .with_raw(serde_json::to_string(&args).unwrap_or_else(|_| line.to_string()));
             ev.tool_name = if name.is_empty() { "tool".into() } else { name };
-            ev.tool_call_id = call_id;
+            ev.tool_call_id = call_id.clone();
+            pending.insert(call_id, events.len());
             events.push(ev);
         }
         EventType::ToolCallUpdate => {
             let call_id = text::field_str(&update, "toolCallId");
-            let body = text::text_of(update.get("content").unwrap_or(&Value::Null));
+            let mut body = text::text_of(update.get("content").unwrap_or(&Value::Null));
+            let raw_output = update.get("rawOutput").cloned().unwrap_or(Value::Null);
+            if body.is_empty() {
+                body = text::text_of(&raw_output);
+            }
+            let (search_body, search_query, search_url) = web_search_from_raw(&raw_output);
+            if !search_body.is_empty() && (body.is_empty() || body.trim() == "{}") {
+                body = search_body;
+            }
             let failed = update.get("isError") == Some(&Value::Bool(true))
                 || text::field_str(&update, "status") == "failed";
             let terminal = failed
@@ -123,8 +578,18 @@ fn consume_line(
                     text::field_str(&update, "status").as_str(),
                     "completed" | "failed"
                 );
-            if body.is_empty() && !failed {
+            if body.is_empty() && !failed && !terminal {
                 return;
+            }
+            let mut tool_name = String::new();
+            if let Some(&idx) = pending.get(&call_id) {
+                if let Some(ev) = events.get_mut(idx) {
+                    tool_name = ev.tool_name.clone();
+                    merge_search_and_workflow(ev, &search_query, &search_url, &raw_output);
+                    if failed {
+                        ev.is_error = true;
+                    }
+                }
             }
             if let Some(&idx) = results.get(&call_id) {
                 if let Some(ev) = events.get_mut(idx) {
@@ -135,14 +600,24 @@ fn consume_line(
                     if failed {
                         ev.is_error = true;
                     }
+                    if ev.tool_name.is_empty() {
+                        ev.tool_name = tool_name;
+                    }
                 }
+                return;
+            }
+            if body.is_empty() && !failed {
                 return;
             }
             let mut ev = Event::new(EventType::ToolCallUpdate)
                 .with_ts(ts)
                 .with_content(body)
                 .with_raw(update_raw(&update, line));
-            ev.tool_name = text::field_str(&update, "toolName");
+            ev.tool_name = if tool_name.is_empty() {
+                text::field_str(&update, "toolName")
+            } else {
+                tool_name
+            };
             ev.tool_call_id = call_id.clone();
             ev.is_error = failed;
             results.insert(call_id, events.len());
@@ -153,10 +628,7 @@ fn consume_line(
                 .with_ts(ts)
                 .with_content(text::field_str(&update, "description"))
                 .with_raw(update_raw(&update, line));
-            ev.child_session_id = text::field_str(&update, "subagentId");
-            if ev.child_session_id.is_empty() {
-                ev.child_session_id = text::field_str(&update, "childSessionId");
-            }
+            ev.child_session_id = child_session_id(&update);
             ev.subagent_type = text::field_str(&update, "subagentType");
             ev.description = text::field_str(&update, "description");
             events.push(ev);
@@ -164,29 +636,62 @@ fn consume_line(
         EventType::SubagentFinished => {
             let mut ev = Event::new(EventType::SubagentFinished)
                 .with_ts(ts)
-                .with_content(text::field_str(&update, "description"))
+                .with_content(subagent_finish_content(&update))
                 .with_raw(update_raw(&update, line));
-            ev.child_session_id = text::field_str(&update, "subagentId");
+            ev.child_session_id = child_session_id(&update);
+            events.push(ev);
+        }
+        EventType::HookExecution => {
+            let (content, failed) = hook_execution_row(&update);
+            let mut ev = Event::new(EventType::HookExecution)
+                .with_ts(ts)
+                .with_content(content)
+                .with_raw(update_raw(&update, line));
+            ev.is_error = failed;
             events.push(ev);
         }
         EventType::TaskBackgrounded => {
-            events.push(
-                Event::new(EventType::TaskBackgrounded)
-                    .with_ts(ts)
-                    .with_raw(task_family_raw(&update, line)),
-            );
+            let mut ev = Event::new(EventType::TaskBackgrounded)
+                .with_ts(ts)
+                .with_content(task_preview(&update))
+                .with_raw(task_family_raw(&update, line));
+            ev.tool_call_id = text::field_str(&update, "tool_call_id");
+            events.push(ev);
         }
         EventType::TaskCompleted => {
-            events.push(
-                Event::new(EventType::TaskCompleted)
-                    .with_ts(ts)
-                    .with_raw(task_family_raw(&update, line)),
-            );
+            let mut ev = Event::new(EventType::TaskCompleted)
+                .with_ts(ts)
+                .with_content(task_preview(&update))
+                .with_raw(task_family_raw(&update, line));
+            ev.tool_call_id = text::field_str(&update, "tool_call_id");
+            events.push(ev);
         }
         EventType::TurnCompleted => {
             events.push(
                 Event::new(EventType::TurnCompleted)
                     .with_ts(ts)
+                    .with_raw(update_raw(&update, line)),
+            );
+        }
+        EventType::GoalUpdated => {
+            let gid = text::field_str(&update, "goal_id");
+            let gid = if gid.is_empty() {
+                text::field_str(&update, "goalId")
+            } else {
+                gid
+            };
+            if let Some(prev) = events.last_mut() {
+                if prev.event_type == EventType::GoalUpdated && goal_id_in_raw(&prev.raw) == gid {
+                    prev.content = session_update_content(&EventType::GoalUpdated, &update);
+                    prev.raw = update_raw(&update, line);
+                    prev.timestamp = ts.or(prev.timestamp);
+                    return;
+                }
+            }
+            events.push(
+                Event::new(EventType::GoalUpdated)
+                    .with_ts(ts)
+                    .with_content(session_update_content(&EventType::GoalUpdated, &update))
                     .with_raw(update_raw(&update, line)),
             );
         }
@@ -197,12 +702,12 @@ fn consume_line(
             } else {
                 update_raw(&update, line)
             };
-            events.push(
-                Event::new(other)
-                    .with_ts(ts)
-                    .with_content(text::text_of(update.get("content").unwrap_or(&Value::Null)))
-                    .with_raw(raw),
-            );
+            let mut ev = Event::new(other.clone())
+                .with_ts(ts)
+                .with_content(session_update_content(&other, &update))
+                .with_raw(raw);
+            ev.tool_call_id = text::field_str(&update, "tool_call_id");
+            events.push(ev);
         }
     }
 }
@@ -384,9 +889,10 @@ impl Store for Grok {
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         let mut events = Vec::new();
         let mut results = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
         for rec in records {
             if rec.value.pointer("/params/update").is_some() {
-                consume_line(rec, &mut events, &mut results);
+                consume_line(rec, &mut events, &mut results, &mut pending);
             } else {
                 map_events_row(rec, &mut events);
             }
@@ -396,7 +902,17 @@ impl Store for Grok {
             let start = u8::from(ev.event_type == EventType::TurnStarted);
             (ts, ev.update_index, start, ev.index)
         });
+        drop_empty_turn_starts(&mut events);
         events
+    }
+
+    fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
+        let records = self.records(locator, session_id)?;
+        let mut events = self.events(&records);
+        prepend_system_prompt(locator, &mut events);
+        Event::carry_turn_numbers(&mut events);
+        text::index_events(&mut events);
+        Ok(events)
     }
 
     fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
@@ -449,6 +965,12 @@ fn apply_summary(meta: &mut ListMeta, dir: &Path) {
     if let Some(n) = text::field_i64(&data, "num_messages") {
         meta.num_events = n.max(0) as u32;
     }
+    if let Some(info) = data.get("info") {
+        let tid = text::field_str(info, "task_id");
+        if !tid.is_empty() {
+            meta.task_id = tid;
+        }
+    }
 }
 
 fn apply_goal_title(meta: &mut ListMeta, dir: &Path) {
@@ -462,6 +984,13 @@ fn apply_goal_title(meta: &mut ListMeta, dir: &Path) {
     }
 }
 
+fn json_f64(obj: &Value, key: &str) -> Option<f64> {
+    let val = obj.get(key)?;
+    val.as_f64()
+        .or_else(|| val.as_i64().map(|n| n as f64))
+        .or_else(|| val.as_str()?.parse().ok())
+}
+
 fn apply_signals(meta: &mut ListMeta, dir: &Path) {
     let sig = read_json(&dir.join("signals.json"));
     if sig.is_null() {
@@ -470,8 +999,8 @@ fn apply_signals(meta: &mut ListMeta, dir: &Path) {
     if let Some(n) = text::field_i64(&sig, "toolCallCount") {
         meta.tool_call_count = n.max(0) as u32;
     }
-    if let Some(n) = text::field_i64(&sig, "sessionDurationSeconds") {
-        meta.duration_seconds = n.max(0) as f64;
+    if let Some(n) = json_f64(&sig, "sessionDurationSeconds") {
+        meta.duration_seconds = n.max(0.0);
     }
     let mid = text::field_str(&sig, "primaryModelId");
     let mid = if mid.is_empty() {
@@ -492,6 +1021,35 @@ fn apply_signals(meta: &mut ListMeta, dir: &Path) {
     if let Some(n) = text::field_i64(&sig, "contextTokensUsed") {
         meta.context_tokens_used = Some(n.max(0));
     }
+    if let Some(n) = text::field_i64(&sig, "contextWindowUsage") {
+        meta.context_window_usage_pct = Some(n.max(0));
+    }
+    if let Some(n) = text::field_i64(&sig, "contextWindowTokens") {
+        if n > 0 {
+            meta.context_window_tokens = Some(n);
+        }
+    }
+    if let Some(n) = text::field_i64(&sig, "turnCount") {
+        meta.turn_count = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "errorCount") {
+        meta.error_count = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "toolFailureCount") {
+        meta.tool_failure_count = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "agentLinesAdded") {
+        meta.lines_added = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "agentLinesRemoved") {
+        meta.lines_removed = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "compactionCount") {
+        meta.compaction_count = n.max(0) as u32;
+    }
+    if let Some(n) = text::field_i64(&sig, "doomLoopWarnings") {
+        meta.doom_loop_warnings = n.max(0) as u32;
+    }
 }
 
 fn apply_run(meta: &mut ListMeta, dir: &Path) {
@@ -505,6 +1063,10 @@ fn apply_run(meta: &mut ListMeta, dir: &Path) {
             || matches!(meta.model_id.as_str(), "unknown" | "v9" | "grok-build"))
     {
         meta.model_id = mid;
+    }
+    let tid = text::field_str(&run, "task_id");
+    if !tid.is_empty() {
+        meta.task_id = tid;
     }
 }
 
@@ -643,6 +1205,67 @@ fn list_turn_outcome(dir: &Path) -> String {
         return "interrupted".into();
     }
     String::new()
+}
+
+fn is_turn_started(ev: &Event) -> bool {
+    ev.event_type == EventType::TurnStarted
+}
+
+fn is_turn_ended(ev: &Event) -> bool {
+    ev.event_type == EventType::TurnEnded
+}
+
+fn is_turn_marker(ev: &Event) -> bool {
+    matches!(
+        ev.event_type,
+        EventType::TurnStarted | EventType::TurnEnded | EventType::TurnCompleted
+    )
+}
+
+fn drop_empty_turn_starts(events: &mut Vec<Event>) {
+    if events.is_empty() {
+        return;
+    }
+    let has_completed = events.iter().any(is_turn_ended);
+    if !has_completed {
+        return;
+    }
+    let n = events.len();
+    let mut drop_at = vec![false; n];
+    for i in 0..n {
+        if !is_turn_started(&events[i]) {
+            continue;
+        }
+        let mut has_work = false;
+        for nxt in events.iter().take(n).skip(i + 1) {
+            if is_turn_started(nxt) {
+                break;
+            }
+            if is_turn_marker(nxt) {
+                break;
+            }
+            has_work = true;
+            break;
+        }
+        if !has_work {
+            drop_at[i] = true;
+        }
+    }
+    let mut i = 0;
+    events.retain(|_| {
+        let keep = !drop_at[i];
+        i += 1;
+        keep
+    });
+}
+
+fn prepend_system_prompt(dir: &Path, events: &mut Vec<Event>) {
+    let text = std::fs::read_to_string(dir.join("system_prompt.txt")).unwrap_or_default();
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    events.insert(0, Event::new(EventType::System).with_content(text));
 }
 
 fn list_meta_of(dir: &Path, session_id: &str) -> ListMeta {

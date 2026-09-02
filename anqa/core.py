@@ -110,7 +110,7 @@ def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta
         if "not found" in msg:
             raise FileNotFoundError(msg) from exc
         raise
-    return SessionMeta(
+    meta = SessionMeta(
         session_id=str(row.get("session_id") or session_id),
         session_dir=Path(str(row.get("locator") or locator)),
         model_id=str(row.get("model_id") or "unknown"),
@@ -127,7 +127,22 @@ def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta
         has_subagents=bool(row.get("has_subagents")),
         subagent_count=_as_int(row.get("subagent_count")),
         context_tokens_used=_as_int(row.get("context_tokens_used")) or None,
+        context_window_usage_pct=_as_int(row.get("context_window_usage_pct")) or None,
+        context_window_tokens=_as_int(row.get("context_window_tokens")) or None,
+        turn_count=_as_int(row.get("turn_count")),
+        error_count=_as_int(row.get("error_count")),
+        tool_failure_count=_as_int(row.get("tool_failure_count")),
+        lines_added=_as_int(row.get("lines_added")),
+        lines_removed=_as_int(row.get("lines_removed")),
+        compaction_count=_as_int(row.get("compaction_count")),
+        doom_loop_warnings=_as_int(row.get("doom_loop_warnings")),
+        task_id=str(row.get("task_id") or ""),
     )
+    meta.has_failures = meta.tool_failure_count > 0
+    meta.has_diff = (meta.lines_added + meta.lines_removed) > 0
+    meta.has_compaction = meta.compaction_count > 0
+    meta.has_doom = meta.doom_loop_warnings > 0
+    return meta
 
 
 def event_from_native(row: object) -> TraceEvent:
@@ -154,6 +169,12 @@ def event_from_native(row: object) -> TraceEvent:
         bag = ToolInputBag(as_json_object(data))
     ts = data_in.get("timestamp")
     prompt = data_in.get("prompt_index")
+    images: list[bytes] = []
+    raw_imgs = data_in.get("images")
+    if isinstance(raw_imgs, list):
+        for item in raw_imgs:
+            if isinstance(item, (bytes, bytearray)):
+                images.append(bytes(item))
     ev = TraceEvent(
         index=_as_int(data_in.get("index")),
         event_type=str(data_in.get("event_type") or ""),
@@ -168,6 +189,7 @@ def event_from_native(row: object) -> TraceEvent:
         turn_number=_as_int(data_in.get("turn_number"))
         if data_in.get("turn_number") is not None
         else None,
+        images=images,
         raw=raw,
     )
     return ev

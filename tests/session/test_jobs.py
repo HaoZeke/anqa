@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from anqa.harness.grok_parse import parse_timeline
+from anqa.harness.grok import parse_timeline
 from anqa.session.jobs import SessionJobs, job_mapping, schedule_mapping
 
 
@@ -362,7 +362,7 @@ def test_set_bookend_indexes_matches_per_row_first_hits() -> None:
 def test_jobs_from_overview_does_not_parse_timeline(tmp_path: Path) -> None:
     from unittest.mock import patch
 
-    from anqa.harness.grok_parse import parse_timeline
+    from anqa.harness.grok import parse_timeline
     from anqa.session.control_views import build_session_overview
     from anqa.session.jobs import jobs_from_overview, session_jobs_for_view
 

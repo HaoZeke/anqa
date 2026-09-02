@@ -14,10 +14,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..models import JsonObject, ListStatus, SessionMeta, TraceEvent
-from ..stamp import Stamp
+from ..models import JsonObject, SessionMeta, TraceEvent
 from .ref import SessionRef
-from .status import from_last
 
 ANTIGRAVITY_HARNESS_ID = "antigravity"
 _USER_REQUEST = "USER_REQUEST"
@@ -192,89 +190,6 @@ def _paths_from_ref(ref: SessionRef | Path | str, root: Path) -> tuple[Path, str
     if path.is_file() and path.suffix == ".db":
         return path, path.stem
     return _conversation_db(root, path.name), path.name
-
-
-def _first_user_title(rows: Sequence[JsonObject], summary: JsonObject) -> str:
-    title = str(summary.get("title") or "").strip()
-    if title:
-        return title[:80]
-    for row in rows:
-        if str(row.get("type") or "") != "USER_INPUT":
-            continue
-        text = _tag_body(str(row.get("content") or ""), _USER_REQUEST)
-        if text:
-            return text.splitlines()[0][:80]
-    return ""
-
-
-def _turn_outcome(rows: Sequence[JsonObject], summary: JsonObject) -> str:
-    if summary.get("killed"):
-        return from_last("killed")
-    if summary.get("not_fully_idle"):
-        return from_last("not_fully_idle")
-    last: JsonObject | None = None
-    for row in rows:
-        typ = str(row.get("type") or "")
-        if typ in {"USER_INPUT", "PLANNER_RESPONSE", "GENERIC", "SYSTEM_MESSAGE"}:
-            last = row
-    if last is None:
-        return ""
-    status = str(last.get("status") or "").strip()
-    mapped = from_last(status)
-    if mapped is ListStatus.IDLE:
-        return ""
-    return mapped
-
-
-def _count_tools(rows: Sequence[JsonObject]) -> int:
-    n = 0
-    for row in rows:
-        calls = row.get("tool_calls")
-        if isinstance(calls, list):
-            n += len(calls)
-    return n
-
-
-def _meta_for(root: Path, db: Path, session_id: str) -> SessionMeta:
-    from .jsonl_list import JsonlFile
-
-    rows = JsonlFile(_transcript_path(root, session_id)).window()
-    summary = _load_summary(root, session_id)
-    created = ""
-    updated = Stamp.iso(summary.get("last_modified_time") or summary.get("last_user_input_time"))
-    if rows:
-        created = Stamp.iso(rows[0].get("created_at"))
-        last = Stamp.iso(rows[-1].get("created_at"))
-        if last:
-            updated = last
-        if not created:
-            created = updated
-    start = Stamp.epoch(created)
-    end = Stamp.epoch(updated)
-    duration = float(max(0, (end or 0) - (start or 0))) if start and end else 0.0
-    cwd = _cwd_from_uris(summary.get("workspace_uris")) or _cwd_from_last_conversations(
-        root, session_id
-    )
-    kids = _child_ids(root, session_id)
-    return SessionMeta(
-        session_id=session_id,
-        session_dir=db,
-        model_id=(
-            str(summary.get("agent_name") or "").strip()
-            or _model_from_conversation_db(db)
-            or "unknown"
-        ),
-        title=_first_user_title(rows, summary),
-        created_at=created,
-        updated_at=updated,
-        duration_seconds=duration,
-        tool_call_count=_count_tools(rows),
-        run_dir=cwd,
-        turn_outcome=_turn_outcome(rows, summary),
-        harness=ANTIGRAVITY_HARNESS_ID,
-        has_subagents=bool(kids),
-        subagent_count=len(kids),
-    )
 
 
 class AntigravityAdapter:

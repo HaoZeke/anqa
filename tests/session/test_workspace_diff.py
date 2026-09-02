@@ -212,7 +212,7 @@ class TestLoadWorkspaceDiff:
         def _boom(_path: Path) -> list:
             raise AssertionError("parse_timeline must not run when timeline is passed")
 
-        monkeypatch.setattr("anqa.harness.grok_parse.parse_timeline", _boom)
+        monkeypatch.setattr("anqa.harness.grok.parse_timeline", _boom)
         doc = load_workspace_diff_doc(sd, timeline=[])
         assert len(doc.points) == 1
         assert doc.points[0].files[0].path == "a.py"
