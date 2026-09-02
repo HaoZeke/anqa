@@ -5,9 +5,142 @@ use crate::jsonl;
 use crate::store::Store;
 use crate::text;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 pub struct Gemini;
+
+#[derive(Default)]
+struct GeminiCursor {
+    byte_pos: u64,
+    metadata: Map<String, Value>,
+    messages: HashMap<String, Value>,
+    order: Vec<String>,
+}
+
+static CURSORS: LazyLock<Mutex<HashMap<PathBuf, GeminiCursor>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+impl GeminiCursor {
+    fn load(path: &Path) -> (Value, Vec<Value>) {
+        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let mut guard = CURSORS.lock().unwrap_or_else(|e| e.into_inner());
+        let cursor = guard.entry(key).or_default();
+        cursor.sync(path);
+        cursor.snapshot()
+    }
+
+    fn snapshot(&self) -> (Value, Vec<Value>) {
+        let list = self
+            .order
+            .iter()
+            .filter_map(|id| self.messages.get(id).cloned())
+            .collect();
+        (Value::Object(self.metadata.clone()), list)
+    }
+
+    fn replace_messages(&mut self, raw: &Value) {
+        self.messages.clear();
+        self.order.clear();
+        let Some(items) = raw.as_array() else {
+            return;
+        };
+        for item in items {
+            let id = text::field_str(item, "id");
+            if id.is_empty() {
+                continue;
+            }
+            if !self.messages.contains_key(&id) {
+                self.order.push(id.clone());
+            }
+            self.messages.insert(id, item.clone());
+        }
+    }
+
+    fn apply(&mut self, row: &Value) {
+        if row.get("$rewindTo").is_some() {
+            self.messages.clear();
+            self.order.clear();
+            return;
+        }
+        if let Some(patch) = row.get("$set").and_then(|v| v.as_object()) {
+            if let Some(msgs) = patch.get("messages") {
+                self.replace_messages(msgs);
+            }
+            for (k, v) in patch {
+                if k != "messages" {
+                    self.metadata.insert(k.clone(), v.clone());
+                }
+            }
+            return;
+        }
+        let typ = text::field_str(row, "type");
+        let mid = text::field_str(row, "id");
+        if typ == "message_update" && !mid.is_empty() {
+            if let Some(existing) = self.messages.get_mut(&mid) {
+                if let (Some(a), Some(b)) = (existing.as_object_mut(), row.as_object()) {
+                    let kept = text::field_str(&Value::Object(a.clone()), "type");
+                    for (k, v) in b {
+                        a.insert(k.clone(), v.clone());
+                    }
+                    if !kept.is_empty() {
+                        a.insert("type".into(), Value::String(kept));
+                    }
+                }
+            }
+            return;
+        }
+        if !mid.is_empty() && matches!(typ.as_str(), "user" | "gemini" | "error") {
+            if !self.messages.contains_key(&mid) {
+                self.order.push(mid.clone());
+            }
+            self.messages.insert(mid, row.clone());
+            return;
+        }
+        if !text::field_str(row, "sessionId").is_empty() {
+            if let Some(obj) = row.as_object() {
+                for (k, v) in obj {
+                    if k == "messages" {
+                        self.replace_messages(v);
+                    } else {
+                        self.metadata.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn sync(&mut self, path: &Path) {
+        let Ok(mut file) = File::open(path) else {
+            return;
+        };
+        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+        if size < self.byte_pos {
+            *self = Self::default();
+        }
+        if file.seek(SeekFrom::Start(self.byte_pos)).is_err() {
+            return;
+        }
+        let mut reader = BufReader::new(file);
+        loop {
+            let mut line = String::new();
+            let n = match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            if !line.ends_with('\n') {
+                break;
+            }
+            self.byte_pos += n as u64;
+            if let Some(value) = jsonl::object_line(&line) {
+                self.apply(&value);
+            }
+        }
+    }
+}
 
 fn collect(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -24,88 +157,6 @@ fn collect(roots: &[PathBuf]) -> Vec<PathBuf> {
         }
     }
     out
-}
-
-fn load_conversation(path: &Path) -> (Value, Vec<Value>) {
-    let mut metadata = Map::new();
-    let mut messages: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
-    let mut order: Vec<String> = Vec::new();
-
-    let put = |messages: &mut std::collections::HashMap<String, Value>,
-               order: &mut Vec<String>,
-               raw: &Value| {
-        messages.clear();
-        order.clear();
-        let Some(items) = raw.as_array() else { return };
-        for item in items {
-            let id = text::field_str(item, "id");
-            if id.is_empty() {
-                continue;
-            }
-            if !messages.contains_key(&id) {
-                order.push(id.clone());
-            }
-            messages.insert(id, item.clone());
-        }
-    };
-
-    for row in jsonl::read_objects(path) {
-        if row.value.get("$rewindTo").is_some() {
-            messages.clear();
-            order.clear();
-            continue;
-        }
-        if let Some(patch) = row.value.get("$set").and_then(|v| v.as_object()) {
-            if let Some(msgs) = patch.get("messages") {
-                put(&mut messages, &mut order, msgs);
-            }
-            for (k, v) in patch {
-                if k != "messages" {
-                    metadata.insert(k.clone(), v.clone());
-                }
-            }
-            continue;
-        }
-        let typ = text::field_str(&row.value, "type");
-        let mid = text::field_str(&row.value, "id");
-        if typ == "message_update" && !mid.is_empty() {
-            if let Some(existing) = messages.get_mut(&mid) {
-                if let (Some(a), Some(b)) = (existing.as_object_mut(), row.value.as_object()) {
-                    let kept = text::field_str(&Value::Object(a.clone()), "type");
-                    for (k, v) in b {
-                        a.insert(k.clone(), v.clone());
-                    }
-                    if !kept.is_empty() {
-                        a.insert("type".into(), Value::String(kept));
-                    }
-                }
-            }
-            continue;
-        }
-        if !mid.is_empty() && matches!(typ.as_str(), "user" | "gemini" | "error") {
-            if !messages.contains_key(&mid) {
-                order.push(mid.clone());
-            }
-            messages.insert(mid, row.value);
-            continue;
-        }
-        if !text::field_str(&row.value, "sessionId").is_empty() {
-            if let Some(obj) = row.value.as_object() {
-                for (k, v) in obj {
-                    if k == "messages" {
-                        put(&mut messages, &mut order, v);
-                    } else {
-                        metadata.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
-    }
-    let list = order
-        .into_iter()
-        .filter_map(|id| messages.remove(&id))
-        .collect();
-    (Value::Object(metadata), list)
 }
 
 fn is_chrome(text: &str) -> bool {
@@ -250,7 +301,7 @@ impl Store for Gemini {
         if !locator.is_file() {
             return Err(format!("gemini session not found: {session_id}"));
         }
-        let (_meta, messages) = load_conversation(locator);
+        let (_meta, messages) = GeminiCursor::load(locator);
         Ok(messages
             .into_iter()
             .map(|value| crate::store::Record {
@@ -263,5 +314,85 @@ impl Store for Gemini {
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         let messages: Vec<Value> = records.iter().map(|r| r.value.clone()).collect();
         timeline_of(&messages)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::EventType;
+    use std::fs;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn user_texts(events: &[Event]) -> Vec<&str> {
+        events
+            .iter()
+            .filter(|ev| ev.event_type == EventType::UserMessageChunk)
+            .map(|ev| ev.content.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn gemini_append_message_updates_conversation() {
+        let root = std::env::temp_dir().join(format!(
+            "anqa-gemini-cursor-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("session-2026-08-09T12-00-cursor.jsonl");
+        let sid = "sess-gemini-cursor";
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            r#"{{"sessionId":"{sid}","projectHash":"abc","kind":"main"}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"u1","type":"user","content":[{{"text":"hello"}}],"timestamp":1}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"g1","type":"gemini","content":[{{"text":"ok"}}],"timestamp":2}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+        drop(file);
+
+        let first = crate::timeline("gemini", &path, sid).unwrap();
+        assert_eq!(user_texts(&first), ["hello"]);
+
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"u2","type":"user","content":[{{"text":"again"}}],"timestamp":3}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+        drop(file);
+
+        let appended = crate::timeline("gemini", &path, sid).unwrap();
+        assert_eq!(user_texts(&appended), ["hello", "again"]);
+
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, r#"{{"$rewindTo":""}}"#).unwrap();
+        file.flush().unwrap();
+        drop(file);
+
+        let rewound = crate::timeline("gemini", &path, sid).unwrap();
+        assert!(
+            user_texts(&rewound).is_empty(),
+            "rewind must clear conversation, not concat records: {:?}",
+            user_texts(&rewound)
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
