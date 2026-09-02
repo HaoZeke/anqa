@@ -1159,7 +1159,7 @@ fn overview_run_list<'a>(
                 .size(tea.body())
                 .font(typo::UI)
                 .color(ink)
-                .wrapping(iced::widget::text::Wrapping::None);
+                .wrapping(iced::widget::text::Wrapping::Word);
             let mut header = row![chips, Space::new().width(Length::Fill)]
                 .spacing(6)
                 .align_y(Alignment::Center)
@@ -3852,6 +3852,7 @@ mod tests {
         assert!(overview.contains("overview_task_rows"));
         assert!(overview.contains("overview_workflow_rows"));
         assert!(overview.contains("overview_subagent_rows"));
+        assert!(overview.contains("Wrapping::Word"));
         assert!(overview.contains("widget::virtual_column"));
         assert!(overview.contains("widget::data_table"));
         assert!(overview.contains("OVERVIEW_LIST_OVERSCAN"));

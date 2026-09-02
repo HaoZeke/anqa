@@ -6443,7 +6443,7 @@ impl Hud {
                     sid: run.child_session_id.clone(),
                 });
             }
-            if let Some(ix) = run.spawn_event_index {
+            if let Some(ix) = run.finish_event_index.or(run.spawn_event_index) {
                 return self.update(Message::JumpTimeline(ix));
             }
             return Task::none();
@@ -13111,6 +13111,36 @@ mod tests {
         let _ = hud.update(Message::SelectTimeline(7));
         assert!(hud.parent_stack.is_empty());
         assert_eq!(hud.timeline_open, Some(7));
+    }
+
+    #[test]
+    fn open_unopenable_subagent_row_jumps_to_finish() {
+        let mut hud = parent_with_openable_child();
+        hud.tab = Tab::Overview;
+        hud.overview_section = crate::model::OverviewSection::Subagents;
+        hud.overview.as_mut().expect("overview").turns.subagent_runs[0] =
+            crate::wire::SubagentRunRow {
+                child_session_id: "call-sub-1:0".into(),
+                child_path: "pi:call-sub-1:0".into(),
+                openable: false,
+                spawn_event_index: Some(15),
+                finish_event_index: Some(20),
+                subagent_type: "worker".into(),
+                description: "You are Proposal Agent A.".into(),
+                status: "completed".into(),
+                ..Default::default()
+            };
+        hud.timeline.push(TimelineEvent {
+            index: 20,
+            event_type: "subagent_finished".into(),
+            kind: "subagent".into(),
+            child_session_id: "call-sub-1:0".into(),
+            ..Default::default()
+        });
+        let _ = hud.update(Message::OpenOverviewRow(0));
+        assert!(hud.parent_stack.is_empty());
+        assert!(hud.overview_pending.is_empty());
+        assert_eq!(hud.timeline_open, Some(20));
     }
 
     #[test]

@@ -252,6 +252,8 @@ def test_subagent_tool_emits_spawn_and_finish_bookends(tmp_path: Path) -> None:
     assert len(runs) == 2
     assert runs[0]["subagentType"] == "worker"
     assert runs[0]["status"] == "completed"
+    assert runs[0]["openable"] is False
+    assert not (runs[0].get("childPath") or "")
     from anqa.harness.views import session_diff
 
     diff = session_diff(ref)

@@ -674,13 +674,15 @@ pub fn overview_row_status(row: &OverviewTaskRow) -> String {
 pub fn overview_subagent_rows(runs: &[crate::wire::SubagentRunRow]) -> Vec<OverviewTaskRow> {
     runs.iter()
         .map(|run| {
-            let label = if !run.description.is_empty() {
-                run.description.clone()
+            let raw_label = if !run.description.is_empty() {
+                run.description.as_str()
             } else if !run.subagent_type.is_empty() {
-                run.subagent_type.clone()
+                run.subagent_type.as_str()
             } else {
-                run.child_session_id.clone()
+                run.child_session_id.as_str()
             };
+            let first = raw_label.lines().next().unwrap_or("").trim();
+            let label = capped_display(first, 80);
             OverviewTaskRow {
                 kind: if run.subagent_type.is_empty() {
                     "subagent".into()
@@ -2396,7 +2398,6 @@ pub fn control_down_message(err: &str) -> String {
     if short.is_empty()
         || low.contains("no such file")
         || low.contains("connection refused")
-        || low.contains("not found")
         || low.contains("os error 2")
         || low.contains("broken pipe")
         || low.contains("timed out")
@@ -2809,6 +2810,11 @@ mod tests {
             control_down_message("method not found"),
             "control socket down · run: anqad -d"
         );
+        assert_ne!(
+            control_down_message("session not found"),
+            "control socket down · run: anqad -d"
+        );
+        assert!(control_down_message("session not found").contains("session not found"));
     }
 
     #[test]
@@ -3164,6 +3170,29 @@ mod tests {
         assert_eq!(wfs[0].event_index, Some(12));
         assert_eq!(rows[1].kind, "schedule");
         assert_eq!(rows[1].label, "hourly ping");
+    }
+
+    #[test]
+    fn overview_subagent_rows_clip_prompt_and_keep_inspect() {
+        use crate::wire::SubagentRunRow;
+
+        let rows = overview_subagent_rows(&[SubagentRunRow {
+            description: "You are Proposal Agent A. The repo is /mnt/dev/_git/aisandbox.\nMore"
+                .into(),
+            subagent_type: "worker".into(),
+            status: "completed".into(),
+            spawn_event_index: Some(15),
+            finish_event_index: Some(20),
+            openable: false,
+            ..Default::default()
+        }]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, "worker");
+        assert!(rows[0].label.starts_with("You are Proposal Agent A."));
+        assert!(!rows[0].label.contains('\n'));
+        assert!(rows[0].label.chars().count() <= 81);
+        assert!(rows[0].openable);
+        assert_eq!(rows[0].event_index, Some(15));
     }
 
     #[test]

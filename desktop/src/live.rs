@@ -363,8 +363,11 @@ pub fn find_session_index(
 /// Control `session` argument: live directory path, harness:id, else id.
 pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
     let path = path.trim();
-    if !path.is_empty() && std::path::Path::new(path).is_dir() {
-        return path.to_string();
+    if !path.is_empty() {
+        let p = std::path::Path::new(path);
+        if p.is_dir() || p.is_file() {
+            return path.to_string();
+        }
     }
     if is_harness_ref(path) {
         return path.to_string();
@@ -1654,12 +1657,18 @@ mod tests {
     }
 
     #[test]
-    fn session_rpc_ref_uses_path_only_when_directory_exists() {
+    fn session_rpc_ref_uses_path_when_locator_exists() {
         let dir = std::env::temp_dir().join("anqa-hud-rpc-ref");
         let _ = std::fs::create_dir_all(&dir);
         assert_eq!(
             session_rpc_ref(dir.to_str().unwrap(), "uuid"),
             dir.to_str().unwrap()
+        );
+        let file = dir.join("sess.jsonl");
+        std::fs::write(&file, "{}\n").unwrap();
+        assert_eq!(
+            session_rpc_ref(file.to_str().unwrap(), "uuid"),
+            file.to_str().unwrap()
         );
         assert_eq!(session_rpc_ref("/no/such/anqa-hud-session", "uuid"), "uuid");
         assert_eq!(session_rpc_ref("", "uuid"), "uuid");

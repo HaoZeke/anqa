@@ -50,6 +50,28 @@ def _load(ref: SessionRef) -> tuple[SessionMeta, list[TraceEvent]]:
     return impl.load_meta(ref), impl.parse_timeline(ref)
 
 
+def _child_catalog_path(ref: SessionRef, child_id: str) -> str:
+    """``harness:id`` when *child_id* is a loadable session in this store."""
+    impl = adapter_for(ref)
+    if impl is None or not child_id:
+        return ""
+    if impl.ref_for_id(child_id) is not None:
+        return f"{ref.harness}:{child_id}"
+    loc = Path(ref.locator)
+    if not loc.is_file():
+        return ""
+    parent = loc.parent
+    for cand in (
+        parent / f"{child_id}.jsonl",
+        parent / f"agent-{child_id}.jsonl",
+        parent / loc.stem / "subagents" / f"agent-{child_id}.jsonl",
+        parent / loc.stem / "subagents" / f"{child_id}.jsonl",
+    ):
+        if impl.bind_locator(cand) is not None:
+            return f"{ref.harness}:{child_id}"
+    return ""
+
+
 def _subagent_rows(ref: SessionRef, events: list[TraceEvent]) -> list[JsonValue]:
     segs = segment_timeline_turns(events)
     turn_map = event_display_turn_map(segs)
@@ -57,10 +79,12 @@ def _subagent_rows(ref: SessionRef, events: list[TraceEvent]) -> list[JsonValue]
     out: list[JsonValue] = []
     for run in runs:
         row = subagent_run_mapping(run)
-        child = run.child_session_id
+        child = (run.child_session_id or "").strip()
         if child and not str(row.get("childPath") or "").strip():
-            row["childPath"] = f"{ref.harness}:{child}"
-            row["openable"] = True
+            path = _child_catalog_path(ref, child)
+            if path:
+                row["childPath"] = path
+                row["openable"] = True
         out.append(row)
     return out
 
