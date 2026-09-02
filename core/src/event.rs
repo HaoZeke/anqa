@@ -3,6 +3,52 @@
 use serde_json::Value;
 use std::path::PathBuf;
 
+/// Turn column and `is:` status. Same members as `anqa.models.ListStatus`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListStatus {
+    Running,
+    Ending,
+    Awaiting,
+    Cancelled,
+    Complete,
+    #[default]
+    Idle,
+}
+
+impl ListStatus {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Ending => "ending",
+            Self::Awaiting => "awaiting",
+            Self::Cancelled => "cancelled",
+            Self::Complete => "complete",
+            Self::Idle => "idle",
+        }
+    }
+
+    /// Map one store or list token to a member.
+    #[must_use]
+    pub fn from_token(token: &str) -> Self {
+        let key = token.trim().to_ascii_lowercase().replace(' ', "_");
+        match key.as_str() {
+            "ending" | "finishing" => Self::Ending,
+            "awaiting" | "awaiting_follow_up" => Self::Awaiting,
+            "complete" | "completed" | "success" | "ok" | "done" | "end_turn" | "stop"
+            | "stop_sequence" | "task_complete" | "turn_completed" | "turn_ended"
+            | "session_recap" | "session.shutdown" | "assistant.turn_end" => Self::Complete,
+            "cancelled" | "canceled" | "error" | "failed" | "failure" | "killed" | "aborted"
+            | "interrupted" | "timeout" | "turn_aborted" | "max_tokens" | "refusal" => {
+                Self::Cancelled
+            }
+            "running" | "in_progress" | "pending" | "active" | "executing"
+            | "awaiting_approval" | "scheduled" | "not_fully_idle" => Self::Running,
+            _ => Self::Idle,
+        }
+    }
+}
+
 /// Stored timeline type. Values match anqa event names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EventType {
@@ -416,7 +462,7 @@ pub struct SessionLocator {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, EventType};
+    use super::{Event, EventType, ListStatus};
 
     #[test]
     fn carry_turn_numbers_stamps_zero_without_starts() {
@@ -442,5 +488,48 @@ mod tests {
         assert_eq!(evs[0].turn_number, Some(3));
         assert_eq!(evs[1].turn_number, Some(3));
         assert_eq!(evs[2].turn_number, Some(3));
+    }
+
+    #[test]
+    fn from_token_maps_lifecycle_not_content() {
+        let cases = [
+            ("turn_completed", ListStatus::Complete),
+            ("task_complete", ListStatus::Complete),
+            ("end_turn", ListStatus::Complete),
+            ("session.shutdown", ListStatus::Complete),
+            ("done", ListStatus::Complete),
+            ("turn_aborted", ListStatus::Cancelled),
+            ("killed", ListStatus::Cancelled),
+            ("error", ListStatus::Cancelled),
+            ("running", ListStatus::Running),
+            ("in_progress", ListStatus::Running),
+            ("pending", ListStatus::Running),
+            ("executing", ListStatus::Running),
+            ("not_fully_idle", ListStatus::Running),
+            ("finishing", ListStatus::Ending),
+            ("awaiting_follow_up", ListStatus::Awaiting),
+            ("task_started", ListStatus::Idle),
+            ("assistant.turn_start", ListStatus::Idle),
+            ("tool.execution_start", ListStatus::Idle),
+            ("subagent.started", ListStatus::Idle),
+            ("tool_use", ListStatus::Idle),
+            ("toolUse", ListStatus::Idle),
+            ("user", ListStatus::Idle),
+            ("user_message", ListStatus::Idle),
+            ("user_message_chunk", ListStatus::Idle),
+            ("turn_started", ListStatus::Idle),
+            ("assistant", ListStatus::Idle),
+            ("assistant.message", ListStatus::Idle),
+            ("", ListStatus::Idle),
+        ];
+        for (token, want) in cases {
+            assert_eq!(ListStatus::from_token(token), want, "{token}");
+        }
+        assert_eq!(ListStatus::Complete.as_str(), "complete");
+        assert_eq!(ListStatus::Cancelled.as_str(), "cancelled");
+        assert_eq!(ListStatus::Running.as_str(), "running");
+        assert_eq!(ListStatus::Ending.as_str(), "ending");
+        assert_eq!(ListStatus::Awaiting.as_str(), "awaiting");
+        assert_eq!(ListStatus::Idle.as_str(), "idle");
     }
 }

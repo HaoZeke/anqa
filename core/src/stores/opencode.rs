@@ -1,6 +1,6 @@
 //! OpenCode sqlite session store.
 
-use crate::event::{Event, EventType, FileStamp, ListMeta, SessionLocator};
+use crate::event::{Event, EventType, FileStamp, ListMeta, ListStatus, SessionLocator};
 use crate::store::{Record, Store};
 use crate::text;
 use rusqlite::Connection;
@@ -485,24 +485,6 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month as i64, day as i64)
 }
 
-fn from_last(token: &str) -> String {
-    let key = token.trim().to_ascii_lowercase().replace(' ', "_");
-    match key.as_str() {
-        "ending" | "finishing" => "ending",
-        "awaiting" | "awaiting_follow_up" => "awaiting",
-        "complete" | "completed" | "success" | "ok" | "done" | "end_turn" | "stop"
-        | "stop_sequence" | "task_complete" | "turn_completed" | "turn_ended" | "session_recap"
-        | "session.shutdown" | "assistant.turn_end" => "complete",
-        "cancelled" | "canceled" | "error" | "failed" | "failure" | "killed" | "aborted"
-        | "interrupted" | "timeout" | "turn_aborted" | "max_tokens" | "refusal" => "cancelled",
-        "running" | "in_progress" | "pending" | "active" | "executing" | "awaiting_approval"
-        | "scheduled" | "not_fully_idle" => "running",
-        "" => "",
-        _ => "idle",
-    }
-    .into()
-}
-
 fn set_times(meta: &mut ListMeta, created: i64, updated: i64) {
     if created > 0 {
         meta.created_at = iso_millis(created);
@@ -591,7 +573,7 @@ fn fill_session_row(con: &Connection, session_id: &str, meta: &mut ListMeta) -> 
         meta.context_tokens_used = Some(tokens);
     }
     if archived > 0 {
-        meta.turn_outcome = from_last("complete");
+        meta.turn_outcome = ListStatus::Complete.as_str().into();
     }
     true
 }
@@ -646,14 +628,14 @@ fn message_outcome(data: &Value) -> String {
             let empty = val.is_null() || matches!(val, Value::String(s) if s.is_empty());
             let zero = val.as_i64() == Some(0);
             if !empty && !zero {
-                return from_last("complete");
+                return ListStatus::Complete.as_str().into();
             }
         }
     }
     if role.is_empty() {
         String::new()
     } else {
-        from_last(&role)
+        ListStatus::from_token(&role).as_str().into()
     }
 }
 
@@ -704,23 +686,23 @@ fn fill_turn_outcome(con: &Connection, session_id: &str, meta: &mut ListMeta) {
                 _ => true,
             };
             if set {
-                meta.turn_outcome = from_last("complete");
+                meta.turn_outcome = ListStatus::Complete.as_str().into();
                 return;
             }
         }
         if let Some(status) = last_part_status_from_events(con, session_id) {
-            let mapped = from_last(&status);
-            if !mapped.is_empty() && mapped != "idle" {
-                meta.turn_outcome = mapped;
+            let mapped = ListStatus::from_token(&status);
+            if mapped != ListStatus::Idle {
+                meta.turn_outcome = mapped.as_str().into();
                 return;
             }
         }
     }
     if table_exists(con, "part") {
         if let Some(status) = last_part_status_from_table(con, session_id) {
-            let mapped = from_last(&status);
-            if !mapped.is_empty() && mapped != "idle" {
-                meta.turn_outcome = mapped;
+            let mapped = ListStatus::from_token(&status);
+            if mapped != ListStatus::Idle {
+                meta.turn_outcome = mapped.as_str().into();
                 return;
             }
         }
