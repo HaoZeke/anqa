@@ -207,8 +207,30 @@ fn consume_line(
     }
 }
 
+/// Same needles as ``anqa.harness.grok_parse._LIST_MARKER_NEEDLES``.
+const LIST_MARKER_NEEDLES: &[&[u8]] = &[
+    br#""turn_started""#,
+    br#""turn_ended""#,
+    br#""loop_started""#,
+    br#""session_error""#,
+    br#""turn_error""#,
+    br#""fatal_error""#,
+    br#""type":"error""#,
+    br#""type": "error""#,
+];
+
+fn keep_events_line(line: &[u8]) -> bool {
+    LIST_MARKER_NEEDLES
+        .iter()
+        .copied()
+        .any(|needle| memchr::memmem::find(line, needle).is_some())
+}
+
 fn map_events_row(row: &crate::store::Record, events: &mut Vec<Event>) {
     let kind = EventType::parse(&text::field_str(&row.value, "type"));
+    if !kind.is_turn_marker() {
+        return;
+    }
     let ts = text::epoch(&row.value);
     match &kind {
         EventType::TurnStarted => {
@@ -267,6 +289,10 @@ fn read_updates(dir: &Path) -> Vec<crate::store::Record> {
     jsonl::cached_records(&dir.join("updates.jsonl"), Some(keep_updates_line))
 }
 
+fn read_events(dir: &Path) -> Vec<crate::store::Record> {
+    jsonl::cached_records(&dir.join("events.jsonl"), Some(keep_events_line))
+}
+
 impl Store for Grok {
     fn id(&self) -> &'static str {
         "grok"
@@ -315,7 +341,7 @@ impl Store for Grok {
             return Err(format!("grok session not found: {session_id}"));
         }
         let mut rows = read_updates(locator);
-        rows.extend(jsonl::read_objects(&locator.join("events.jsonl")));
+        rows.extend(read_events(locator));
         Ok(rows)
     }
 
@@ -431,6 +457,128 @@ mod tests {
         let evs = Grok.timeline(&dir, "sess").unwrap();
         let types: Vec<_> = evs.iter().map(|e| e.event_type.as_str()).collect();
         assert_eq!(types, ["turn_started", "user_message_chunk", "turn_ended"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn grok_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "anqa-grok-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn user_line(ts: u64, content: &str) -> String {
+        format!(
+            r#"{{"timestamp":{ts},"params":{{"update":{{"sessionUpdate":"user_message_chunk","content":"{content}"}}}}}}"#
+        )
+    }
+
+    fn record_types(rows: &[crate::store::Record]) -> Vec<&str> {
+        rows.iter()
+            .filter_map(|row| row.value.get("type").and_then(|v| v.as_str()))
+            .collect()
+    }
+
+    fn user_contents(rows: &[crate::store::Record]) -> Vec<&str> {
+        rows.iter()
+            .filter_map(|row| {
+                row.value
+                    .pointer("/params/update/content")
+                    .and_then(|v| v.as_str())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn updates_append_and_truncate_skips_runtime_rows() {
+        let dir = grok_dir("two-file");
+        let mut u = fs::File::create(dir.join("updates.jsonl")).unwrap();
+        writeln!(u, "{}", user_line(100, "hi")).unwrap();
+        writeln!(
+            u,
+            r#"{{"timestamp":150,"params":{{"update":{{"sessionUpdate":"tool_call_update","toolCallId":"c1","content":"{}"}}}}}}"#,
+            "x".repeat(256)
+        )
+        .unwrap();
+        drop(u);
+        let mut e = fs::File::create(dir.join("events.jsonl")).unwrap();
+        for typ in [
+            r#"{"ts":"1970-01-01T00:01:30Z","type":"turn_started","turn_number":0}"#,
+            r#"{"ts":"1970-01-01T00:01:31Z","type":"loop_started","loop_index":0}"#,
+            r#"{"ts":"1970-01-01T00:01:32Z","type":"first_token"}"#,
+            r#"{"ts":"1970-01-01T00:01:33Z","type":"phase_changed","phase":"act"}"#,
+            r#"{"ts":"1970-01-01T00:03:30Z","type":"turn_ended","outcome":"completed"}"#,
+        ] {
+            writeln!(e, "{typ}").unwrap();
+        }
+        drop(e);
+
+        let rows = Grok.records(&dir, "sess").unwrap();
+        assert!(
+            rows.iter().all(|row| !row.raw.contains("tool_call_update")),
+            "fat non-terminal tool_call_update must not appear in records"
+        );
+        assert_eq!(
+            record_types(&rows),
+            ["turn_started", "loop_started", "turn_ended"]
+        );
+        assert_eq!(user_contents(&rows), ["hi"]);
+
+        let evs = Grok.timeline(&dir, "sess").unwrap();
+        let types: Vec<_> = evs.iter().map(|ev| ev.event_type.as_str()).collect();
+        assert_eq!(types, ["turn_started", "user_message_chunk", "turn_ended"]);
+
+        let mut u = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("updates.jsonl"))
+            .unwrap();
+        writeln!(u, "{}", user_line(400, "again")).unwrap();
+        drop(u);
+
+        let rows = Grok.records(&dir, "sess").unwrap();
+        assert_eq!(user_contents(&rows), ["hi", "again"]);
+        assert_eq!(
+            record_types(&rows),
+            ["turn_started", "loop_started", "turn_ended"]
+        );
+        let evs = Grok.timeline(&dir, "sess").unwrap();
+        let users: Vec<_> = evs
+            .iter()
+            .filter(|ev| ev.event_type == EventType::UserMessageChunk)
+            .map(|ev| ev.content.as_str())
+            .collect();
+        assert_eq!(users, ["hi", "again"]);
+
+        fs::write(
+            dir.join("updates.jsonl"),
+            format!("{}\n", user_line(500, "fresh")),
+        )
+        .unwrap();
+        let rows = Grok.records(&dir, "sess").unwrap();
+        assert_eq!(
+            user_contents(&rows),
+            ["fresh"],
+            "truncate must drop stale update rows"
+        );
+        assert_eq!(
+            record_types(&rows),
+            ["turn_started", "loop_started", "turn_ended"]
+        );
+        let evs = Grok.timeline(&dir, "sess").unwrap();
+        let users: Vec<_> = evs
+            .iter()
+            .filter(|ev| ev.event_type == EventType::UserMessageChunk)
+            .map(|ev| ev.content.as_str())
+            .collect();
+        assert_eq!(users, ["fresh"]);
+
         fs::remove_dir_all(&dir).unwrap();
     }
 }
