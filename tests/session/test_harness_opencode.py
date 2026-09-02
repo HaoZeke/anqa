@@ -52,6 +52,34 @@ def test_catalog_lists_opencode_sessions() -> None:
     assert by_id["ses_running"]["status"] == "running"
 
 
+def test_list_meta_does_not_replay_event_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    import anqa.harness.opencode as oc
+
+    db = _install_store()
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "UPDATE session SET tokens_input = 10, tokens_output = 20, "
+            "tokens_reasoning = 5 WHERE id = ?",
+            ("ses_probe",),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    def boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("_load_payload must not run for list meta")
+
+    monkeypatch.setattr(oc, "_load_payload", boom)
+    adapter = oc.OpenCodeAdapter()
+    ref = Path("opencode:ses_probe")
+    meta = adapter.load_meta(ref)
+    assert meta.title
+    assert meta.harness == "opencode"
+    assert meta.turn_outcome != ""
+    assert meta.context_tokens_used == 35
+
+
 def test_load_meta_and_timeline() -> None:
     _install_store()
     probe = Path("opencode:ses_probe")

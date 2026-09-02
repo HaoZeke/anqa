@@ -1,10 +1,11 @@
 //! OpenCode sqlite session store.
 
-use crate::event::{Event, EventType, SessionLocator};
+use crate::event::{Event, EventType, ListMeta, SessionLocator};
 use crate::store::Store;
 use crate::text;
 use rusqlite::Connection;
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn timeline_from_events(con: &Connection, session_id: &str) -> Result<Vec<Event>, String> {
@@ -168,6 +169,378 @@ fn table_exists(con: &Connection, name: &str) -> bool {
     .is_ok()
 }
 
+fn query_text(con: &Connection, sql: &str, session_id: &str) -> Option<String> {
+    con.query_row(sql, [session_id], |row| row.get::<_, String>(0))
+        .ok()
+}
+
+fn json_object(raw: &str) -> Value {
+    serde_json::from_str(raw).unwrap_or(Value::Null)
+}
+
+fn model_id_from_value(raw: &Value) -> String {
+    let val = match raw {
+        Value::String(s) => serde_json::from_str(s).unwrap_or(Value::String(s.clone())),
+        other => other.clone(),
+    };
+    if let Value::String(s) = &val {
+        return if s.is_empty() {
+            "unknown".into()
+        } else {
+            s.clone()
+        };
+    }
+    let mid = {
+        let id = text::field_str(&val, "id");
+        if id.is_empty() {
+            text::field_str(&val, "modelID")
+        } else {
+            id
+        }
+    };
+    let provider = {
+        let id = text::field_str(&val, "providerID");
+        if id.is_empty() {
+            text::field_str(&val, "provider")
+        } else {
+            id
+        }
+    };
+    match (mid.is_empty(), provider.is_empty()) {
+        (false, false) => format!("{provider}/{mid}"),
+        (false, true) => mid,
+        (true, false) => provider,
+        (true, true) => "unknown".into(),
+    }
+}
+
+fn iso_millis(ms: i64) -> String {
+    if ms <= 0 {
+        return String::new();
+    }
+    let secs = if ms > 1_000_000_000_000 {
+        ms / 1000
+    } else {
+        ms
+    };
+    iso_secs(secs)
+}
+
+fn iso_secs(secs: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400);
+    let hour = tod / 3600;
+    let min = (tod % 3600) / 60;
+    let sec = tod % 60;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+    (year, month as i64, day as i64)
+}
+
+fn from_last(token: &str) -> String {
+    let key = token.trim().to_ascii_lowercase().replace(' ', "_");
+    match key.as_str() {
+        "ending" | "finishing" => "ending",
+        "awaiting" | "awaiting_follow_up" => "awaiting",
+        "complete" | "completed" | "success" | "ok" | "done" | "end_turn" | "stop"
+        | "stop_sequence" | "task_complete" | "turn_completed" | "turn_ended" | "session_recap"
+        | "session.shutdown" | "assistant.turn_end" => "complete",
+        "cancelled" | "canceled" | "error" | "failed" | "failure" | "killed" | "aborted"
+        | "interrupted" | "timeout" | "turn_aborted" | "max_tokens" | "refusal" => "cancelled",
+        "running" | "in_progress" | "pending" | "active" | "executing" | "awaiting_approval"
+        | "scheduled" | "not_fully_idle" => "running",
+        "" => "",
+        _ => "idle",
+    }
+    .into()
+}
+
+fn set_times(meta: &mut ListMeta, created: i64, updated: i64) {
+    if created > 0 {
+        meta.created_at = iso_millis(created);
+    }
+    let end = if updated > 0 { updated } else { created };
+    if end > 0 {
+        meta.updated_at = iso_millis(end);
+    }
+    if created > 0 && end > 0 {
+        let start = if created > 1_000_000_000_000 {
+            created / 1000
+        } else {
+            created
+        };
+        let stop = if end > 1_000_000_000_000 {
+            end / 1000
+        } else {
+            end
+        };
+        meta.duration_seconds = (stop - start).max(0) as f64;
+    }
+}
+
+fn apply_session_info(meta: &mut ListMeta, info: &Value) {
+    let title = text::field_str(info, "title");
+    if !title.is_empty() {
+        meta.title = title;
+    }
+    let directory = text::field_str(info, "directory");
+    if !directory.is_empty() {
+        meta.run_dir = directory;
+    }
+    let version = text::field_str(info, "version");
+    if !version.is_empty() {
+        meta.harness_version = version;
+    }
+    if let Some(model) = info.get("model") {
+        meta.model_id = model_id_from_value(model);
+    }
+    if let Some(time) = info.get("time") {
+        let created = time
+            .get("created")
+            .and_then(text::parse_ts_value)
+            .unwrap_or(0);
+        let updated = time
+            .get("updated")
+            .and_then(text::parse_ts_value)
+            .unwrap_or(0);
+        set_times(meta, created, updated);
+    }
+}
+
+fn fill_session_row(con: &Connection, session_id: &str, meta: &mut ListMeta) -> bool {
+    if !table_exists(con, "session") {
+        return false;
+    }
+    let sql = "SELECT title, directory, model, version, time_created, time_updated, \
+               time_archived, tokens_input, tokens_output, tokens_reasoning \
+               FROM session WHERE id = ?1";
+    let row = con.query_row(sql, [session_id], |row| {
+        Ok((
+            row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+            row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            row.get::<_, Option<i64>>(4)?.unwrap_or(0),
+            row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+            row.get::<_, Option<i64>>(6)?.unwrap_or(0),
+            row.get::<_, Option<i64>>(7)?.unwrap_or(0),
+            row.get::<_, Option<i64>>(8)?.unwrap_or(0),
+            row.get::<_, Option<i64>>(9)?.unwrap_or(0),
+        ))
+    });
+    let Ok((title, directory, model, version, created, updated, archived, tin, tout, treason)) =
+        row
+    else {
+        return false;
+    };
+    meta.title = title;
+    meta.run_dir = directory;
+    meta.model_id = model_id_from_value(&Value::String(model));
+    meta.harness_version = version;
+    set_times(meta, created, updated);
+    let tokens = tin.saturating_add(tout).saturating_add(treason);
+    if tokens > 0 {
+        meta.context_tokens_used = Some(tokens);
+    }
+    if archived > 0 {
+        meta.turn_outcome = from_last("complete");
+    }
+    true
+}
+
+fn last_session_info(con: &Connection, session_id: &str) -> Option<Value> {
+    let raw = query_text(
+        con,
+        "SELECT data FROM event WHERE aggregate_id = ?1 \
+         AND (type LIKE 'session.updated%' OR type LIKE 'session.created%') \
+         ORDER BY seq DESC LIMIT 1",
+        session_id,
+    )?;
+    json_object(&raw).get("info").cloned()
+}
+
+fn part_status(data: &Value) -> Option<String> {
+    let state = data.get("state").unwrap_or(&Value::Null);
+    let status = text::field_str(state, "status");
+    if status.is_empty() {
+        None
+    } else {
+        Some(status)
+    }
+}
+
+fn last_part_status_from_events(con: &Connection, session_id: &str) -> Option<String> {
+    let raw = query_text(
+        con,
+        "SELECT data FROM event WHERE aggregate_id = ?1 AND type LIKE '%part%' \
+         ORDER BY seq DESC LIMIT 1",
+        session_id,
+    )?;
+    let data = json_object(&raw);
+    part_status(data.get("part").unwrap_or(&Value::Null))
+}
+
+fn last_part_status_from_table(con: &Connection, session_id: &str) -> Option<String> {
+    let raw = query_text(
+        con,
+        "SELECT data FROM part WHERE session_id = ?1 \
+         ORDER BY time_created DESC, id DESC LIMIT 1",
+        session_id,
+    )?;
+    part_status(&json_object(&raw))
+}
+
+fn message_outcome(data: &Value) -> String {
+    let role = text::field_str(data, "role");
+    if role == "assistant" {
+        let completed = data.get("time").and_then(|t| t.get("completed"));
+        if let Some(val) = completed {
+            let empty = val.is_null() || matches!(val, Value::String(s) if s.is_empty());
+            let zero = val.as_i64() == Some(0);
+            if !empty && !zero {
+                return from_last("complete");
+            }
+        }
+    }
+    if role.is_empty() {
+        String::new()
+    } else {
+        from_last(&role)
+    }
+}
+
+fn last_message_outcome_from_events(con: &Connection, session_id: &str) -> String {
+    let Some(raw) = query_text(
+        con,
+        "SELECT data FROM event WHERE aggregate_id = ?1 AND type LIKE 'message.%' \
+         AND type NOT LIKE '%part%' ORDER BY seq DESC LIMIT 1",
+        session_id,
+    ) else {
+        return String::new();
+    };
+    let data = json_object(&raw);
+    message_outcome(data.get("info").unwrap_or(&Value::Null))
+}
+
+fn last_message_outcome_from_table(con: &Connection, session_id: &str) -> String {
+    let Some(raw) = query_text(
+        con,
+        "SELECT data FROM message WHERE session_id = ?1 \
+         ORDER BY time_created DESC, id DESC LIMIT 1",
+        session_id,
+    ) else {
+        return String::new();
+    };
+    message_outcome(&json_object(&raw))
+}
+
+fn fill_turn_outcome(con: &Connection, session_id: &str, meta: &mut ListMeta) {
+    if !meta.turn_outcome.is_empty() {
+        return;
+    }
+    if table_exists(con, "event") {
+        if let Some(info) = last_session_info(con, session_id) {
+            let archived = info.get("time_archived").cloned().unwrap_or(Value::Null);
+            let archived = if archived.is_null() {
+                info.get("time")
+                    .and_then(|t| t.get("archived"))
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            } else {
+                archived
+            };
+            let set = match &archived {
+                Value::Null => false,
+                Value::String(s) => !s.is_empty(),
+                Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
+                _ => true,
+            };
+            if set {
+                meta.turn_outcome = from_last("complete");
+                return;
+            }
+        }
+        if let Some(status) = last_part_status_from_events(con, session_id) {
+            let mapped = from_last(&status);
+            if !mapped.is_empty() && mapped != "idle" {
+                meta.turn_outcome = mapped;
+                return;
+            }
+        }
+    }
+    if table_exists(con, "part") {
+        if let Some(status) = last_part_status_from_table(con, session_id) {
+            let mapped = from_last(&status);
+            if !mapped.is_empty() && mapped != "idle" {
+                meta.turn_outcome = mapped;
+                return;
+            }
+        }
+    }
+    if table_exists(con, "event") {
+        let outcome = last_message_outcome_from_events(con, session_id);
+        if !outcome.is_empty() {
+            meta.turn_outcome = outcome;
+            return;
+        }
+    }
+    if table_exists(con, "message") {
+        meta.turn_outcome = last_message_outcome_from_table(con, session_id);
+    }
+}
+
+fn child_count(con: &Connection, session_id: &str) -> u32 {
+    let mut ids = BTreeSet::new();
+    if table_exists(con, "session") {
+        if let Ok(mut stmt) = con.prepare("SELECT id FROM session WHERE parent_id = ?1") {
+            if let Ok(rows) = stmt.query_map([session_id], |row| row.get::<_, String>(0)) {
+                for id in rows.flatten() {
+                    if !id.is_empty() {
+                        ids.insert(id);
+                    }
+                }
+            }
+        }
+    }
+    if table_exists(con, "event") {
+        if let Ok(mut stmt) =
+            con.prepare("SELECT data FROM event WHERE type LIKE 'session.created%'")
+        {
+            if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                for raw in rows.flatten() {
+                    let info = json_object(&raw)
+                        .get("info")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    if text::field_str(&info, "parentID") == session_id {
+                        let id = text::field_str(&info, "id");
+                        if !id.is_empty() {
+                            ids.insert(id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ids.len() as u32
+}
+
 impl Store for OpenCode {
     fn id(&self) -> &'static str {
         "opencode"
@@ -246,6 +619,31 @@ impl Store for OpenCode {
 
     fn events(&self, _records: &[crate::store::Record]) -> Vec<Event> {
         Vec::new()
+    }
+
+    fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_file() {
+            return Err(format!("opencode session not found: {session_id}"));
+        }
+        let con = open_ro(locator)?;
+        let mut meta = ListMeta::for_session(self.id(), locator, session_id);
+        let mut found = fill_session_row(&con, session_id, &mut meta);
+        if table_exists(&con, "event") {
+            if let Some(info) = last_session_info(&con, session_id) {
+                found = true;
+                if meta.title.is_empty() {
+                    apply_session_info(&mut meta, &info);
+                }
+            }
+        }
+        if !found {
+            return Err(format!("opencode session not found: {session_id}"));
+        }
+        fill_turn_outcome(&con, session_id, &mut meta);
+        let kids = child_count(&con, session_id);
+        meta.subagent_count = kids;
+        meta.has_subagents = kids > 0;
+        Ok(meta)
     }
 
     fn timeline(&self, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {

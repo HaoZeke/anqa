@@ -275,6 +275,7 @@ mod pybind {
         d.set_item("num_events", meta.num_events)?;
         d.set_item("has_subagents", meta.has_subagents)?;
         d.set_item("subagent_count", meta.subagent_count)?;
+        d.set_item("context_tokens_used", meta.context_tokens_used)?;
         Ok(d)
     }
 

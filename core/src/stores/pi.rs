@@ -348,6 +348,7 @@ impl Store for Pi {
                     })
             }),
             subagent_count: 0,
+            context_tokens_used: None,
         };
         let _ = stamp;
         Ok(meta)

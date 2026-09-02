@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import event_types as et
+from ..core import list_meta
 from ..models import (
     JsonObject,
     JsonValue,
-    ListStatus,
     SessionMeta,
     ToolInputBag,
     TraceEvent,
@@ -26,7 +26,6 @@ from ..models import (
 )
 from ..stamp import Stamp
 from .ref import SessionRef
-from .status import from_last
 
 OPENCODE_HARNESS_ID = "opencode"
 
@@ -63,15 +62,6 @@ def _db_from_ref(ref: SessionRef | Path | str, fallback: Path) -> tuple[Path, st
     if path.is_file():
         return path, ""
     return fallback, path.name
-
-
-def _model_id(raw: JsonValue) -> str:
-    bag = json_mapping(raw)
-    mid = str(bag.get("id") or bag.get("modelID") or "").strip()
-    provider = str(bag.get("providerID") or bag.get("provider") or "").strip()
-    if mid and provider:
-        return f"{provider}/{mid}"
-    return mid or provider or "unknown"
 
 
 def _session_row(con: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
@@ -301,68 +291,6 @@ def file_diffs_for(ref: SessionRef | Path | str) -> list[JsonObject]:
     return _file_diffs(payload)
 
 
-def _part_live_token(payload: _Payload) -> str:
-    if not payload.parts:
-        return ""
-    pdata = payload.parts[-1].data
-    return from_last(str(json_mapping(pdata.get("state")).get("status") or "").strip())
-
-
-def _turn_outcome_payload(payload: _Payload) -> str:
-    """List status from the last store-written part status or finished assistant."""
-    archived = payload.info.get("time_archived")
-    if archived in (None, 0, ""):
-        archived = json_mapping(payload.info.get("time")).get("archived")
-    if archived not in (None, 0, ""):
-        return from_last("complete")
-    live = _part_live_token(payload)
-    if live is not ListStatus.IDLE:
-        return live
-    if not payload.messages:
-        return ""
-    data = payload.messages[-1].data
-    role = str(data.get("role") or "")
-    if role == "assistant" and json_mapping(data.get("time")).get("completed") not in (
-        None,
-        0,
-        "",
-    ):
-        return from_last("complete")
-    return from_last(role)
-
-
-def _meta_from_payload(payload: _Payload, db: Path, child_count: int) -> SessionMeta:
-    info = payload.info
-    sid = str(info.get("id") or "")
-    times = json_mapping(info.get("time"))
-    created = Stamp.iso(times.get("created"))
-    updated = Stamp.iso(times.get("updated") or times.get("created"))
-    duration = 0.0
-    start = Stamp.epoch(times.get("created"))
-    end = Stamp.epoch(times.get("updated") or times.get("created"))
-    if start is not None and end is not None:
-        duration = float(max(0, end - start))
-    cwd = str(info.get("directory") or "").strip()
-    tools = sum(1 for part in payload.parts if str(part.data.get("type") or "") == "tool")
-    return SessionMeta(
-        session_id=sid,
-        session_dir=db,
-        model_id=_model_id(info.get("model")),
-        title=str(info.get("title") or "").strip(),
-        created_at=created,
-        updated_at=updated,
-        duration_seconds=duration,
-        run_dir=cwd,
-        turn_outcome=_turn_outcome_payload(payload),
-        harness=OPENCODE_HARNESS_ID,
-        harness_version=str(info.get("version") or "").strip(),
-        num_events=len(payload.parts) or len(payload.messages),
-        tool_call_count=tools,
-        subagent_count=child_count,
-        has_subagents=child_count > 0,
-    )
-
-
 class OpenCodeAdapter:
     """Read-only OpenCode sqlite adapter."""
 
@@ -411,11 +339,13 @@ class OpenCodeAdapter:
         if not sid:
             raise FileNotFoundError("opencode session id is required")
         db = _assert_readable(db)
-        with _connect(db) as con:
-            payload = _load_payload(con, sid)
-            if payload is None:
-                raise FileNotFoundError(f"opencode session not found: {sid}")
-            return _meta_from_payload(payload, db, len(_child_ids(con, sid)))
+        try:
+            return list_meta(self.id, db, sid)
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "not found" in msg:
+                raise FileNotFoundError(msg) from exc
+            raise
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         db, sid = _db_from_ref(ref, self.db())

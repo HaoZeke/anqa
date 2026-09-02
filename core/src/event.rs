@@ -267,6 +267,7 @@ pub struct ListMeta {
     pub num_events: u32,
     pub has_subagents: bool,
     pub subagent_count: u32,
+    pub context_tokens_used: Option<i64>,
 }
 
 impl ListMeta {

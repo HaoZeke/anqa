@@ -91,6 +91,7 @@ def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta
         num_events=_as_int(row.get("num_events")),
         has_subagents=bool(row.get("has_subagents")),
         subagent_count=_as_int(row.get("subagent_count")),
+        context_tokens_used=_as_int(row.get("context_tokens_used")) or None,
     )
 
 
