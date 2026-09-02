@@ -157,19 +157,46 @@ pub fn filter_diff_hunks(query: &str, hunks: &[(String, String)]) -> Vec<(usize,
 }
 
 fn first_match_line(query: &str, text: &str) -> Option<usize> {
+    match_lines(query, text).into_iter().next()
+}
+
+fn match_lines(query: &str, text: &str) -> Vec<usize> {
     let q = query.trim();
     if q.is_empty() {
-        return None;
+        return Vec::new();
     }
-    for (i, line) in text.lines().enumerate() {
-        if fzf_score(q, line) > 0 {
-            return Some(i);
-        }
+    let hits: Vec<usize> = text
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| fzf_score(q, line) > 0)
+        .map(|(i, _)| i)
+        .collect();
+    if !hits.is_empty() {
+        return hits;
     }
     if fzf_score(q, text) > 0 {
-        return Some(0);
+        vec![0]
+    } else {
+        Vec::new()
     }
-    None
+}
+
+/// Every find hit in file order: each matching body line, or a path-only file.
+pub fn iter_diff_hits(query: &str, hunks: &[(String, String)]) -> Vec<(String, Option<usize>)> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let mut hits = Vec::new();
+    for (path, unified) in hunks {
+        let lines = match_lines(q, unified);
+        if !lines.is_empty() {
+            hits.extend(lines.into_iter().map(|i| (path.clone(), Some(i))));
+        } else if fzf_score(q, path) > 0 {
+            hits.push((path.clone(), None));
+        }
+    }
+    hits
 }
 
 /// Same rank as [`fuzzy_filter`], but returns source indices and does not clone *items*.
@@ -355,6 +382,29 @@ mod tests {
                 .any(|line| line.starts_with("> ") && line.contains("unique")),
             "{marked:?}"
         );
+    }
+
+    #[test]
+    fn iter_diff_hits_collects_every_matching_line() {
+        let hunks = [
+            (
+                "a.py".into(),
+                "@@\n-old\n+needle one\n+keep\n+needle two\n".into(),
+            ),
+            ("b.py".into(), "@@\n+other\n".into()),
+            ("c.py".into(), "@@\n+needle three\n".into()),
+        ];
+        let hits = iter_diff_hits("needle", &hunks);
+        assert_eq!(
+            hits,
+            vec![
+                ("a.py".into(), Some(2)),
+                ("a.py".into(), Some(4)),
+                ("c.py".into(), Some(1)),
+            ]
+        );
+        assert_eq!(iter_diff_hits("b.py", &hunks), vec![("b.py".into(), None)]);
+        assert!(iter_diff_hits("", &hunks).is_empty());
     }
 
     #[test]

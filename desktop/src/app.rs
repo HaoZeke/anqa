@@ -213,6 +213,7 @@ pub enum Message {
         result: Result<Value, String>,
     },
     DiffQuery(String),
+    DiffHitStep(i32),
     SelectDiffFile(String),
     DiffTreeToggle(u64),
     DiffTreeSelect(u64),
@@ -1239,6 +1240,7 @@ impl Hud {
                 self.bind_diff_bodies();
                 self.reveal_diff_hit()
             }
+            Message::DiffHitStep(delta) => self.step_diff_hit(delta),
             Message::SelectDiffFile(path) => {
                 self.diff_file = path;
                 self.refresh_diff_hit();
@@ -3551,6 +3553,50 @@ impl Hud {
         self.diff_hit_line
     }
 
+    fn current_diff_hits(&self) -> Vec<(String, Option<usize>)> {
+        let Some(point) = self.current_diff_point() else {
+            return Vec::new();
+        };
+        let pairs: Vec<(String, String)> = point
+            .files
+            .iter()
+            .map(|f| (f.path.clone(), f.unified.clone()))
+            .collect();
+        crate::fuzzy::iter_diff_hits(&self.diff_query, &pairs)
+    }
+
+    pub fn diff_hit_count(&self) -> usize {
+        self.current_diff_hits().len()
+    }
+
+    pub fn diff_hit_index(&self) -> Option<usize> {
+        let hits = self.current_diff_hits();
+        if hits.is_empty() {
+            return None;
+        }
+        Some(self.diff_hit_i(&hits) + 1)
+    }
+
+    fn diff_hit_i(&self, hits: &[(String, Option<usize>)]) -> usize {
+        hits.iter()
+            .position(|(path, line)| path == &self.diff_file && *line == self.diff_hit_line)
+            .or_else(|| hits.iter().position(|(path, _)| path == &self.diff_file))
+            .unwrap_or(0)
+    }
+
+    fn step_diff_hit(&mut self, delta: i32) -> Task<Message> {
+        let hits = self.current_diff_hits();
+        if hits.is_empty() || delta == 0 {
+            return Task::none();
+        }
+        let n = hits.len() as i32;
+        let nxt = (self.diff_hit_i(&hits) as i32 + delta).rem_euclid(n) as usize;
+        self.diff_file = hits[nxt].0.clone();
+        self.diff_hit_line = hits[nxt].1;
+        self.bind_diff_bodies();
+        self.reveal_diff_hit()
+    }
+
     pub fn painted_hit_line(&self) -> Option<String> {
         let unified = self.selected_diff_unified();
         crate::fuzzy::mark_unified_hit(&unified, self.diff_hit_line)
@@ -3605,25 +3651,16 @@ impl Hud {
     }
 
     fn refresh_diff_hit(&mut self) {
-        let Some(point) = self.current_diff_point() else {
-            self.diff_hit_line = None;
+        let hits = self.current_diff_hits();
+        if hits.is_empty() {
+            if self.diff_query.trim().is_empty() {
+                self.diff_hit_line = None;
+            }
             return;
-        };
-        let pairs: Vec<(String, String)> = point
-            .files
-            .iter()
-            .map(|f| (f.path.clone(), f.unified.clone()))
-            .collect();
-        let hits = crate::fuzzy::filter_diff_hunks(&self.diff_query, &pairs);
-        self.diff_hit_line = hits
-            .iter()
-            .find(|(i, _)| {
-                point
-                    .files
-                    .get(*i)
-                    .is_some_and(|f| f.path == self.diff_file)
-            })
-            .and_then(|(_, line)| *line);
+        }
+        let i = self.diff_hit_i(&hits);
+        self.diff_file = hits[i].0.clone();
+        self.diff_hit_line = hits[i].1;
     }
 
     fn step_diff_point(&mut self, delta: i32) {
@@ -6105,6 +6142,12 @@ impl Hud {
         }
         if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();
+        }
+        if self.tab == Tab::Diff
+            && !self.diff_query.trim().is_empty()
+            && matches!(key, Key::Named(Named::Enter))
+        {
+            return self.step_diff_hit(if modifiers.shift() { -1 } else { 1 });
         }
         if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();
@@ -11988,6 +12031,62 @@ mod tests {
                 .any(|l| l == "> +needle here" || l.starts_with("> ") && l.contains("needle here")),
             "hit line must be marked so the jump is visible: {hunk}"
         );
+    }
+
+    #[test]
+    fn diff_search_steps_every_hit() {
+        let mut hud = Hud {
+            tab: Tab::Diff,
+            diff: crate::wire::DiffBlock {
+                points: vec![crate::wire::DiffPointRow {
+                    key: "0".into(),
+                    files: vec![
+                        crate::wire::DiffFileRow {
+                            path: "a.py".into(),
+                            unified: "@@\n+needle one\n+keep\n+needle two\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                        crate::wire::DiffFileRow {
+                            path: "b.py".into(),
+                            unified: "@@\n+other\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                        crate::wire::DiffFileRow {
+                            path: "c.py".into(),
+                            unified: "@@\n+needle three\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                    ],
+                    ..crate::wire::DiffPointRow::default()
+                }],
+                ..crate::wire::DiffBlock::default()
+            },
+            diff_point: "0".into(),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::DiffQuery("needle".into()));
+        assert_eq!(hud.diff_hit_count(), 3);
+        assert_eq!(hud.diff_hit_index(), Some(1));
+        assert_eq!(hud.diff_file(), "a.py");
+        let first = hud.painted_hit_line().expect("first hit");
+        assert!(first.contains("needle one"), "{first}");
+        let _ = hud.update(Message::DiffHitStep(1));
+        assert_eq!(hud.diff_hit_index(), Some(2));
+        assert!(hud
+            .painted_hit_line()
+            .is_some_and(|l| l.contains("needle two")));
+        let _ = hud.update(Message::DiffHitStep(1));
+        assert_eq!(hud.diff_file(), "c.py");
+        assert_eq!(hud.diff_hit_index(), Some(3));
+        assert!(hud
+            .painted_hit_line()
+            .is_some_and(|l| l.contains("needle three")));
+        let _ = hud.update(Message::DiffHitStep(1));
+        assert_eq!(hud.diff_hit_index(), Some(1));
+        assert_eq!(hud.diff_file(), "a.py");
+        let _ = hud.update(Message::DiffHitStep(-1));
+        assert_eq!(hud.diff_file(), "c.py");
+        assert_eq!(hud.diff_hit_index(), Some(3));
     }
 
     #[test]

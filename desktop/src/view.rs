@@ -2268,16 +2268,48 @@ fn diff_context_tabs(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Mess
 
 fn diff_search(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    inset_search(
+    let search = inset_search(
         hud.diff_query(),
         Message::DiffQuery,
         Some(Message::DiffQuery(String::new())),
-        None,
+        Some(Message::DiffHitStep(1)),
         tea,
         A11y::new("Search files and hunks", Role::TextBox),
         Some(hud.diff_search_id()),
         &[],
-    )
+    );
+    let q = hud.diff_query().trim();
+    let count = if q.is_empty() {
+        String::new()
+    } else if let Some(at) = hud.diff_hit_index() {
+        format!("{at} of {}", hud.diff_hit_count())
+    } else {
+        "No matches".into()
+    };
+    let has_hits = hud.diff_hit_count() > 0;
+    row![
+        search,
+        text(count).size(tea.meta()).color(tea.muted),
+        icedtea::widget::icon_button(
+            Icon::Back,
+            has_hits.then_some(Message::DiffHitStep(-1)),
+            tea,
+            Variant::Ghost,
+            icedtea::widget::ControlSize::Default,
+            A11y::button("Previous match").with_disabled(!has_hits),
+        ),
+        icedtea::widget::icon_button(
+            Icon::Chevron,
+            has_hits.then_some(Message::DiffHitStep(1)),
+            tea,
+            Variant::Ghost,
+            icedtea::widget::ControlSize::Default,
+            A11y::button("Next match").with_disabled(!has_hits),
+        ),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn diff_context_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
@@ -3871,6 +3903,7 @@ mod tests {
         assert!(prod.contains("fn diff_split"));
         assert!(prod.contains("widget::tree_view"));
         assert!(prod.contains("fn diff_search"));
+        assert!(prod.contains("Message::DiffHitStep"));
         assert!(prod.contains("Message::DiffPointPicked"));
         assert!(prod.contains("\"diff.prompt\""));
         assert!(prod.contains("\"diff.assistant\""));

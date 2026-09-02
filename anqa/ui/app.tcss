@@ -792,6 +792,22 @@ ContentSwitcher {
     background: $surface;
 }
 
+#diff-search-count {
+    color: $text-muted;
+    width: auto;
+    min-width: 8;
+    content-align: right middle;
+    padding: 0 1;
+}
+
+#diff-search-prev,
+#diff-search-next {
+    width: auto;
+    min-width: 10;
+    height: auto;
+    min-height: 3;
+}
+
 #diff-layout {
     height: 1fr;
     layout: horizontal;

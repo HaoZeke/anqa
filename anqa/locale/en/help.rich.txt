@@ -25,7 +25,8 @@
   h / l / Left / Right    Previous / next turn on the Timeline
   j / k           Previous / next Timeline event, or previous / next note
   v               Filter (Subagents, Background, Workflows)
-  Enter           Open a Timeline event or child; edit the focused note
+  Enter           Open a Timeline event or child; edit the focused note; next Diff match
+  Shift+Enter     Previous Diff match
   Raw             Switch: this event as JSON
   N               New note
   y               Copy the selection or the focused / primary pane body

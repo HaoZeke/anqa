@@ -721,6 +721,14 @@ diff-empty-session = No rewind snapshots or file edits
 
 diff-search-placeholder = Search files and hunks
 
+diff-search-hits = { $current } of { $total }
+
+diff-search-none = No matches
+
+diff-search-prev = Previous
+
+diff-search-next = Next
+
 diff-context-prompt = Prompt
 
 diff-context-assistant = Assistant

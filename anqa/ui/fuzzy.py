@@ -102,15 +102,38 @@ def mark_unified_hit(unified: str, hit_line: int | None) -> str:
 
 def first_match_line(query: str, text: str) -> int | None:
     """0-based line of the first fuzzy hit in *text*, or ``None``."""
+    lines = match_lines(query, text)
+    return lines[0] if lines else None
+
+
+def match_lines(query: str, text: str) -> list[int]:
+    """0-based lines in *text* that fuzzy-match *query*."""
     q = (query or "").strip()
     if not q:
-        return None
-    for i, line in enumerate((text or "").splitlines()):
-        score, _ = _fzf_score(q, line)
-        if score > 0:
-            return i
+        return []
+    hits = [i for i, line in enumerate((text or "").splitlines()) if _fzf_score(q, line)[0] > 0]
+    if hits:
+        return hits
     score, _ = _fzf_score(q, text or "")
-    return 0 if score > 0 else None
+    return [0] if score > 0 else []
+
+
+def iter_diff_hits(query: str, hunks: Sequence[tuple[str, str]]) -> list[tuple[str, int | None]]:
+    """Every find hit in file order: each matching body line, or a path-only file.
+
+    :returns: ``(path, line)`` with ``line is None`` for a path-only hit.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    hits: list[tuple[str, int | None]] = []
+    for path, unified in hunks:
+        lines = match_lines(q, unified)
+        if lines:
+            hits.extend((path, i) for i in lines)
+        elif _fzf_score(q, path)[0] > 0:
+            hits.append((path, None))
+    return hits
 
 
 def filter_diff_hunks(

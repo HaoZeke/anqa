@@ -989,6 +989,81 @@ async def test_diff_view_absolute_paths_keep_the_hunk() -> None:
         assert "role: review" in body
 
 
+@pytest.mark.asyncio
+async def test_diff_view_find_steps_every_hit() -> None:
+    """Diff find walks every matching line and opens the file that holds it."""
+    from anqa.session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
+    from anqa.ui.widgets.diff_view import DiffView
+    from textual.app import App
+    from textual.widgets import Input
+
+    class Host(App[None]):
+        def compose(self):
+            yield DiffView(id="diff-view")
+
+    async with Host().run_test(size=(120, 40)) as pilot:
+        view = pilot.app.query_one("#diff-view", DiffView)
+        view.set_doc(
+            WorkspaceDiff(
+                (
+                    DiffPoint(
+                        key="edits",
+                        source="search_replace",
+                        prompt_index=None,
+                        created_at=None,
+                        files=(
+                            DiffHunk(
+                                path="a.py",
+                                kind="edit",
+                                added=2,
+                                removed=0,
+                                unified="@@\n+needle one\n+keep\n+needle two\n",
+                            ),
+                            DiffHunk(
+                                path="b.py",
+                                kind="edit",
+                                added=1,
+                                removed=0,
+                                unified="@@\n+other\n",
+                            ),
+                            DiffHunk(
+                                path="c.py",
+                                kind="edit",
+                                added=1,
+                                removed=0,
+                                unified="@@\n+needle three\n",
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
+        await pilot.pause()
+        search = view.query_one("#diff-search", Input)
+        search.value = "needle"
+        await wait_until(
+            pilot,
+            lambda: view.hit_count() == 3 and view.hit_index() == 1,
+            description="three needle hits, first selected",
+        )
+        assert view._file_key == "a.py"
+        first = view.painted_hit_line() or ""
+        assert first.startswith("> ") and "needle one" in first
+        view.step_hit(1)
+        assert view.hit_index() == 2
+        assert "needle two" in (view.painted_hit_line() or "")
+        view.step_hit(1)
+        assert view._file_key == "c.py"
+        assert view.hit_index() == 3
+        assert "needle three" in (view.painted_hit_line() or "")
+        view.step_hit(1)
+        assert view.hit_index() == 1
+        assert view._file_key == "a.py"
+        view.step_hit(-1)
+        assert view._file_key == "c.py"
+        assert view.hit_index() == 3
+
+
 # ── Summary tab ──────────────────────────────────────────────────────────
 
 

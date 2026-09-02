@@ -5,14 +5,15 @@ from __future__ import annotations
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Input, Select, Static, TabbedContent, TabPane, Tree
+from textual.widgets import Button, Input, Select, Static, TabbedContent, TabPane, Tree
 from textual.widgets.tree import TreeNode
 
 from ...constants import DIFF_TRUNCATE_THRESHOLD
 from ...diff_tree import tree_rows
 from ...session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
-from ..fuzzy import filter_diff_hunks, mark_unified_hit
+from ..fuzzy import filter_diff_hunks, iter_diff_hits, mark_unified_hit
 from ..i18n import t
 from ..panel_render import md_content
 from ..render_detail import set_static_renderable
@@ -51,6 +52,10 @@ def _point_label(point: DiffPoint, index: int) -> str:
 class DiffView(Vertical):
     """Rewind snapshots or approximate ``search_replace`` edits, one file at a time."""
 
+    BINDINGS = [
+        Binding("shift+enter", "prev_hit", show=False, priority=True),
+    ]
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._doc = WorkspaceDiff(())
@@ -58,6 +63,8 @@ class DiffView(Vertical):
         self._file_key: str | None = None
         self._query: str = ""
         self._hit_line: int | None = None
+        self._hits: list[tuple[str, int | None]] = []
+        self._hit_i: int = 0
         self._syncing = False
 
     def compose(self) -> ComposeResult:
@@ -81,6 +88,9 @@ class DiffView(Vertical):
                             yield SelectableStatic(id="diff-assistant")
         with Horizontal(id="diff-search-bar", classes=FILTER_BAR_CLASS):
             yield Input(placeholder=t("diff-search-placeholder"), id="diff-search")
+            yield Static("", id="diff-search-count")
+            yield Button(t("diff-search-prev"), id="diff-search-prev")
+            yield Button(t("diff-search-next"), id="diff-search-next")
         with Horizontal(id="diff-layout"):
             with Vertical(id="diff-files"):
                 tree: Tree[tuple[str, str]] = Tree("Files", id="diff-file-list")
@@ -108,6 +118,32 @@ class DiffView(Vertical):
     def hit_line(self) -> int | None:
         """0-based unified line for the last body search hit, if any."""
         return self._hit_line
+
+    def hit_count(self) -> int:
+        """Number of find hits in the current snapshot."""
+        return len(self._hits)
+
+    def hit_index(self) -> int | None:
+        """1-based index of the current find hit, or ``None``."""
+        if not self._hits:
+            return None
+        return self._hit_i + 1
+
+    def action_prev_hit(self) -> None:
+        """Shift+Enter: previous find hit."""
+        self.step_hit(-1)
+
+    def step_hit(self, delta: int) -> None:
+        """Move to the next or previous find hit, wrapping, and open that file."""
+        if not self._hits or delta == 0:
+            return
+        n = len(self._hits)
+        self._hit_i = (self._hit_i + delta) % n
+        self._apply_hit()
+        if self.is_mounted:
+            self._fill_files()
+            self._paint_body()
+            self._paint_search_count()
 
     def can_step_point(self) -> bool:
         """True when h/l should step rewind snapshots."""
@@ -151,9 +187,11 @@ class DiffView(Vertical):
         self._syncing = True
         try:
             self._sync_point_select()
+            self._rebuild_hits()
             self._fill_files()
             self._paint_context()
             self._paint_body()
+            self._paint_search_count()
         finally:
             self._syncing = False
 
@@ -178,24 +216,63 @@ class DiffView(Vertical):
         files = point.files
         q = self._query.strip()
         if not q:
-            self._hit_line = None
             return files
         pairs = [(h.path, h.unified) for h in files]
-        hits = filter_diff_hunks(q, pairs)
-        by_path = {h.path: h for h in files}
-        ordered: list[DiffHunk] = []
-        hit_line: int | None = None
-        for path, _score, line, _where in hits:
-            hunk = by_path.get(path)
-            if hunk is None:
-                continue
-            ordered.append(hunk)
-            if path == (self._file_key or path) and hit_line is None:
-                hit_line = line
-        if ordered and (self._file_key is None or self._file_key not in {h.path for h in ordered}):
-            hit_line = hits[0][2]
-        self._hit_line = hit_line
-        return tuple(ordered)
+        wanted = {path for path, *_rest in filter_diff_hunks(q, pairs)}
+        return tuple(hunk for hunk in files if hunk.path in wanted)
+
+    def _rebuild_hits(self) -> None:
+        point = self._current_point()
+        files = point.files if point is not None else ()
+        self._hits = iter_diff_hits(self._query, [(h.path, h.unified) for h in files])
+        if not self._hits:
+            self._hit_i = 0
+            if not self._query.strip():
+                self._hit_line = None
+            return
+        for i, (path, _line) in enumerate(self._hits):
+            if self._file_key is not None and path == self._file_key:
+                self._hit_i = i
+                break
+        else:
+            self._hit_i = 0
+        self._apply_hit()
+
+    def _apply_hit(self) -> None:
+        if not self._hits:
+            return
+        path, line = self._hits[self._hit_i]
+        self._file_key = path
+        self._hit_line = line
+
+    def _snap_hit_to_file(self) -> None:
+        for i, (path, line) in enumerate(self._hits):
+            if path == self._file_key:
+                self._hit_i = i
+                self._hit_line = line
+                return
+        self._hit_line = None
+
+    def _paint_search_count(self) -> None:
+        try:
+            count = self.query_one("#diff-search-count", Static)
+            prev_btn = self.query_one("#diff-search-prev", Button)
+            next_btn = self.query_one("#diff-search-next", Button)
+        except Exception:
+            return
+        if not self._query.strip():
+            count.update("")
+            prev_btn.disabled = True
+            next_btn.disabled = True
+            return
+        if not self._hits:
+            count.update(t("diff-search-none"))
+            prev_btn.disabled = True
+            next_btn.disabled = True
+            return
+        count.update(t("diff-search-hits", current=self.hit_index() or 0, total=self.hit_count()))
+        prev_btn.disabled = False
+        next_btn.disabled = False
 
     def _fill_files(self) -> None:
         tree = self.query_one("#diff-file-list", Tree)
@@ -310,9 +387,11 @@ class DiffView(Vertical):
             return
         self._point_key = key
         self._file_key = None
+        self._rebuild_hits()
         self._fill_files()
         self._paint_context()
         self._paint_body()
+        self._paint_search_count()
 
     @on(Tree.NodeHighlighted, "#diff-file-list")
     def _on_file_highlighted(self, event: Tree.NodeHighlighted[tuple[str, str]]) -> None:
@@ -325,22 +404,28 @@ class DiffView(Vertical):
         if key == self._file_key:
             return
         self._file_key = key
-        self._refresh_hit_line()
+        self._snap_hit_to_file()
         self._paint_body()
+        self._paint_search_count()
 
     @on(Input.Changed, "#diff-search")
     def _on_search_changed(self, event: Input.Changed) -> None:
         self._query = event.value or ""
         if self._syncing:
             return
+        self._rebuild_hits()
         self._fill_files()
         self._paint_body()
+        self._paint_search_count()
 
-    def _refresh_hit_line(self) -> None:
-        q = self._query.strip()
-        hunk = self._hunk()
-        if not q or hunk is None:
-            self._hit_line = None
-            return
-        hits = filter_diff_hunks(q, [(hunk.path, hunk.unified)])
-        self._hit_line = hits[0][2] if hits else None
+    @on(Input.Submitted, "#diff-search")
+    def _on_search_submitted(self, _event: Input.Submitted) -> None:
+        self.step_hit(1)
+
+    @on(Button.Pressed, "#diff-search-next")
+    def _on_search_next(self) -> None:
+        self.step_hit(1)
+
+    @on(Button.Pressed, "#diff-search-prev")
+    def _on_search_prev(self) -> None:
+        self.step_hit(-1)

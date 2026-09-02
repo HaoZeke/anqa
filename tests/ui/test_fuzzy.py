@@ -8,6 +8,7 @@ from anqa.ui.fuzzy import (
     filter_diff_hunks,
     first_match_line,
     fzf_match,
+    iter_diff_hits,
     mark_unified_hit,
     split_tokens,
 )
@@ -123,6 +124,22 @@ class TestFilterDiffHunks:
         assert hits[0][2] is not None
         marked = mark_unified_hit(hunks[0][1], hits[0][2])
         assert any(line.startswith("> ") and "unique" in line for line in marked.splitlines())
+
+
+def test_iter_diff_hits_collects_every_matching_line() -> None:
+    hunks = [
+        ("a.py", "@@\n-old\n+needle one\n+keep\n+needle two\n"),
+        ("b.py", "@@\n+other\n"),
+        ("c.py", "@@\n+needle three\n"),
+    ]
+    hits = iter_diff_hits("needle", hunks)
+    assert hits == [
+        ("a.py", 2),
+        ("a.py", 4),
+        ("c.py", 1),
+    ]
+    assert iter_diff_hits("b.py", hunks) == [("b.py", None)]
+    assert iter_diff_hits("", hunks) == []
 
 
 class TestSplitTokens:

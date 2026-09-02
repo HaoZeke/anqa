@@ -167,7 +167,9 @@ Failed runs are listed on Summary.
 `anqa` (or `anqa tui`) is the session client: session list, browser
 panes, notes, and export. Diff lists rewind turns
 or approximate file edits from write tools, with Prompt and
-Assistant tabs above a files and hunk split.
+Assistant tabs above a files and hunk split. `/` searches those
+files; Enter and Shift+Enter step every matching line, and the
+bar shows how many hits.
 The footer lists the keys that apply now; `?` is the full list.
 
 | Key | Where | Action |
@@ -192,7 +194,8 @@ The footer lists the keys that apply now; `?` is the full list.
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
 | j / k | browser | Previous / next Timeline event, or previous / next note |
 | v | browser | Filter (Subagents, Background, Workflows) |
-| Enter | browser / HUD | Open a Timeline event or child; edit the focused note |
+| Enter | browser / HUD | Open a Timeline event or child; edit the focused note; next Diff match |
+| Shift+Enter | Diff | Previous Diff match |
 
 | N | browser / HUD | New note (TUI Notes); Notes pane (HUD) |
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
