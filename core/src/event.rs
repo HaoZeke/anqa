@@ -149,6 +149,49 @@ impl EventType {
                 | Self::FatalError
         )
     }
+
+    #[must_use]
+    pub fn is_user(&self) -> bool {
+        matches!(self, Self::UserMessageChunk) || self.as_str() == "user"
+    }
+
+    #[must_use]
+    pub fn is_agent(&self) -> bool {
+        matches!(self, Self::AgentMessageChunk)
+    }
+
+    #[must_use]
+    pub fn is_tool_call(&self) -> bool {
+        matches!(self, Self::ToolCall)
+    }
+
+    #[must_use]
+    pub fn is_error_kind(&self) -> bool {
+        matches!(
+            self,
+            Self::SessionError | Self::Error | Self::TurnError | Self::FatalError
+        )
+    }
+
+    #[must_use]
+    pub fn is_system(&self) -> bool {
+        matches!(self, Self::System)
+    }
+
+    #[must_use]
+    pub fn is_subagent(&self) -> bool {
+        matches!(self, Self::SubagentSpawned | Self::SubagentFinished)
+    }
+
+    #[must_use]
+    pub fn is_job_bookend(&self) -> bool {
+        matches!(self, Self::TaskBackgrounded | Self::TaskCompleted) || self.is_scheduled_task()
+    }
+
+    #[must_use]
+    pub fn is_session_named(&self) -> bool {
+        matches!(self, Self::SessionError) || self.as_str() == "session"
+    }
 }
 
 /// One timeline row. `raw` is the original store record as text.
@@ -247,6 +290,81 @@ impl Event {
             }
         }
     }
+
+    #[must_use]
+    pub fn is_turn_started(&self) -> bool {
+        if matches!(self.event_type, EventType::TurnStarted) {
+            return true;
+        }
+        self.event_type.is_session_named()
+            && self.content.to_ascii_lowercase().contains("turn started")
+    }
+
+    #[must_use]
+    pub fn is_turn_ended(&self) -> bool {
+        if matches!(
+            self.event_type,
+            EventType::TurnEnded | EventType::TurnCompleted
+        ) {
+            return true;
+        }
+        self.event_type.is_session_named()
+            && self.content.to_ascii_lowercase().contains("turn ended")
+    }
+
+    #[must_use]
+    pub fn is_events_jsonl_turn_end(&self) -> bool {
+        if matches!(self.event_type, EventType::TurnEnded) {
+            return true;
+        }
+        self.event_type.is_session_named()
+            && self.content.to_ascii_lowercase().contains("turn ended")
+    }
+
+    #[must_use]
+    pub fn parsed_turn_number(&self) -> Option<i32> {
+        if let Some(n) = self.turn_number {
+            return Some(n);
+        }
+        tagged_value(&self.content, "turn_number")?.parse().ok()
+    }
+
+    #[must_use]
+    pub fn outcome(&self) -> String {
+        if let Some(val) = tagged_value(&self.content, "outcome") {
+            return val;
+        }
+        if self.is_error {
+            return "error".into();
+        }
+        if matches!(self.event_type, EventType::TurnCompleted) {
+            return String::new();
+        }
+        "unknown".into()
+    }
+
+    #[must_use]
+    pub fn is_overview_bookend(&self) -> bool {
+        self.event_type.is_job_bookend()
+            || self.event_type.is_subagent()
+            || self.tool_name == "workflow"
+    }
+}
+
+fn tagged_value(content: &str, key: &str) -> Option<String> {
+    let lower = content.to_ascii_lowercase();
+    let key_l = key.to_ascii_lowercase();
+    let mut start = 0;
+    while let Some(rel) = lower.get(start..)?.find(&key_l) {
+        let at = start + rel + key_l.len();
+        let rest = content.get(at..)?.trim_start();
+        let Some(after) = rest.strip_prefix('=') else {
+            start += rel + 1;
+            continue;
+        };
+        return after.split_whitespace().next().map(str::to_string);
+    }
+    None
 }
 
 /// List-grade session stamp.

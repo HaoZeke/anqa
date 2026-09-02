@@ -18,8 +18,17 @@ from typing import ClassVar
 from .. import event_types as et
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
+from ..core import event_from_native, native_overview
 from ..harness.registry import harness_product, ref_from_path, require_adapter
-from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..models import (
+    JsonObject,
+    JsonValue,
+    SessionMeta,
+    ToolInputBag,
+    TraceEvent,
+    as_json_object,
+    json_as_int,
+)
 from ..notes import load_schema, notes_snapshot
 from ..session.tagged_blocks import unwrap_for_display
 from ..session.turns import (
@@ -474,41 +483,90 @@ class SessionOverview:
         return segs, turn_by_index
 
     @classmethod
+    def native_payload(cls, session_dir: Path) -> JsonObject:
+        """Compact native turn/stat/bookend walk for *session_dir*."""
+        sd = Path(session_dir)
+        bound = ref_from_path(sd)
+        if bound is None:
+            adapter = require_adapter(sd)
+            return native_overview(adapter.id, sd, sd.name)
+        return native_overview(bound.harness, bound.locator, bound.session_id)
+
+    @classmethod
+    def bookend_events(cls, native: JsonObject) -> list[TraceEvent]:
+        """Job, schedule, workflow, and subagent bookends from the native walk."""
+        raw = native.get("bookends")
+        if not isinstance(raw, list):
+            return []
+        return [event_from_native(row) for row in raw if isinstance(row, dict)]
+
+    @classmethod
+    def turn_payload(cls, native: JsonObject, runs: list[SubagentRun]) -> list[JsonValue]:
+        """Native turn rows with per-turn subagent runs attached."""
+        raw = native.get("turns")
+        if not isinstance(raw, list):
+            return []
+        out: list[JsonValue] = []
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            mapped = as_json_object(row)
+            ti = mapped.get("turnIndex")
+            mapped["subagentRuns"] = [
+                subagent_run_mapping(run) for run in runs if run.parent_turn_index == ti
+            ]
+            out.append(mapped)
+        return out
+
+    @classmethod
+    def stat_payload(cls, native: JsonObject) -> JsonObject:
+        """Event-type and tool counts from the native walk."""
+        raw = native.get("stats")
+        if isinstance(raw, dict):
+            return as_json_object(raw)
+        return {"eventTypes": [], "tools": []}
+
+    @classmethod
+    def notes_payload(cls, session_dir: Path) -> tuple[str, int, list[JsonValue]]:
+        """Notes revision, count, and a capped card list."""
+        try:
+            snap = notes_snapshot(session_dir)
+        except Exception:
+            logger.debug("notes for session/overview %s", session_dir, exc_info=True)
+            return "", 0, []
+        rows: list[JsonValue] = []
+        for note in snap.doc.sorted_notes()[:40]:
+            rows.append(
+                {
+                    "id": note.id,
+                    "turnIndex": note.turn_index,
+                    "source": note.source,
+                    "fields": dict(note.fields),
+                    "eventIndices": list(note.event_indices),
+                    "createdAt": note.created_at,
+                    "updatedAt": note.updated_at,
+                }
+            )
+        return snap.revision, len(snap.doc.notes), rows
+
+    @classmethod
     def uncached(cls, session_dir: Path) -> JsonObject:
         """Build overview without single-flight / result cache."""
         sd = Path(session_dir)
         meta = require_adapter(sd).load_meta(sd)
-        events = require_adapter(sd).parse_timeline(sd)
-        meta.num_events = len(events)
-        segs, turn_map = cls.turn_view(sd, events)
-        runs = subagent_runs_for_session(sd, events, segs, turn_map)
-        notes_rev = ""
-        notes_count = 0
-        notes_rows: list[JsonValue] = []
-        try:
-            snap = notes_snapshot(sd)
-            notes_rev = snap.revision
-            notes_count = len(snap.doc.notes)
-            for note in snap.doc.sorted_notes()[:40]:
-                notes_rows.append(
-                    {
-                        "id": note.id,
-                        "turnIndex": note.turn_index,
-                        "source": note.source,
-                        "fields": dict(note.fields),
-                        "eventIndices": list(note.event_indices),
-                        "createdAt": note.created_at,
-                        "updatedAt": note.updated_at,
-                    }
-                )
-        except Exception:
-            logger.debug("notes for session/overview %s", sd, exc_info=True)
-
-        jobs, schedules, workflows = SessionJobs.overview_rows(sd, events, cls.cache_key(sd))
+        native = cls.native_payload(sd)
+        meta.num_events = json_as_int(native.get("numEvents"))
+        bookends = cls.bookend_events(native)
+        turn_map = {
+            int(ev.index): int(ev.turn_number) for ev in bookends if ev.turn_number is not None
+        }
+        runs = subagent_runs_for_session(sd, bookends, [], turn_map)
+        notes_rev, notes_count, notes_rows = cls.notes_payload(sd)
+        jobs, schedules, workflows = SessionJobs.overview_rows(sd, bookends, cls.cache_key(sd))
         summary = (meta.summary_text or "").strip()
         if len(summary) > 1200:
             summary = summary[:1197] + "…"
-        stats = overview_stat_counts(events)
+        turns = cls.turn_payload(native, runs)
         return {
             "sessionId": (meta.session_id or sd.name).strip(),
             "meta": session_meta_mapping(meta, path=sd),
@@ -517,22 +575,12 @@ class SessionOverview:
             "schedules": SessionJobs.json_rows(schedules),
             "workflows": SessionJobs.json_rows(workflows),
             "turns": {
-                "total": len(segs),
-                # Short assistant preview for the list: full wrap-up is for open
-                # cards / session/turns — 12k×N turns made overview multi‑100KB.
-                "turns": [
-                    turn_segment_mapping(
-                        s,
-                        include_event_indexes=False,
-                        assistant_max_chars=400,
-                        subagent_runs=runs,
-                    )
-                    for s in segs
-                ],
+                "total": len(turns),
+                "turns": turns,
                 "subagentRuns": [subagent_run_mapping(r) for r in runs],
             },
             "timeline": {
-                "total": len(events),
+                "total": json_as_int(native.get("numEvents")),
                 "offset": 0,
                 "limit": 0,
                 "truncated": False,
@@ -545,7 +593,7 @@ class SessionOverview:
                 "notes": notes_rows,
                 "schema": cls.notes_schema(),
             },
-            "stats": stats,
+            "stats": cls.stat_payload(native),
         }
 
     @classmethod
@@ -600,9 +648,9 @@ def build_session_overview(
 ) -> JsonObject:
     """Meta + turns + notes for palette clients (timeline lazy).
 
-    Parses the timeline once for turn segmentation and ``numEvents``. Does
-    **not** embed event rows — clients call ``session/timeline`` with
-    offset/limit (and optional type filter) so large sessions stay cheap.
+    Turns and stats come from the native walk. Does **not** embed event
+    rows — clients call ``session/timeline`` with offset/limit (and optional
+    type filter) so large sessions stay cheap.
 
     Concurrent callers for the same session **join one in-flight build** and
     reuse a stamp-keyed result so dual open+live-poll does not thrash multi‑MB

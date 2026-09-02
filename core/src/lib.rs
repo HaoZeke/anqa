@@ -2,6 +2,7 @@
 
 pub mod event;
 pub mod jsonl;
+pub mod overview;
 pub mod scan;
 pub mod store;
 pub mod stores;
@@ -168,6 +169,15 @@ pub fn stamp(harness: &str, locator: &Path, session_id: &str) -> Result<FileStam
     Ok(store.stamp(locator, session_id))
 }
 
+pub fn overview(
+    harness: &str,
+    locator: &Path,
+    session_id: &str,
+) -> Result<overview::Overview, String> {
+    let evs = cached_timeline(harness, locator, session_id)?.1;
+    Ok(overview::Overview::from_events(&evs))
+}
+
 #[cfg(feature = "extension-module")]
 mod pybind {
     use super::*;
@@ -327,6 +337,76 @@ mod pybind {
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)
     }
 
+    fn count_list<'py>(
+        py: Python<'py>,
+        rows: &[crate::overview::CountRow],
+    ) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for row in rows {
+            let d = PyDict::new(py);
+            d.set_item("id", row.id.as_str())?;
+            d.set_item("count", row.count)?;
+            list.append(d)?;
+        }
+        Ok(list)
+    }
+
+    fn turn_dict<'py>(
+        py: Python<'py>,
+        turn: &crate::overview::Turn,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("turnIndex", turn.turn_index)?;
+        d.set_item("turnNumber", turn.turn_number)?;
+        d.set_item("promptIndex", turn.prompt_index)?;
+        d.set_item("outcome", turn.outcome.as_str())?;
+        d.set_item("open", turn.open)?;
+        d.set_item("label", turn.label.as_str())?;
+        d.set_item("summary", turn.summary.as_str())?;
+        d.set_item("userEventIndex", turn.user_event_index)?;
+        d.set_item("assistantSummary", turn.assistant_summary.as_str())?;
+        d.set_item("assistantEventIndex", turn.assistant_event_index)?;
+        d.set_item("eventCount", turn.event_count)?;
+        d.set_item("toolCallCount", turn.tool_call_count)?;
+        d.set_item("toolErrorCount", turn.tool_error_count)?;
+        d.set_item("userCount", turn.user_count)?;
+        d.set_item("assistantCount", turn.assistant_count)?;
+        d.set_item("errorEventCount", turn.error_event_count)?;
+        d.set_item("firstIndex", turn.first_index)?;
+        d.set_item("lastIndex", turn.last_index)?;
+        d.set_item("durationSeconds", turn.duration_seconds)?;
+        Ok(d)
+    }
+
+    #[pyfunction]
+    fn store_overview<'py>(
+        py: Python<'py>,
+        harness: &str,
+        locator: &str,
+        session_id: &str,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let ov = super::overview(harness, Path::new(locator), session_id)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+        let turns = PyList::empty(py);
+        for turn in &ov.turns {
+            turns.append(turn_dict(py, turn)?)?;
+        }
+        let bookends = PyList::empty(py);
+        for ev in &ov.bookends {
+            bookends.append(event_dict(py, ev)?)?;
+        }
+        let stats = PyDict::new(py);
+        stats.set_item("eventTypes", count_list(py, &ov.event_types)?)?;
+        stats.set_item("tools", count_list(py, &ov.tools)?)?;
+        let d = PyDict::new(py);
+        d.set_item("numEvents", ov.num_events)?;
+        d.set_item("turns", turns)?;
+        d.set_item("stats", stats)?;
+        d.set_item("subagentCount", ov.subagent_count)?;
+        d.set_item("bookends", bookends)?;
+        Ok(d)
+    }
+
     #[pymodule]
     fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(keep_updates_line, m)?)?;
@@ -340,6 +420,7 @@ mod pybind {
         m.add_function(wrap_pyfunction!(store_timeline, m)?)?;
         m.add_function(wrap_pyfunction!(store_timeline_page, m)?)?;
         m.add_function(wrap_pyfunction!(store_stamp, m)?)?;
+        m.add_function(wrap_pyfunction!(store_overview, m)?)?;
         Ok(())
     }
 }

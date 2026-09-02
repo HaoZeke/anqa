@@ -79,6 +79,20 @@ def _write_session(root: Path, name: str) -> Path:
     return session_dir
 
 
+def test_overview_does_not_parse_full_timeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sd = _write_session(tmp_path, "sess-ov-page")
+
+    def boom(self: object, ref: object) -> list[object]:
+        raise AssertionError("parse_timeline must not run for session/overview")
+
+    monkeypatch.setattr("anqa.harness.grok.GrokAdapter.parse_timeline", boom)
+    ov = build_session_overview(sd)
+    assert ov["turns"]["total"] >= 1
+    assert ov["timeline"]["lazy"] is True
+
+
 def test_build_session_overview_meta(tmp_path: Path) -> None:
     sd = _write_session(tmp_path / "sessions", "sess-ov")
     got = build_session_overview(sd)
@@ -720,30 +734,28 @@ def test_overview_stamp_monitor_done_not_signals_or_shell_log(tmp_path: Path) ->
     )
     cv.SessionOverview._cache.clear()
     cv.SessionOverview._inflight.clear()
-    parses = 0
-    import anqa.harness.grok as grok_mod
+    builds = 0
+    orig = cv.SessionOverview.uncached
 
-    real = grok_mod.parse_timeline
+    def counting_body(session_dir: Path) -> object:
+        nonlocal builds
+        builds += 1
+        return orig(session_dir)
 
-    def counting_parse(*args, **kwargs):  # type: ignore[no-untyped-def]
-        nonlocal parses
-        parses += 1
-        return real(args[-1], **kwargs)
-
-    with patch.object(grok_mod.GrokAdapter, "parse_timeline", side_effect=counting_parse):
+    with patch.object(cv.SessionOverview, "uncached", side_effect=counting_body):
         first = build_session_overview(sd)
         assert first["backgroundJobs"][0]["status"] == "running"
-        assert parses == 1
+        assert builds == 1
         (sd / "signals.json").write_text('{"contextWindowUsage": 1}', encoding="utf-8")
         (term / "call-shell.log").write_text("partial\n" + ("x" * 4000), encoding="utf-8")
         warm = build_session_overview(sd)
         assert warm is first
-        assert parses == 1
+        assert builds == 1
         mon.write_text("still going\nDONE\n", encoding="utf-8")
         done = build_session_overview(sd)
         assert done is not first
         assert done["backgroundJobs"][0]["status"] == "done"
-        assert parses == 2
+        assert builds == 2
 
 
 def _write_jobs_workflows_session(root: Path, name: str = "sess-reuse") -> Path:

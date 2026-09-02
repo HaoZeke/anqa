@@ -10,7 +10,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from .models import SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from .models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 
 try:
     from anqa import _core as _native
@@ -70,6 +70,18 @@ def timeline_page(
     rows = raw_events if isinstance(raw_events, list) else []
     events = [event_from_native(row) for row in rows if isinstance(row, Mapping)]
     return events, _as_int(page.get("total") if isinstance(page, dict) else 0)
+
+
+def native_overview(harness: str, locator: Path | str, session_id: str) -> JsonObject:
+    """Compact turn, stat, and job-bookend walk for ``session/overview``.
+
+    :param harness: Adapter id (``pi``, ``claude``, …).
+    :param locator: Session file, directory, or database path.
+    :param session_id: Store session id.
+    :return: ``numEvents``, ``turns``, ``stats``, ``subagentCount``, ``bookends``.
+    """
+    row = _native.store_overview(harness, str(locator), session_id)
+    return as_json_object(row) if isinstance(row, Mapping) else {}
 
 
 def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
@@ -159,6 +171,7 @@ __all__ = [
     "find_sessions",
     "keep_updates_line",
     "list_meta",
+    "native_overview",
     "store_ids",
     "timeline_events",
     "timeline_page",
