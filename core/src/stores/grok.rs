@@ -7,8 +7,6 @@ use crate::store::Store;
 use crate::text;
 use crate::walk;
 use serde_json::Value;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 pub struct Grok;
@@ -40,22 +38,18 @@ fn task_family_raw(update: &Value, line: &str) -> String {
 }
 
 fn consume_line(
-    line: &str,
+    rec: &crate::store::Record,
     events: &mut Vec<Event>,
     results: &mut std::collections::HashMap<String, usize>,
 ) {
-    if !keep_updates_line(line.as_bytes()) {
-        return;
-    }
-    let Some(val) = jsonl::object_line(line) else {
-        return;
-    };
+    let val = &rec.value;
+    let line = rec.raw.as_str();
     let update = val
         .pointer("/params/update")
         .cloned()
         .unwrap_or(Value::Null);
     let kind = EventType::parse(&text::field_str(&update, "sessionUpdate"));
-    let ts = text::epoch(&val);
+    let ts = text::epoch(val);
     match kind {
         EventType::UserMessageChunk
         | EventType::AgentMessageChunk
@@ -270,20 +264,7 @@ fn map_events_row(row: &crate::store::Record, events: &mut Vec<Event>) {
 }
 
 fn read_updates(dir: &Path) -> Vec<crate::store::Record> {
-    let path = dir.join("updates.jsonl");
-    let Ok(file) = File::open(&path) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if !keep_updates_line(line.as_bytes()) {
-            continue;
-        }
-        if let Some(value) = jsonl::object_line(&line) {
-            out.push(crate::store::Record { raw: line, value });
-        }
-    }
-    out
+    jsonl::cached_records(&dir.join("updates.jsonl"), Some(keep_updates_line))
 }
 
 impl Store for Grok {
@@ -343,7 +324,7 @@ impl Store for Grok {
         let mut results = std::collections::HashMap::new();
         for rec in records {
             if rec.value.pointer("/params/update").is_some() {
-                consume_line(&rec.raw, &mut events, &mut results);
+                consume_line(rec, &mut events, &mut results);
             } else {
                 map_events_row(rec, &mut events);
             }

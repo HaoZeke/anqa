@@ -46,7 +46,7 @@ pub fn jsonl_records(
     if !locator.is_file() {
         return Err(format!("{harness} session not found: {session_id}"));
     }
-    Ok(crate::jsonl::read_objects(locator))
+    Ok(crate::jsonl::cached_records(locator, None))
 }
 
 pub fn by_id(id: &str) -> Option<&'static dyn Store> {

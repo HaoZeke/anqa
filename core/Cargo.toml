@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde_json = "1"
+memchr = "2"
 pyo3 = { version = "0.25", optional = true }
 
 [features]

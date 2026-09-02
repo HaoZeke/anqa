@@ -17,7 +17,7 @@ const TERM_BYTES: &[&[u8]] = &[
 ];
 
 fn contains_bytes(hay: &[u8], needle: &[u8]) -> bool {
-    hay.windows(needle.len()).any(|w| w == needle)
+    memchr::memmem::find(hay, needle).is_some()
 }
 
 fn strip_trailing_cr(line: &[u8]) -> &[u8] {

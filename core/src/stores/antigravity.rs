@@ -179,7 +179,7 @@ impl Store for Antigravity {
         if !path.is_file() {
             return Ok(Vec::new());
         }
-        Ok(jsonl::read_objects(&path))
+        Ok(jsonl::cached_records(&path, None))
     }
 
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
