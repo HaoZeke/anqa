@@ -50,7 +50,7 @@ from ..tool_display import (
 )
 from .event_search import ensure_indexed, matching_indexes
 from .jobs import SessionJobs, job_input_stamp
-from .query import turn_matches_query
+from .query import apply_catalog_presence_row, catalog_presence, turn_matches_query
 from .subagents import (
     SubagentRun,
     event_child_session_id,
@@ -157,6 +157,8 @@ def session_meta_mapping(
         origin_key = "import"
 
     kind_path = path or meta.session_dir
+    presence = catalog_presence(kind_path, meta)
+    apply_catalog_presence_row(meta, as_json_object(presence))
     return {
         "sessionId": (meta.session_id or meta.session_dir.name).strip(),
         "path": path_str,
@@ -201,6 +203,7 @@ def session_meta_mapping(
         "turnInProgress": bool(meta.turn_in_progress),
         "turnFailed": bool(meta.turn_failed),
         "sessionKind": read_session_kind(kind_path) if kind_path else "",
+        **presence,
     }
 
 

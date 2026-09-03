@@ -118,6 +118,30 @@ class TestBuildSessionSummary:
             or len(rich_plain(render_session_summary(meta, []))) > 0
         )
 
+    def test_last_turn_uses_owner_display_id(self, session_dir):
+        """Signals turnCount must not invent last turn as count minus one."""
+        from anqa.session.turns import TurnSegment
+
+        meta = SessionMeta(
+            session_id="huge",
+            session_dir=session_dir,
+            turn_count=349,
+            turn_outcome="complete",
+        )
+        owner = [
+            TurnSegment(turn_index=0, turn_number=0, outcome="completed"),
+            TurnSegment(turn_index=271, turn_number=359, outcome="completed"),
+        ]
+        first_page = [
+            make_trace_event(
+                index=0, event_type="turn_started", content="turn started  turn_number=0"
+            ),
+            make_trace_event(index=1, event_type="user_message_chunk", content="early"),
+        ]
+        plain = rich_plain(render_session_summary(meta, first_page, turns=owner))
+        assert "359" in plain
+        assert "348" not in plain
+
     def test_multi_turn_section(self, session_dir):
         meta = SessionMeta(
             session_id="mt",

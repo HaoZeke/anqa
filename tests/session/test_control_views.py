@@ -16,6 +16,7 @@ from anqa.session.control_views import (
     overview_stat_counters,
     overview_stat_counts,
 )
+from anqa.session.wire_timeline import session_meta_from_overview
 
 
 def test_overview_input_stamp_bare_session_id_does_not_raise() -> None:
@@ -95,10 +96,19 @@ def test_overview_does_not_parse_full_timeline(
 
 def test_build_session_overview_meta(tmp_path: Path) -> None:
     sd = _write_session(tmp_path / "sessions", "sess-ov")
+    (sd / "goal").mkdir()
+    (sd / "goal" / "state.json").write_text('{"objective": "Ship it"}', encoding="utf-8")
+    (sd / "plan.json").write_text("{}", encoding="utf-8")
     got = build_session_overview(sd)
     assert got["sessionId"] == "sess-ov"
     assert got["meta"]["title"] == "View session"
     assert got["meta"]["path"]
+    assert got["meta"]["hasGoals"] is True
+    assert got["meta"]["hasPlan"] is True
+    hydrated = session_meta_from_overview(got, fallback_dir=sd)
+    assert hydrated is not None
+    assert hydrated.has_goals is True
+    assert hydrated.has_plan is True
     assert "notes" in got
     assert "turns" in got
 

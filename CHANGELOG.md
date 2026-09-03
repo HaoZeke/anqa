@@ -79,7 +79,8 @@ Cursor (`cursor`) are registered.
   turns.
 - Summary and Overview share Session, Tasks, Workflows, Subagents,
   and Stats. Tasks is shells, monitors, and schedules. Enter on a
-  bookend or child opens that inspect or session.
+  bookend or child opens that inspect or session. Last turn is the
+  owner display turn id.
 - Diff lists turns, Prompt/Assistant tabs, and a files/hunk
   split. `/` finds path or hunk text.
 - `y` copies the selection or the pane body.

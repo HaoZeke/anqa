@@ -2125,7 +2125,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _update_summary_tab(self) -> None:
         if not self.meta:
             return
-        renderable = render_session_summary(self.meta, self.timeline)
+        renderable = render_session_summary(
+            self.meta,
+            self.timeline,
+            turns=getattr(self, "_turn_segments", None),
+        )
         try:
             widget = self.query_one("#summary-content", Static)
             if self._widget_has_text_selection(widget):

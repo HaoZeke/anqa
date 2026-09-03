@@ -61,7 +61,11 @@ def build_session_summary(
 
 
 def render_session_summary(
-    meta: SessionMeta, timeline: list[TraceEvent], *, assistant_text: str = ""
+    meta: SessionMeta,
+    timeline: list[TraceEvent],
+    *,
+    assistant_text: str = "",
+    turns: list[TurnSegment] | None = None,
 ) -> RenderableType:
     _ = assistant_text
     tool_calls = [e for e in timeline if e.event_type == "tool_call"]
@@ -114,14 +118,14 @@ def render_session_summary(
         body.append(prose)
         body.append("\n")
         blocks.append(body)
-    turns: list[TurnSegment] = []
-    try:
-        from ..session.turns import segment_timeline_turns
+    if turns is None:
+        try:
+            from ..session.turns import segment_timeline_turns
 
-        turns = segment_timeline_turns(timeline)
-    except Exception:
-        logger.debug(t("ui-turn-segmentation-failed"), exc_info=True)
-        turns = []
+            turns = segment_timeline_turns(timeline)
+        except Exception:
+            logger.debug(t("ui-turn-segmentation-failed"), exc_info=True)
+            turns = []
     blocks.append(_glance_columns(meta, turns, tools_n=tools_n, tool_errs=tool_errs))
     if meta.turn_failed or kind == "bad":
         note = Text()
@@ -178,18 +182,8 @@ def _glance_rows(
         else:
             tools_s = str(tools_n)
         rows.append((t("ui-tools"), tools_s))
-    turns_n = max(int(meta.turn_count or 0), len(turns))
-    if turns_n > 1 and turns:
-        last = turns[-1]
-        last_label = _turn_label_face(last)
-        if turns_n > len(turns):
-            extra = (
-                t("ui-open-status")
-                if last.open
-                else (_outcome_face(last.outcome) if last.outcome else "")
-            )
-            last_label = t("ui-turn-number", turn=turns_n - 1) + (f" ({extra})" if extra else "")
-        rows.append((t("ui-last-turn"), last_label))
+    if len(turns) > 1:
+        rows.append((t("ui-last-turn"), _turn_label_face(turns[-1])))
     if meta.num_messages > 0:
         rows.append((t("ui-messages"), str(meta.num_messages)))
     if meta.loop_count > 0:
