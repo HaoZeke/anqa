@@ -55,6 +55,9 @@ Cursor (`cursor`) are registered.
   update, delete, move).
 - List Turn is `running` when a turn is in progress, `—` when the store
   wrote no list status (last user row or bookend).
+- List Events is the timeline event count from native ``list_meta``.
+  Grok uses ``summary.json`` ``num_messages`` when that field is
+  present, otherwise the native timeline count.
 - Session delete (`x`) removes every store locator: directory, file, or
   database row.
 
@@ -71,7 +74,9 @@ Cursor (`cursor`) are registered.
 - Timeline Filter and Turn stack; Tail follows a live session.
   Opening an event asks for the 50,000-character body.
   Search (`turn:>300`, `tool:`, …) asks the session store for
-  matching rows, not only the first loaded page.
+  matching rows, not only the first loaded page. The Turn column
+  keeps the owner turn id. The Turn picker lists owner overview
+  turns.
 - Summary and Overview share Session, Tasks, Workflows, Subagents,
   and Stats. Tasks is shells, monitors, and schedules. Enter on a
   bookend or child opens that inspect or session.

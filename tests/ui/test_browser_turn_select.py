@@ -360,6 +360,72 @@ def test_rebuild_turn_select_uses_overview_when_timeline_is_first_page(
     assert {80, 90} <= {int(i) for i in indices}
 
 
+def test_rebuild_turn_select_keeps_overview_when_first_page_over_splits(
+    tmp_path: Path,
+) -> None:
+    """A first-page split that invents extra turns must not replace overview."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    screen.timeline = [
+        _ev(0, "turn_started", "turn_number=0"),
+        _ev(1, "user_message_chunk", "first"),
+        _ev(2, "turn_ended", "outcome=completed"),
+        _ev(3, "turn_started", "turn_number=1"),
+        _ev(4, "user_message_chunk", "second"),
+        _ev(5, "turn_ended", "outcome=completed"),
+        _ev(6, "turn_started", "turn_number=2"),
+        _ev(7, "user_message_chunk", "third"),
+    ]
+    screen._overview_payload = {
+        "turns": {
+            "total": 2,
+            "turns": [
+                {
+                    "turnIndex": 0,
+                    "turnNumber": 40,
+                    "outcome": "completed",
+                    "open": False,
+                    "firstIndex": 0,
+                    "lastIndex": 20,
+                    "label": "turn 40",
+                },
+                {
+                    "turnIndex": 1,
+                    "turnNumber": 41,
+                    "outcome": "",
+                    "open": True,
+                    "firstIndex": 21,
+                    "lastIndex": 80,
+                    "label": "turn 41",
+                },
+            ],
+        }
+    }
+    screen._last_turn_segment_count = -1
+    screen._turn_rebuild_sig = None
+    screen._turn_filter = "all"
+    calls: list[object] = []
+
+    class _Sel:
+        display = False
+        value = "all"
+
+        def set_options(self, options):
+            calls.append(list(options))
+
+    sel = _Sel()
+    screen.query_one = lambda _q, _t=None: sel  # type: ignore[method-assign]
+    screen._rebuild_turn_select()
+    assert sel.display is True
+    assert screen._last_turn_segment_count == 2
+    values = [v for _, v in calls[-1]]
+    assert values == ["all", "0", "1"]
+    labels = [lab for lab, _ in calls[-1] if _ != "all"]
+    assert labels == ["40", "41"]
+
+
 def test_timeline_table_does_not_override_column_arrows() -> None:
     """h / Left step turns via the screen catalog binding, not the table."""
     from anqa.ui.widgets.timeline import TimelineTable

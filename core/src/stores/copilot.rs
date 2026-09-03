@@ -193,7 +193,9 @@ impl Store for Copilot {
             )
             .map_err(|_| format!("copilot session not found: {session_id}"))?;
         let events = jsonl::window(&events_path(locator, session_id));
-        Ok(meta_from_row(locator, &row, &events))
+        let mut meta = meta_from_row(locator, &row, &events);
+        meta.num_events = self.event_count(locator, session_id);
+        Ok(meta)
     }
 }
 

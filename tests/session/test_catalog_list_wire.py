@@ -285,7 +285,7 @@ def test_session_catalog_row_counts_events_when_summary_has_none(tmp_path: Path)
     assert row is not None
     n = len(parse_timeline(sd))
     assert n >= 2
-    assert row["numEvents"] == 0
+    assert row["numEvents"] == n
 
 
 def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:

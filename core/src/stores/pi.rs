@@ -422,7 +422,7 @@ impl Store for Pi {
             run_dir: header
                 .map(|h| text::field_str(h, "cwd"))
                 .unwrap_or_default(),
-            num_events: 0,
+            num_events: self.event_count(locator, session_id),
             has_subagents: kids > 0,
             subagent_count: kids,
             context_tokens_used: None,

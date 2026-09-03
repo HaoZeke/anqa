@@ -287,6 +287,77 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     assert overview_stat_counters({}) is None
 
 
+def test_timeline_scan_keeps_owner_turn_index_on_high_turn_query(tmp_path: Path) -> None:
+    """``turn:>300`` must return the store turn id, not a restamped first page."""
+    from anqa.session.wire_timeline import trace_event_from_wire
+
+    sd = tmp_path / "high-turn"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        json.dumps({"info": {"id": "high-turn"}, "generated_title": "late turns"}),
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1000,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "early ask"},
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "timestamp": 5000,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "late ask after 300"},
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "timestamp": 5001,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "late reply"},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text(
+        json.dumps({"ts": "1970-01-01T00:16:40Z", "type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"ts": "1970-01-01T00:17:00Z", "type": "turn_ended", "outcome": "completed"})
+        + "\n"
+        + json.dumps({"ts": "1970-01-01T01:23:20Z", "type": "turn_started", "turn_number": 302})
+        + "\n"
+        + json.dumps({"ts": "1970-01-01T01:24:00Z", "type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    page = build_session_timeline(sd, offset=0, limit=50, query="turn:>300")
+    assert page["total"] >= 1
+    assert page["events"]
+    indexes = [int(row["turnIndex"]) for row in page["events"] if row.get("turnIndex") is not None]
+    assert indexes
+    assert min(indexes) >= 301
+    hydrated = [trace_event_from_wire(row) for row in page["events"]]
+    assert all(ev.turn_number is not None and ev.turn_number >= 301 for ev in hydrated)
+    assert any("late ask" in (ev.content or "") for ev in hydrated)
+
+
 def test_overview_includes_background_jobs_and_schedules(tmp_path: Path) -> None:
     sd = tmp_path / "sess-jobs-ov"
     sd.mkdir()

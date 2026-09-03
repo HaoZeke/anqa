@@ -919,7 +919,11 @@ impl Store for Grok {
         if !locator.is_dir() {
             return Err(format!("grok session not found: {session_id}"));
         }
-        Ok(list_meta_of(locator, session_id))
+        let mut meta = list_meta_of(locator, session_id);
+        if summary_message_count(locator).is_none() {
+            meta.num_events = self.event_count(locator, session_id);
+        }
+        Ok(meta)
     }
 
     fn stamp(&self, locator: &Path, session_id: &str) -> crate::event::FileStamp {
@@ -940,6 +944,10 @@ fn read_json(path: &Path) -> Value {
 
 fn one_line(raw: &str) -> String {
     text::first_line(&raw.split_whitespace().collect::<Vec<_>>().join(" "), 80)
+}
+
+fn summary_message_count(dir: &Path) -> Option<i64> {
+    text::field_i64(&read_json(&dir.join("summary.json")), "num_messages")
 }
 
 fn apply_summary(meta: &mut ListMeta, dir: &Path) {

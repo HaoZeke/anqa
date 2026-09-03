@@ -222,7 +222,9 @@ impl Store for Codex {
         if rows.is_empty() {
             return Err(format!("codex session not found: {session_id}"));
         }
-        Ok(meta_from_window(&rows, locator, session_id))
+        let mut meta = meta_from_window(&rows, locator, session_id);
+        meta.num_events = self.event_count(locator, session_id);
+        Ok(meta)
     }
 }
 

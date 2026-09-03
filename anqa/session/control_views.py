@@ -881,7 +881,7 @@ class SessionTimeline:
             row = timeline_event_mapping(
                 ev,
                 content_chars=content_chars,
-                turn_index=turn_by_index.get(int(ev.index)),
+                turn_index=turn_by_index.get(int(ev.index), ev.turn_number),
                 session_dir=sd,
             )
             child = event_child_session_id(ev)

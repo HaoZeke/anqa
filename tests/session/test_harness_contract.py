@@ -13,6 +13,8 @@ import pytest
 from anqa.harness.ref import HARNESS_IDS
 from anqa.harness.registry import adapter, adapter_for, adapters
 from anqa.harness.views import session_diff, session_overview
+from anqa.session.catalog import catalog_row_for_ref
+from anqa.session.query import CatalogQueryRow, row_matches_query
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -164,6 +166,26 @@ def test_session_surfaces_on_committed_fixture(hid: str, tmp_path: Path) -> None
     assert meta.list_status_label() == want["status"]
 
     events = item.parse_timeline(ref)
+    if hid == "grok":
+        assert meta.num_events > 0
+    else:
+        assert meta.num_events == len(events)
+
+    row = catalog_row_for_ref(ref)
+    assert row is not None
+    assert row["title"] == want["title"]
+    assert row["status"] == want["status"]
+    assert int(row["numEvents"]) == int(meta.num_events)
+    qrow = CatalogQueryRow.from_wire(row)
+    locator = ref.locator
+    if locator.is_dir():
+        has_goal = (locator / "goal" / "state.json").is_file()
+        has_plan = (locator / "plan.json").is_file() or (locator / "plan_mode.json").is_file()
+        assert row_matches_query(qrow, "has:goal") is has_goal
+        assert row_matches_query(qrow, "has:plan") is has_plan
+    else:
+        assert row_matches_query(qrow, "has:goal") is False
+        assert row_matches_query(qrow, "has:plan") is False
     types = [ev.event_type for ev in events]
     assert "user_message_chunk" in types
     tool = next(ev for ev in events if ev.event_type == "tool_call")

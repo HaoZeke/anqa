@@ -2854,7 +2854,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._turn_rebuild_sig = sig
 
         local = segment_timeline_turns(tl)
-        self._turn_segments = overview if len(overview) >= len(local) else local
+        # Overview is the owner turn list. A first page can over-split
+        # and must not replace it just because it has more fragments.
+        self._turn_segments = overview if overview else local
         n_segs = len(self._turn_segments)
         multi = n_segs > 1
         try:

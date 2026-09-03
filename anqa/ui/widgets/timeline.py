@@ -514,12 +514,21 @@ class TimelineTable(DataTable):
         stamped = {
             int(ev.index): int(ev.turn_number) for ev in self.events if ev.turn_number is not None
         }
-        if len(stamped) == len(self.events):
-            self._turn_by_index = stamped
+        if stamped:
+            # Owner stamps win. Carry the last stamp across unstamped rows
+            # so a filtered page (no turn_started) is never restamped as 0.
+            mapped: dict[int, int] = {}
+            last: int | None = None
+            for ev in self.events:
+                idx = int(ev.index)
+                if idx in stamped:
+                    last = stamped[idx]
+                if last is not None:
+                    mapped[idx] = last
+            self._turn_by_index = mapped
             self._turn_map_stale = False
             return
         mapped = event_display_turn_map(segment_timeline_turns(self.events))
-        mapped.update(stamped)
         self._turn_by_index = mapped
         self._turn_map_stale = False
 

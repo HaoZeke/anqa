@@ -332,7 +332,9 @@ impl Store for Gemini {
         if sid.is_empty() {
             return Err(format!("gemini session not found: {session_id}"));
         }
-        Ok(meta_from_conversation(&meta, &messages, locator, &sid))
+        let mut out = meta_from_conversation(&meta, &messages, locator, &sid);
+        out.num_events = self.event_count(locator, session_id);
+        Ok(out)
     }
 }
 

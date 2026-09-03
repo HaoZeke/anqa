@@ -207,7 +207,9 @@ impl Store for Antigravity {
             return Err(format!("antigravity session not found: {session_id}"));
         }
         let root = store_root(&db);
-        Ok(meta_for(&root, &db, session_id))
+        let mut meta = meta_for(&root, &db, session_id);
+        meta.num_events = self.event_count(&root, session_id);
+        Ok(meta)
     }
 }
 

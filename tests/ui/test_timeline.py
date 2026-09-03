@@ -195,6 +195,40 @@ async def test_timeline_turn_column_keeps_owner_turn_on_a_search_page() -> None:
 
 
 @pytest.mark.asyncio
+async def test_timeline_search_page_keeps_owner_turn_when_one_row_unstamped() -> None:
+    """A filtered page must not restamp owner turns just because one row lacks a stamp."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        system = TraceEvent(
+            index=0,
+            event_type="system",
+            content="system prompt",
+            timestamp=900,
+        )
+        user = TraceEvent(
+            index=13816,
+            event_type="user_message_chunk",
+            content="4. reusable constants",
+            timestamp=1000,
+            turn_number=302,
+        )
+        tool = TraceEvent(
+            index=13817,
+            event_type="tool_call",
+            content="read_file",
+            tool_name="read_file",
+            timestamp=1001,
+            turn_number=302,
+        )
+        tl.load_events([system, user, tool])
+        assert tl.turn_index_for(13816) == 302
+        assert tl.turn_index_for(13817) == 302
+        assert tl._row_cell_values(user)[1] == "302"
+        assert tl._row_cell_values(tool)[1] == "302"
+
+
+@pytest.mark.asyncio
 async def test_timeline_same_length_live_tick_keeps_turn_map_warm() -> None:
     """Content-only live ticks must not stale the turn map (selection speed)."""
     app = _TimelineApp()

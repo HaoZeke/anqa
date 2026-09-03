@@ -879,6 +879,7 @@ impl Store for OpenCode {
         let kids = child_count(&con, session_id);
         meta.subagent_count = kids;
         meta.has_subagents = kids > 0;
+        meta.num_events = self.event_count(locator, session_id);
         Ok(meta)
     }
 }

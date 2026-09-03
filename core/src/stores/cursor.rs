@@ -151,7 +151,9 @@ impl Store for Cursor {
         }
         let rows = jsonl::window(locator);
         let header = find_meta(locator, session_id);
-        Ok(meta_from_window(&rows, locator, session_id, &header))
+        let mut meta = meta_from_window(&rows, locator, session_id, &header);
+        meta.num_events = self.event_count(locator, session_id);
+        Ok(meta)
     }
 }
 
