@@ -100,6 +100,7 @@ Cursor (`cursor`) are registered.
   X11). On Wayland bind `anqa desktop --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
+- The palette is on icedtea 0.16. Session cards highlight on release.
 
 ### Control
 

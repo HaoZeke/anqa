@@ -222,7 +222,7 @@ fn paint_badge(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let a11y = A11y::new(label.clone(), Role::Status);
-    let (wash, ink, mut border) = icedtea::widget::chip_face(tea, variant);
+    let (wash, ink, mut border, shadow) = icedtea::widget::chip_face(tea, variant);
     border.radius = tea.radius(icedtea::m3::shape::Component::Badge);
     // Pill ends eat icedtea Small [2, 5]; keep a readable inset.
     icedtea::a11y::attach(
@@ -241,6 +241,7 @@ fn paint_badge(
         .style(move |_| {
             let mut st = icedtea::style::fill(wash, ink);
             st.border = border;
+            st.shadow = shadow;
             st
         })
         .into(),
@@ -727,7 +728,7 @@ fn session_list_card(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected)),
         )
-        .on_press(Message::FocusSession(index))
+        .on_release(Message::FocusSession(index))
         .on_double_click(Message::SelectSession(index)),
         list_hairline(tea),
         Space::new().height(crate::live::LIST_CARD_GAP - 1.0),
@@ -3868,6 +3869,7 @@ mod tests {
         assert!(picker.contains("widget::virtual_column"));
         assert!(picker.contains("session_list_card("));
         assert!(picker.contains("FocusSession"));
+        assert!(picker.contains("on_release"));
         assert!(picker.contains("on_double_click"));
         assert!(picker.contains("SelectSession"));
         assert!(prod.contains(".on_double_click(on_open)"));
