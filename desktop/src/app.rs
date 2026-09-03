@@ -2479,8 +2479,12 @@ impl Hud {
     fn rebuild_turn_heights(&mut self) {
         self.turn_heights = vec![CLOSED_TURN_CARD_H; self.turns_filter.len()];
         let view_h = self.turn_window.viewport.max(1.0);
-        let content: f32 = self.turn_heights.iter().copied().sum();
-        self.turn_window.scroll = clamp_scroll(self.turn_window.scroll, content, view_h);
+        let y = clamp_scroll(
+            self.turn_window.scroll,
+            self.turn_heights.iter().copied().sum(),
+            view_h,
+        );
+        self.turn_window = list_window_at(&self.turn_heights, y, view_h, TURNS_OVERSCAN);
     }
 
     fn rebuild_tl_heights(&mut self) {
@@ -2488,8 +2492,12 @@ impl Hud {
         let n = self.tl_filter.len();
         self.tl_heights = vec![TIMELINE_ROW_H; n];
         let view_h = self.tl_window.viewport.max(1.0);
-        let content: f32 = self.tl_heights.iter().copied().sum();
-        self.tl_window.scroll = clamp_scroll(self.tl_window.scroll, content, view_h);
+        let y = clamp_scroll(
+            self.tl_window.scroll,
+            self.tl_heights.iter().copied().sum(),
+            view_h,
+        );
+        self.tl_window = list_window_at(&self.tl_heights, y, view_h, TIMELINE_OVERSCAN);
     }
 
     fn rebuild_overview_heights(&mut self) {
@@ -3976,6 +3984,13 @@ impl Hud {
         self.session_heights = (0..self.sessions().len())
             .map(|i| self.compute_session_height(i))
             .collect();
+        let view_h = self.list_window.viewport.max(1.0);
+        let y = clamp_scroll(
+            self.list_window.scroll,
+            self.session_heights.iter().copied().sum(),
+            view_h,
+        );
+        self.list_window = list_window_at(&self.session_heights, y, view_h, 1);
     }
 
     fn ensure_active_visible(&mut self) -> Task<Message> {
@@ -9388,6 +9403,54 @@ mod tests {
         let gen = hud.catalog_search_gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         assert_eq!(hud.status(), "2 sessions · ready");
+        assert_eq!(hud.sessions().len(), 2);
+    }
+
+    #[test]
+    fn clearing_catalog_search_repaints_idle_rows() {
+        let mut hud = Hud {
+            all_sessions: (0..20)
+                .map(|i| SessionRow {
+                    session_id: format!("s{i}"),
+                    title: format!("Session {i}"),
+                    sort_epoch: i as f64,
+                    ..SessionRow::default()
+                })
+                .collect(),
+            list_window: icedtea::collection::VisibleWindow {
+                start: 0,
+                end: 2,
+                scroll: 0.0,
+                viewport: 400.0,
+            },
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::SearchChanged("alpha".into()));
+        let gen = hud.catalog_search_gen;
+        let _ = hud.update(Message::CatalogSearchApply(gen));
+        let _ = hud.update(Message::ListSearchLoaded {
+            gen,
+            result: Ok(json!({
+                "sessions": [
+                    {"sessionId": "s1", "title": "Alpha", "sortEpoch": 1.0},
+                    {"sessionId": "s2", "title": "Alpha two", "sortEpoch": 2.0},
+                ],
+                "matched": 2,
+                "total": 20,
+            })),
+        });
+        assert_eq!(hud.sessions().len(), 2);
+        hud.list_window.end = 2;
+
+        let _ = hud.update(Message::SearchChanged(String::new()));
+        let gen = hud.catalog_search_gen;
+        let _ = hud.update(Message::CatalogSearchApply(gen));
+        assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT);
+        assert!(
+            hud.list_window.end > 2,
+            "idle clip must grow past the leftover search range, end={}",
+            hud.list_window.end
+        );
     }
 
     #[test]

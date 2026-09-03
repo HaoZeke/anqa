@@ -929,12 +929,17 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._timeline_fill_busy = True
         import asyncio
 
-        from ...session.wire_timeline import TIMELINE_RPC_LIMIT, fetch_timeline_page
+        from ...session.wire_timeline import (
+            TIMELINE_RPC_LIMIT,
+            fetch_timeline_page,
+            timeline_fill_offset,
+        )
 
         access = self._control_access()
         ref = self._session_control_ref()
         base, prompt = self._control_timeline_window()
-        pos = held if prompt is not None else base + held
+        query = (getattr(self, "_timeline_search", "") or "").strip()
+        pos = timeline_fill_offset(held, base, scoped=prompt is not None or bool(query))
         try:
             page, total = asyncio.run(
                 fetch_timeline_page(
@@ -943,6 +948,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     offset=pos,
                     page_limit=TIMELINE_RPC_LIMIT,
                     prompt_index=prompt,
+                    query=query,
                 )
             )
         finally:
@@ -979,6 +985,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         access = self._control_access()
         ref = self._session_control_ref()
         off, prompt = self._control_timeline_window()
+        query = (getattr(self, "_timeline_search", "") or "").strip()
         page, total = asyncio.run(
             fetch_timeline_page(
                 access,
@@ -986,6 +993,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 offset=off,
                 page_limit=TIMELINE_RPC_LIMIT,
                 prompt_index=prompt,
+                query=query,
             )
         )
         self.timeline = page
@@ -2668,6 +2676,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _start_timeline_search_worker(self) -> None:
         """Copy table state on this thread, then match off it."""
         query = self._timeline_search or ""
+        if self._uses_control_data():
+            # Owner scan (same as the desktop palette). The first page
+            # is only early turns — a local filter of it misses turn:>N.
+            try:
+                tl = self.query_one("#timeline-list", TimelineTable)
+            except NoMatches:
+                return
+            tl.set_search_hits(query.strip(), None)
+            self._start_control_timeline_scope()
+            return
         try:
             tl = self.query_one("#timeline-list", TimelineTable)
         except NoMatches:

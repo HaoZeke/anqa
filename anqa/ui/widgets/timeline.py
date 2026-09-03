@@ -511,7 +511,16 @@ class TimelineTable(DataTable):
             self._turn_by_index = {}
             self._turn_map_stale = False
             return
-        self._turn_by_index = event_display_turn_map(segment_timeline_turns(self.events))
+        stamped = {
+            int(ev.index): int(ev.turn_number) for ev in self.events if ev.turn_number is not None
+        }
+        if len(stamped) == len(self.events):
+            self._turn_by_index = stamped
+            self._turn_map_stale = False
+            return
+        mapped = event_display_turn_map(segment_timeline_turns(self.events))
+        mapped.update(stamped)
+        self._turn_by_index = mapped
         self._turn_map_stale = False
 
     def _extend_turn_map_from(self, start_offset: int) -> None:

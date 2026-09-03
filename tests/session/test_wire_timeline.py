@@ -94,6 +94,19 @@ def test_trace_event_from_wire_loads_user_image(tmp_path: Path) -> None:
     assert ev.still_paths == [str(dest)]
 
 
+def test_trace_event_from_wire_keeps_owner_turn_index() -> None:
+    ev = trace_event_from_wire(
+        {
+            "type": "user_message_chunk",
+            "content": "4. reusable constants",
+            "index": 13816,
+            "turnIndex": 302,
+        }
+    )
+    assert ev.index == 13816
+    assert ev.turn_number == 302
+
+
 def test_session_meta_from_overview(tmp_path: Path) -> None:
     sd = _write_session(tmp_path, "w2")
     ov = build_session_overview(sd)
@@ -205,6 +218,34 @@ async def test_fetch_timeline_event_uses_at_index_and_ceiling(tmp_path: Path) ->
     assert ev.index == target
     assert seen.get("at_index") == target
     assert seen.get("content_chars") == MAX_CONTENT_CHARS
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeline_page_forwards_query(tmp_path: Path) -> None:
+    sd = _write_session(tmp_path, "w-query")
+    seen: dict[str, object] = {}
+
+    class _Local:
+        async def session_timeline(self, session: str, **kwargs: object) -> object:
+            seen.update(kwargs)
+            return build_session_timeline(
+                sd,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 1),
+                query=str(kwargs.get("query") or ""),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    await fetch_timeline_page(_Local(), "w-query", page_limit=1, query="turn:>300")
+    assert seen.get("query") == "turn:>300"
+
+
+def test_timeline_fill_offset_uses_held_when_query_or_turn_scopes() -> None:
+    from anqa.session.wire_timeline import timeline_fill_offset
+
+    assert timeline_fill_offset(held=40, base=0, scoped=False) == 40
+    assert timeline_fill_offset(held=40, base=100, scoped=False) == 140
+    assert timeline_fill_offset(held=40, base=100, scoped=True) == 40
 
 
 @pytest.mark.asyncio

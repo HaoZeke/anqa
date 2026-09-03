@@ -177,6 +177,24 @@ async def test_timeline_turn_index_for_maps_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_timeline_turn_column_keeps_owner_turn_on_a_search_page() -> None:
+    """A turn:>N page has no turn_started; do not restamp those rows as 0."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        ev = TraceEvent(
+            index=13816,
+            event_type="user_message_chunk",
+            content="4. reusable constants",
+            timestamp=1000,
+            turn_number=302,
+        )
+        tl.load_events([ev])
+        assert tl.turn_index_for(13816) == 302
+        assert tl._row_cell_values(ev)[1] == "302"
+
+
+@pytest.mark.asyncio
 async def test_timeline_same_length_live_tick_keeps_turn_map_warm() -> None:
     """Content-only live ticks must not stale the turn map (selection speed)."""
     app = _TimelineApp()

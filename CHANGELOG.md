@@ -70,6 +70,8 @@ Cursor (`cursor`) are registered.
 - Browser panes are Timeline, Summary, Diff, and Notes.
 - Timeline Filter and Turn stack; Tail follows a live session.
   Opening an event asks for the 50,000-character body.
+  Search (`turn:>300`, `tool:`, …) asks the session store for
+  matching rows, not only the first loaded page.
 - Summary and Overview share Session, Tasks, Workflows, Subagents,
   and Stats. Tasks is shells, monitors, and schedules. Enter on a
   bookend or child opens that inspect or session.
@@ -101,6 +103,8 @@ Cursor (`cursor`) are registered.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
 - The palette is on icedtea 0.16. Session cards highlight on release.
+- Clearing catalog or Timeline search remounts the idle list (not the
+  leftover short search window).
 
 ### Control
 

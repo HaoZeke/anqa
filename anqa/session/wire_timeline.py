@@ -87,6 +87,7 @@ def trace_event_from_wire(row: JsonObject) -> TraceEvent:
         is_error=bool(row.get("isError")),
         update_index=update_index,
         prompt_index=prompt_index,
+        turn_number=_wire_int(row.get("turnIndex")),
         images=images,
         still_paths=still_paths,
     )
@@ -117,6 +118,23 @@ def _events_from_timeline_page(page: object, *, offset: int) -> tuple[list[Trace
     return events, total_n
 
 
+def timeline_fill_offset(held: int, base: int, *, scoped: bool) -> int:
+    """Next ``session/timeline`` offset after *held* loaded rows.
+
+    A turn or search scope pages the filtered list, so the next page
+    starts at *held*. The unfiltered stream continues at *base* + *held*.
+
+    :param held: Events already loaded for this scope.
+    :param base: Owner offset of the first loaded row (unfiltered only).
+    :param scoped: True when a turn pick or search query is active.
+    :returns: Offset to request.
+    """
+    n = max(0, int(held))
+    if scoped:
+        return n
+    return max(0, int(base)) + n
+
+
 async def fetch_timeline_page(
     access: object,
     session_ref: str,
@@ -125,6 +143,7 @@ async def fetch_timeline_page(
     page_limit: int = TIMELINE_RPC_LIMIT,
     content_chars: int = TIMELINE_RPC_CHARS,
     prompt_index: int | None = None,
+    query: str = "",
 ) -> tuple[list[TraceEvent], int]:
     """One ``session/timeline`` page and the owner's event total.
 
@@ -132,6 +151,7 @@ async def fetch_timeline_page(
     :param session_ref: Session id or path accepted by control.
     :param offset: First event index in the owner's list.
     :param prompt_index: Restrict to one operator turn, same as the desktop palette.
+    :param query: Timeline query language (same tokens as the Timeline search box).
     :returns: ``(events, total)``. ``total`` is 0 when the response is unusable.
     :raises TypeError: When *access* has no ``session_timeline``.
     """
@@ -146,6 +166,7 @@ async def fetch_timeline_page(
         limit=lim,
         content_chars=chars,
         prompt_index=prompt_index,
+        query=query,
     )
     return _events_from_timeline_page(page, offset=pos)
 
@@ -365,6 +386,7 @@ __all__ = [
     "fetch_timeline_events",
     "fetch_timeline_growth",
     "fetch_timeline_page",
+    "timeline_fill_offset",
     "session_meta_from_overview",
     "trace_event_from_wire",
     "turn_segment_from_wire",
