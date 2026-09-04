@@ -164,6 +164,27 @@ def test_catalog_rebuild_skips_on_rebuilt_when_ids_unchanged(tmp_path: Path) -> 
     assert hits == [1]
 
 
+def test_first_rebuild_after_snapshot_seed_invokes_on_rebuilt(tmp_path: Path) -> None:
+    """Seeded snapshot ids must not suppress the first catalog-ready notify."""
+    traces = tmp_path / "sessions"
+    _write_sess(traces, "snap-sess", "From disk")
+    writer = SessionCatalogCache(traces_path=traces, include_host=False)
+    assert len(writer.get(force=True)) == 1
+
+    hits: list[int] = []
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache._on_rebuilt = lambda: hits.append(1)
+    cache._seed_from_snapshots()
+    with cache._lock:
+        seeded = {str(row.get("sessionId") or "") for row in (cache._rows or [])}
+    assert seeded == {"snap-sess"}
+    rows = cache.get(force=True)
+    assert {str(row.get("sessionId")) for row in rows} == {"snap-sess"}
+    assert hits == [1]
+    cache.get(force=True)
+    assert hits == [1]
+
+
 def test_catalog_cache_second_get_is_cached(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

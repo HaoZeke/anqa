@@ -307,3 +307,57 @@ def test_list_for_rpc_seeds_existing_row_format_2_snapshot(
     assert listed["incomplete"] is True
     assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"old-fmt-sess"}
     release.set()
+
+
+def test_get_force_seeds_existing_row_format_2_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cold get(force=True) must serve rowFormat 2 snapshots while rebuild runs."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "old-fmt-sess",
+                "path": "grok:old-fmt-sess",
+                "title": "From format 2",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+    release = threading.Event()
+    started = threading.Event()
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return []
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+
+    class _JumpClock:
+        def __init__(self) -> None:
+            self._n = 0
+
+        def monotonic(self) -> float:
+            self._n += 1
+            return float(self._n * 1000.0)
+
+    cache._time = _JumpClock()
+    rows = cache.get(force=True)
+    assert started.wait(timeout=2)
+    assert {str(row.get("sessionId")) for row in rows} == {"old-fmt-sess"}
+    with cache._lock:
+        assert cache._building is True
+    listed = cache.list_for_rpc(limit=50)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    assert listed["incomplete"] is True
+    release.set()

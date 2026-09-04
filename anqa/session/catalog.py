@@ -506,6 +506,7 @@ class SessionCatalogCache:
         self._ttl = max(1.0, float(ttl))
         self._lock = threading.Lock()
         self._rows: list[JsonObject] | None = None
+        self._rows_seeded = False
         self._locator_index: dict[str, str] = {}
         self._mono = 0.0
         self._host_key: bool | None = None
@@ -610,6 +611,7 @@ class SessionCatalogCache:
         """Drop cached rows so the next :meth:`get` rebuilds."""
         with self._lock:
             self._install_rows_locked(None)
+            self._rows_seeded = False
             self._mono = 0.0
             self._fingerprint = None
             self._deltas.clear()
@@ -665,6 +667,7 @@ class SessionCatalogCache:
             if self._rows is not None:
                 return
             self._install_rows_locked(rows)
+            self._rows_seeded = True
 
     def _kick_rebuild(self, *, force: bool = False) -> None:
         """Start a single-flight rebuild if the snapshot is missing or stale."""
@@ -702,10 +705,11 @@ class SessionCatalogCache:
             with self._lock:
                 prev_ids = (
                     {str(row.get("sessionId") or "").strip() for row in self._rows}
-                    if self._rows is not None
+                    if self._rows is not None and not self._rows_seeded
                     else None
                 )
                 self._install_rows_locked(rows)
+                self._rows_seeded = False
                 self._mono = self._time.monotonic()
                 self._host_key = host_key
                 self._fingerprint = fp
