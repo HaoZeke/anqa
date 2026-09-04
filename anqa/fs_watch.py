@@ -92,11 +92,7 @@ class TraceTreeWatch:
             host_root=self._host_root,
             list_sessions=not self._membership_only,
         )
-        return watch_target_paths(
-            [self._root],
-            sessions,
-            expand_children=not self._membership_only,
-        )
+        return watch_target_paths([self._root], sessions)
 
     def start(self) -> bool:
         """Start watching. True when the watch thread is up.

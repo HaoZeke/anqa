@@ -10,9 +10,11 @@ from anqa.fs_watch import TraceTreeWatch
 from anqa.session.watch import (
     JournalTail,
     catalog_subscribe_paths,
+    membership_watch_dirs,
     plane_event_path,
     plane_file_paths,
     session_dirs_under,
+    watch_target_paths,
 )
 from async_wait import wait_until_sync
 
@@ -390,3 +392,30 @@ def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path
     finally:
         w.stop()
     assert any(Path(p).name == "summary.json" for batch in hits for p in batch)
+
+
+def test_watch_target_paths_skips_cwd_bucket_subagent_siblings(tmp_path: Path) -> None:
+    """Listed parents stay the watch set; cwd-bucket subagent siblings do not."""
+    host = tmp_path / "sessions"
+    bucket = host / "%2Fhome%2Fproj"
+    parent = _write_session(bucket, "parent")
+    sibling = _write_session(bucket, "child-sub")
+    (sibling / "summary.json").write_text(
+        '{"info":{"id":"child-sub"},"session_kind":"subagent"}',
+        encoding="utf-8",
+    )
+    (parent / "subagents" / "child-sub").mkdir(parents=True)
+    listed = session_dirs_under([host], host_root=host)
+    assert [p.resolve() for p in listed] == [parent.resolve()]
+    paths = {p.resolve() for p in watch_target_paths([host], listed)}
+    assert host.resolve() in paths
+    assert bucket.resolve() in paths
+    assert parent.resolve() in paths
+    assert sibling.resolve() not in paths
+    expected = {p.resolve() for p in membership_watch_dirs([host])}
+    expected.update(p.resolve() for p in listed)
+    assert paths == expected
+    watch = TraceTreeWatch(host, lambda: None, host_root=host)
+    collected = {p.resolve() for p in watch._collect_paths()}
+    assert collected == expected
+    assert sibling.resolve() not in collected
