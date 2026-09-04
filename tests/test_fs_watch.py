@@ -343,8 +343,118 @@ def test_session_dirs_under_jsonl_adapter_store_still_discovers(
     resolved = {p.resolve() for p in found}
     assert jsonl.resolve() in resolved or project.resolve() in resolved
     assert walked == [str(jsonl_store)]
-    targets = {p.resolve() for p in watch_target_paths([jsonl_store], found)}
-    assert jsonl.resolve() in targets or project.resolve() in targets
+    targets = watch_target_paths([jsonl_store], found)
+    assert all(p.is_dir() for p in targets)
+    target_set = {p.resolve() for p in targets}
+    assert project.resolve() in target_set
+    assert jsonl_store.resolve() in target_set
+    assert jsonl.resolve() not in target_set
+    collected = {p.resolve() for p in TraceTreeWatch(jsonl_store, lambda: None)._collect_paths()}
+    assert project.resolve() in collected
+    assert jsonl.resolve() not in collected
+
+
+def test_watch_target_paths_subscribes_parent_of_jsonl_locator(tmp_path: Path) -> None:
+    """Non-recursive watch must subscribe the parent dir of a file locator."""
+    store = tmp_path / "jsonl-projects"
+    project = store / "-home-rgoswami-proj"
+    project.mkdir(parents=True)
+    jsonl = project / "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jsonl"
+    jsonl.write_text("{}\n", encoding="utf-8")
+    targets = {p.resolve() for p in watch_target_paths([store], [jsonl])}
+    assert store.resolve() in targets
+    assert project.resolve() in targets
+    assert jsonl.resolve() not in targets
+    assert all(p.is_dir() for p in targets)
+
+
+def test_session_dirs_under_date_bucketed_jsonl_store_still_discovers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A YYYY/MM/DD rollout store that is not adapter root 0 keeps discover."""
+    first = tmp_path / "antigravity-store"
+    first.mkdir()
+    store = tmp_path / "dated-jsonl-sessions"
+    day = store / "2026" / "09" / "04"
+    day.mkdir(parents=True)
+    sid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    jsonl = day / f"rollout-2026-09-04T12-00-00-{sid}.jsonl"
+    jsonl.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [first, store],
+    )
+    walked: list[str] = []
+    from anqa.session import watch as watch_mod
+
+    real = watch_mod.discover_dirs
+
+    def tracked(root: Path) -> list[Path]:
+        walked.append(str(root))
+        return real(root)
+
+    monkeypatch.setattr(watch_mod, "discover_dirs", tracked)
+    found = session_dirs_under([store])
+    resolved = {p.resolve() for p in found}
+    assert jsonl.resolve() in resolved or day.resolve() in resolved
+    assert walked == [str(store)]
+    targets = {p.resolve() for p in watch_target_paths([store], found)}
+    assert day.resolve() in targets
+    assert jsonl.resolve() not in targets
+
+
+def test_jsonl_adapter_store_watch_fires_on_transcript_write(tmp_path: Path, monkeypatch) -> None:
+    """A non-first jsonl store must see nested transcript writes (non-recursive)."""
+    first = tmp_path / "antigravity-store"
+    first.mkdir()
+    jsonl_store = tmp_path / "jsonl-projects"
+    project = jsonl_store / "-home-rgoswami-proj"
+    project.mkdir(parents=True)
+    sid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    jsonl = project / f"{sid}.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "type": "user",
+                "sessionId": sid,
+                "message": {"role": "user", "content": "hi"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [first, jsonl_store],
+    )
+    hits: list[list[str]] = []
+    w = TraceTreeWatch(
+        jsonl_store,
+        lambda: None,
+        on_paths=lambda paths: hits.append(list(paths)),
+    )
+    assert w.start() is True
+    try:
+        _wait_watch_armed(w)
+        subscribed = {p.resolve() for p in w.subscribed_paths()}
+        assert project.resolve() in subscribed
+        assert all(p.is_dir() for p in w.subscribed_paths())
+        hits.clear()
+        with jsonl.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "sessionId": sid,
+                        "message": {"role": "assistant", "content": "ok"},
+                    }
+                )
+                + "\n"
+            )
+        wait_until_sync(lambda: bool(hits), description="jsonl transcript write fires")
+    finally:
+        w.stop()
+    assert any(Path(p).name == jsonl.name for batch in hits for p in batch)
 
 
 def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
