@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..models import JsonObject, as_json_object
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -220,7 +222,109 @@ def _check_leftover_json_config() -> CheckResult:
     )
 
 
-def run_self_test(*, catalog_root: Path | None = None) -> SelfTestReport:
+def _query_owner_diagnostics(socket_path: Path) -> JsonObject | None:
+    """Ask a live owner for active RPC + last failure. None when unreachable."""
+    import json
+    import socket
+
+    from ..control.contract import PROTOCOL_VERSION
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(1.0)
+    try:
+        sock.connect(str(socket_path))
+
+        def _call(payload: JsonObject) -> JsonObject:
+            sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+            buf = b""
+            while b"\n" not in buf:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+            raw = json.loads(buf.decode("utf-8") or "{}")
+            return as_json_object(raw) if isinstance(raw, dict) else {}
+
+        init = _call(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": PROTOCOL_VERSION},
+            }
+        )
+        if "error" in init:
+            return None
+        resp = _call({"jsonrpc": "2.0", "id": 2, "method": "diagnostics", "params": {}})
+        result = resp.get("result")
+        return as_json_object(result) if isinstance(result, dict) else None
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def _check_control_rpc(control_socket: Path | None) -> CheckResult:
+    """Advisory: live owner active RPC and last bounded failure."""
+    from ..control.server import default_socket_path
+
+    path = (
+        Path(control_socket).expanduser() if control_socket is not None else default_socket_path()
+    )
+    if not path.exists():
+        return CheckResult(
+            id="control_rpc",
+            name="Control owner RPC",
+            ok=True,
+            required=False,
+            detail=f"no owner at {path}",
+        )
+    snap = _query_owner_diagnostics(path)
+    if snap is None:
+        return CheckResult(
+            id="control_rpc",
+            name="Control owner RPC",
+            ok=True,
+            required=False,
+            detail=f"owner not answering at {path}",
+        )
+    active_raw = snap.get("active")
+    fail_raw = snap.get("lastFailure")
+    parts: list[str] = []
+    if isinstance(active_raw, list) and active_raw:
+        names = [
+            str(item.get("method"))
+            for item in active_raw
+            if isinstance(item, dict) and item.get("method")
+        ]
+        parts.append(f"active={', '.join(names)}" if names else "active=none")
+    else:
+        parts.append("active=none")
+    if isinstance(fail_raw, dict) and fail_raw:
+        method = str(fail_raw.get("method") or "")
+        message = str(fail_raw.get("message") or "")
+        parts.append(f"lastFailure={method}: {message}".strip())
+        return CheckResult(
+            id="control_rpc",
+            name="Control owner RPC",
+            ok=False,
+            required=False,
+            detail="; ".join(parts),
+        )
+    return CheckResult(
+        id="control_rpc",
+        name="Control owner RPC",
+        ok=True,
+        required=False,
+        detail="; ".join(parts),
+    )
+
+
+def run_self_test(
+    *,
+    catalog_root: Path | None = None,
+    control_socket: Path | None = None,
+) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
         _check_app_home(),
@@ -229,5 +333,6 @@ def run_self_test(*, catalog_root: Path | None = None) -> SelfTestReport:
         _check_sway_socket(),
         _check_hud_summon_socket(),
         _check_leftover_json_config(),
+        _check_control_rpc(control_socket),
     ]
     return SelfTestReport(checks=checks)

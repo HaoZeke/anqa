@@ -105,6 +105,25 @@ def test_list_session_catalog_includes_host_by_default(
     assert {r["sessionId"] for r in rows_store} == {"store-only-sess"}
 
 
+def test_resolve_session_reference_does_not_collect_all_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Id resolve is a name lookup. It must not list every session dir."""
+    from anqa.session import sources as sources_mod
+
+    store = tmp_path / "sessions"
+    sess = _write_session(store, "only-me")
+
+    def hang(*_a: object, **_k: object) -> object:
+        raise AssertionError("collect_session_dirs must not run")
+
+    monkeypatch.setattr(sources_mod, "collect_session_dirs", hang)
+    found = resolve_session_reference("only-me", traces_path=store, include_host=False)
+    assert found == sess.resolve()
+    found_ref = resolve_session_reference("grok:only-me", traces_path=store, include_host=False)
+    assert found_ref == sess.resolve()
+
+
 def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

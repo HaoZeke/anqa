@@ -11,6 +11,7 @@ from anqa.session.sources import (
     is_adapter_store_root,
     is_under_adapter_store,
     session_dir_for_watch_path,
+    session_dir_named,
     session_run_dir,
     session_scan_roots,
 )
@@ -61,6 +62,19 @@ def test_session_scan_roots_adds_traces_path(tmp_path: Path) -> None:
     assert [r.path for r in roots] == [host, extra]
     assert roots[0].path == host
     assert roots[1].path == extra
+
+
+def test_session_dir_named_finds_direct_and_encoded_cwd(tmp_path: Path) -> None:
+    """Name lookup checks the store and one encoded-cwd bucket, not every sibling."""
+    store = tmp_path / "store"
+    direct = store / "flat-sid"
+    direct.mkdir(parents=True)
+    (direct / "summary.json").write_text("{}", encoding="utf-8")
+    (direct / "updates.jsonl").write_text("", encoding="utf-8")
+    nested = _seed_session(store, cwd_token="%2Fproj", sid="nested-sid")
+    assert session_dir_named(store, "flat-sid") == direct.resolve()
+    assert session_dir_named(store, "nested-sid") == nested.resolve()
+    assert session_dir_named(store, "missing") is None
 
 
 def test_collect_session_dirs_union(tmp_path: Path) -> None:

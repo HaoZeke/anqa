@@ -87,6 +87,7 @@ The owner accepts either and replies in the same frame the client used.
 | `notes/list` | Notes snapshot (`revision`, schema, notes) |
 | `notes/upsert` | Write a note (`expectedRevision`) |
 | `notes/delete` | Delete a note (`expectedRevision`) |
+| `diagnostics` | Active RPC and last bounded failure |
 
 ### `session/list`
 
@@ -148,6 +149,15 @@ Every note must include a non-empty `source` (who wrote it).
 `fields` need not match the configured form schema; extra keys
 are stored as sent. The in-app form uses `notes_schema.toml`
 and stamps its own source.
+`notes/list` and `notes/upsert` do not wait for catalog discovery
+or a host-store walk. `anqad -P <store>` pins the catalog to that
+store. `diagnostics` reports the active RPC and the last bounded
+failure.
+
+### `diagnostics`
+
+The owner reports the methods it is handling now and the last
+bounded failure (timeout or error). `anqa doctor` reads this.
 
 ## Notifications
 

@@ -305,10 +305,16 @@ palette only. [Emacs](#emacs) and
 
 ```bash
 anqad -d
+anqad -P /path/to/store -s /path/to/task.sock
 anqad status
 anqad stop
 anqa export-host -o host-catalog.json
 ```
+
+`-P` pins the catalog to that store (host adapter stores are not
+scanned). `notes/list` and `notes/upsert` stay responsive while the
+catalog is still building. `anqa doctor` reports the owner's active
+RPC and the last bounded RPC failure.
 
 `export-host` writes the host catalog snapshot anqad uses (summary,
 signals, and list status from the updates tail). It does not start anqad.

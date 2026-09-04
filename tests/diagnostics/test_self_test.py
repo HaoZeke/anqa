@@ -15,6 +15,7 @@ _HOST_CHECK_IDS = {
     "sway_socket",
     "hud_summon",
     "config-toml",
+    "control_rpc",
 }
 
 

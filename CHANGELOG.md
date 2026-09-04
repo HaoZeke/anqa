@@ -63,6 +63,10 @@ Cursor (`cursor`) are registered.
 
 - Every note has a `source`. Extra field keys are stored as sent.
   Notes (terminal and HUD) show the writer badge and the stored fields.
+- `notes/list` and `notes/upsert` stay responsive while the catalog
+  store is still building. `anqad -P <store>` does not scan host
+  adapter stores. `anqa doctor` reports the owner's active RPC and
+  the last bounded RPC failure.
 - Card, timeline, summary, and note stamps show the host local clock
   as `YYYY-MM-DD HH:MM:SS`.
 

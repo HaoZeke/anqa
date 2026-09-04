@@ -427,7 +427,8 @@
         "session/render",
         "notes/list",
         "notes/upsert",
-        "notes/delete"
+        "notes/delete",
+        "diagnostics"
       ],
       "properties": {
         "initialize": {
@@ -956,6 +957,37 @@
               "type": "object",
               "additionalProperties": true,
               "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "diagnostics": {
+          "description": "Active RPC and last bounded failure",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "diagnostics params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            },
+            "result": {
+              "title": "diagnostics result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "active": {
+                  "description": "In-flight methods (`method`, `elapsedMs`).",
+                  "type": "array"
+                },
+                "lastFailure": {
+                  "description": "Last RPC error (`method`, `code`, `message`).",
+                  "type": "object"
+                }
+              }
             }
           },
           "required": [

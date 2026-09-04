@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -106,6 +107,8 @@ _TIMESTAMP_RE = re.compile(r"^[0-9][0-9T:+.Z-]{0,63}$")
 # Concurrent disk-heavy RPCs (parse/catalog) share this bound so multi-client
 # opens cannot stampede the owner beyond single-flight per session.
 HEAVY_IO_CONCURRENCY = 4
+# Notes are operator TOML. They must not wait on catalog discovery.
+NOTES_RPC_TIMEOUT = 8.0
 
 type SessionResolver = Callable[[str], Path | None]
 type SessionLister = Callable[[], list[JsonObject]]
@@ -325,6 +328,9 @@ class ControlServer:
         # stampede multi‑MB parses (single-flight still joins per session).
         self._heavy_sem = asyncio.Semaphore(HEAVY_IO_CONCURRENCY)
         self._search_warm_inflight: set[Path] = set()
+        self._rpc_guard = threading.Lock()
+        self._active_rpc: list[tuple[str, float]] = []
+        self._last_rpc_failure: JsonObject | None = None
 
     async def start(self) -> None:
         """Bind the configured socket and begin accepting connections."""
@@ -593,6 +599,7 @@ class ControlServer:
             param_summary,
         )
         t0 = time.perf_counter()
+        self._rpc_begin(method, t0)
         try:
             result = await self._dispatch(method, params, after_send)
         except NotesConflict as exc:
@@ -604,6 +611,7 @@ class ControlServer:
                 ms,
                 param_summary,
             )
+            self._record_rpc_failure(method, 409, "operator notes changed")
             await self._send_error(
                 writer,
                 request_id,
@@ -623,6 +631,7 @@ class ControlServer:
                 param_summary,
                 exc.message,
             )
+            self._record_rpc_failure(method, exc.code, exc.message, exc.data)
             await self._send_error(writer, request_id, exc.code, exc.message, exc.data)
             return
         except OSError as exc:
@@ -635,6 +644,7 @@ class ControlServer:
                 param_summary,
                 exc,
             )
+            self._record_rpc_failure(method, -32603, str(exc))
             await self._send_error(writer, request_id, -32603, str(exc))
             return
         except Exception as exc:
@@ -646,8 +656,11 @@ class ControlServer:
                 ms,
                 param_summary,
             )
+            self._record_rpc_failure(method, -32603, f"internal error: {exc}")
             await self._send_error(writer, request_id, -32603, f"internal error: {exc}")
             return
+        finally:
+            self._rpc_end(method, t0)
         ms = (time.perf_counter() - t0) * 1000
         # session/list duration is operator-visible on large catalogs.
         log = logger.info if method == "session/list" else logger.debug
@@ -715,6 +728,46 @@ class ControlServer:
 
         loop.create_task(_run())
 
+    def _rpc_begin(self, method: str, started: float) -> None:
+        with self._rpc_guard:
+            self._active_rpc.append((method, started))
+
+    def _rpc_end(self, method: str, started: float) -> None:
+        with self._rpc_guard:
+            try:
+                self._active_rpc.remove((method, started))
+            except ValueError:
+                pass
+
+    def _record_rpc_failure(
+        self,
+        method: str,
+        code: int,
+        message: str,
+        data: JsonObject | None = None,
+    ) -> None:
+        """Record the last bounded RPC failure for diagnostics."""
+        payload: JsonObject = {
+            "method": method,
+            "code": int(code),
+            "message": message,
+        }
+        if data:
+            payload["data"] = data
+        with self._rpc_guard:
+            self._last_rpc_failure = payload
+
+    def rpc_diagnostics(self) -> JsonObject:
+        """Active RPCs and the last bounded failure."""
+        now = time.perf_counter()
+        with self._rpc_guard:
+            active: list[JsonValue] = [
+                {"method": method, "elapsedMs": (now - started) * 1000}
+                for method, started in self._active_rpc
+            ]
+            failure = dict(self._last_rpc_failure) if self._last_rpc_failure else None
+        return {"active": active, "lastFailure": failure}
+
     async def _access_call(
         self,
         ref: str,
@@ -732,6 +785,33 @@ class ControlServer:
 
         async with self._heavy_sem:
             return await asyncio.to_thread(_run)
+
+    async def _notes_call(
+        self,
+        ref: str,
+        fn: Callable[..., JsonObject],
+        *args: object,
+        **kwargs: object,
+    ) -> JsonObject:
+        """Run a notes method off the event loop without the catalog semaphore."""
+
+        def _run() -> JsonObject:
+            try:
+                return fn(*args, **kwargs)
+            except FileNotFoundError as exc:
+                raise ControlError(404, "session not found", {"session": ref}) from exc
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_run),
+                timeout=NOTES_RPC_TIMEOUT,
+            )
+        except TimeoutError as exc:
+            raise ControlError(
+                -32603,
+                "notes rpc timed out",
+                {"session": ref, "boundSeconds": NOTES_RPC_TIMEOUT},
+            ) from exc
 
     async def _dispatch(
         self,
@@ -898,12 +978,18 @@ class ControlServer:
         after_send.append((NOTIFY_SESSION_CHANGED, {"sessionId": session_id, "listChanged": True}))
         return result
 
+    @_rpc("diagnostics")
+    async def _rpc_diagnostics(
+        self, _params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        return self.rpc_diagnostics()
+
     @_rpc("notes/list")
     async def _rpc_notes_list(
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
     ) -> JsonValue:
         ref = self._session_ref(params)
-        return await self._access_call(ref, self._access.notes_list, ref)
+        return await self._notes_call(ref, self._access.notes_list, ref)
 
     @_rpc("notes/upsert")
     async def _rpc_notes_upsert(
@@ -916,7 +1002,7 @@ class ControlServer:
         session = self._session(params)
         note = _note_from_params(as_json_object(note_raw))
         rev = json_as_str(params.get("expectedRevision"))
-        result = await self._access_call(
+        result = await self._notes_call(
             ref,
             self._access.notes_upsert,
             ref,
@@ -946,7 +1032,7 @@ class ControlServer:
         ref = self._session_ref(params)
         session = self._session(params)
         rev = json_as_str(params.get("expectedRevision"))
-        result = await self._access_call(
+        result = await self._notes_call(
             ref,
             self._access.notes_delete,
             ref,

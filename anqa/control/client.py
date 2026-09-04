@@ -459,6 +459,11 @@ class ControlClient:
         result = await self.request("session/diff", {"session": session})
         return as_json_object(result) if isinstance(result, dict) else {}
 
+    async def diagnostics(self) -> JsonObject:
+        """Call ``diagnostics`` for the active RPC and last bounded failure."""
+        result = await self.request("diagnostics", {})
+        return as_json_object(result) if isinstance(result, dict) else {}
+
     async def notes_list(self, session: str) -> JsonObject:
         """Call ``notes/list`` for *session*."""
         result = await self.request("notes/list", {"session": session})

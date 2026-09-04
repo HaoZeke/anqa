@@ -233,6 +233,22 @@ def pid_is_alive(pid: int) -> bool:
     return "Z" not in stat.upper()
 
 
+def daemon_include_host(
+    traces_path: Path | None,
+    include_host: bool | None,
+) -> bool | None:
+    """Host inclusion for a control owner.
+
+    An explicit store (``anqad -P``) is the catalog. Host adapter stores
+    stay out unless the caller forces them on.
+    """
+    if include_host is not None:
+        return include_host
+    if traces_path is not None:
+        return False
+    return None
+
+
 def build_domain_control_server(
     *,
     socket_path: Path,
@@ -253,9 +269,10 @@ def build_domain_control_server(
     :returns: Configured but not-yet-started server.
     """
     tr = Path(traces_path).expanduser() if traces_path is not None else None
+    host = daemon_include_host(tr, include_host)
     catalog_cache = SessionCatalogCache(
         traces_path=tr,
-        include_host=include_host,
+        include_host=host,
         host_root=host_root,
     )
 
@@ -266,7 +283,7 @@ def build_domain_control_server(
         return resolve_session_reference(
             reference,
             traces_path=tr,
-            include_host=include_host,
+            include_host=host,
             host_root=host_root,
         )
 
@@ -282,10 +299,10 @@ def build_domain_control_server(
 
 
 async def _catalog_warm_once(cache: SessionCatalogCache) -> None:
-    """Load the catalog snapshot once at serve start."""
+    """Kick a catalog rebuild without joining the scan or the 120s wait."""
     try:
-        rows = await asyncio.to_thread(lambda: cache.get(force=True))
-        logger.info("control catalog warm complete rows=%s", len(rows))
+        cache.start_rebuild(force=True)
+        logger.info("control catalog warm started")
     except Exception:
         logger.debug("control catalog warm failed", exc_info=True)
 
@@ -700,7 +717,7 @@ def run_control_daemon(
     :returns: Process exit code (0 clean stop, 1 ownership conflict / error).
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
-    tr = resolve_catalog_root(traces_path)
+    tr = resolve_catalog_root(traces_path) if traces_path is not None else None
 
     configure_serve_logging()
 
@@ -1300,6 +1317,7 @@ __all__ = [
     "EnsureDaemonResult",
     "build_domain_control_server",
     "configure_serve_logging",
+    "daemon_include_host",
     "control_daemon_status",
     "control_lock_path",
     "control_log_path",

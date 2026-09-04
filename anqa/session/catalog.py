@@ -33,7 +33,7 @@ from .query import apply_catalog_presence_row, catalog_presence, catalog_presenc
 from .sources import (
     SessionOrigin,
     SessionScanRoot,
-    collect_session_dirs,
+    session_dir_named,
     session_run_dir,
     session_scan_roots,
 )
@@ -675,6 +675,10 @@ class SessionCatalogCache:
                 self._building = False
             self._build_done.set()
 
+    def start_rebuild(self, *, force: bool = False) -> None:
+        """Start a single-flight rebuild without waiting for rows."""
+        self._kick_rebuild(force=force)
+
     def get(self, *, force: bool = False) -> list[JsonObject]:
         """Return catalog rows, rebuilding when stale, forced, or roots changed.
 
@@ -1150,27 +1154,17 @@ def resolve_session_reference(
             return candidate.resolve()
         except OSError:
             return candidate
+    parsed = parse_session_ref_string(ref)
+    needle = parsed[1] if parsed is not None else ref
     roots = catalog_scan_roots(
         traces_path=traces_path,
         include_host=include_host,
         host_root=host_root,
     )
     for root in roots:
-        direct = root.path / ref
-        if direct.is_dir():
-            try:
-                return direct.resolve()
-            except OSError:
-                return direct
-    # Directory name only. List-meta for every sibling is a multi-second tax on
-    # each session/overview and session/timeline call. Id≠dirname uses the
-    # warm catalog on the control owner (SessionCatalogCache.resolve).
-    for session_dir in collect_session_dirs(roots):
-        if session_dir.name == ref:
-            try:
-                return session_dir.resolve()
-            except OSError:
-                return session_dir
+        named = session_dir_named(root.path, needle)
+        if named is not None:
+            return named
     return None
 
 

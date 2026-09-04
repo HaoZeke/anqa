@@ -621,7 +621,11 @@ METHODS: tuple[MethodSpec, ...] = (
             "Every note must include a non-empty `source` (who wrote it).\n"
             "`fields` need not match the configured form schema; extra keys\n"
             "are stored as sent. The in-app form uses `notes_schema.toml`\n"
-            "and stamps its own source."
+            "and stamps its own source.\n"
+            "`notes/list` and `notes/upsert` do not wait for catalog discovery\n"
+            "or a host-store walk. `anqad -P <store>` pins the catalog to that\n"
+            "store. `diagnostics` reports the active RPC and the last bounded\n"
+            "failure."
         ),
     ),
     MethodSpec(
@@ -631,6 +635,26 @@ METHODS: tuple[MethodSpec, ...] = (
             _SESSION,
             FieldSpec("noteId", "Note id to delete.", required=True),
             _EXPECTED_REV,
+        ),
+    ),
+    MethodSpec(
+        name="diagnostics",
+        role="Active RPC and last bounded failure",
+        result=(
+            FieldSpec(
+                "active",
+                "In-flight methods (`method`, `elapsedMs`).",
+                json_type="array",
+            ),
+            FieldSpec(
+                "lastFailure",
+                "Last RPC error (`method`, `code`, `message`).",
+                json_type="object",
+            ),
+        ),
+        extra_md=(
+            "The owner reports the methods it is handling now and the last\n"
+            "bounded failure (timeout or error). `anqa doctor` reads this."
         ),
     ),
 )
@@ -817,6 +841,7 @@ def render_control_doc() -> str:
     notify_rows = tuple((f"`{spec.name}`", spec.when) for spec in NOTIFICATIONS)
     list_extra = next(spec.extra_md for spec in METHODS if spec.name == "session/list")
     notes_extra = next(spec.extra_md for spec in METHODS if spec.name == "notes/upsert")
+    diag_extra = next(spec.extra_md for spec in METHODS if spec.name == "diagnostics")
     body = f"""# Control
 
 One process owns a per-user Unix socket. The four clients — [terminal
@@ -909,6 +934,10 @@ The owner accepts either and replies in the same frame the client used.
 ### Notes revision
 
 {notes_extra}
+
+### `diagnostics`
+
+{diag_extra}
 
 ## Notifications
 

@@ -299,6 +299,43 @@ def collect_host_session_dirs(root: Path) -> list[Path]:
     return drop_subagent_sessions(list_host_session_dirs(root))
 
 
+def session_dir_named(root: Path, name: str) -> Path | None:
+    """Locate *name* under *root* without listing every session.
+
+    Checks ``root/name`` then one encoded-cwd bucket. Does not walk
+    siblings or load session meta.
+    """
+    sid = (name or "").strip()
+    if not sid:
+        return None
+    base = Path(root).expanduser()
+    if not base.is_dir():
+        return None
+    direct = base / sid
+    if _dir_is_session(direct):
+        try:
+            return direct.resolve()
+        except OSError:
+            return direct
+    try:
+        with os.scandir(base) as it:
+            tops = list(it)
+    except OSError:
+        return None
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False) or is_host_skip_dir_name(ent.name):
+            continue
+        if not is_encoded_cwd_name(ent.name):
+            continue
+        cand = Path(ent.path) / sid
+        if _dir_is_session(cand):
+            try:
+                return cand.resolve()
+            except OSError:
+                return cand
+    return None
+
+
 def collect_session_dirs(
     roots: list[SessionScanRoot],
 ) -> list[Path]:
@@ -341,6 +378,7 @@ __all__ = [
     "is_adapter_store_root",
     "is_encoded_cwd_name",
     "session_dir_for_watch_path",
+    "session_dir_named",
     "session_run_dir",
     "is_host_skip_dir_name",
     "is_under_adapter_store",

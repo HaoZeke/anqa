@@ -71,6 +71,7 @@ REQUIRED_METHODS = (
     "notes/list",
     "notes/upsert",
     "notes/delete",
+    "diagnostics",
 )
 REQUIRED_NOTIFICATIONS = (
     "session/selected",
