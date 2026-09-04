@@ -9,6 +9,7 @@ from anqa.session.sources import (
     collect_session_dirs,
     default_catalog_root,
     is_adapter_store_root,
+    is_host_directory_store,
     is_under_adapter_store,
     session_dir_for_watch_path,
     session_run_dir,
@@ -96,6 +97,24 @@ def test_classify_import_locator(tmp_path: Path, monkeypatch) -> None:
     imported.mkdir(parents=True)
     (imported / "summary.json").write_text("{}", encoding="utf-8")
     assert classify_session_origin(imported) == ORIGIN_IMPORT
+
+
+def test_is_host_directory_store_by_shape(tmp_path: Path) -> None:
+    """Grok cwd buckets are host trees; dash-encoded jsonl projects are not."""
+    grok = tmp_path / "grok-sessions"
+    sess = grok / "%2Fproj" / "sid"
+    sess.mkdir(parents=True)
+    (sess / "summary.json").write_text("{}", encoding="utf-8")
+    (sess / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    jsonl_store = tmp_path / "jsonl-projects"
+    project = jsonl_store / "-home-rgoswami-proj"
+    project.mkdir(parents=True)
+    (project / "aaaaaaaa-bbbb-4ccc-8ddd-000000000099.jsonl").write_text(
+        '{"type": "user", "sessionId": "aaaaaaaa-bbbb-4ccc-8ddd-000000000099"}\n',
+        encoding="utf-8",
+    )
+    assert is_host_directory_store(grok) is True
+    assert is_host_directory_store(jsonl_store) is False
 
 
 def test_is_adapter_store_root(tmp_path: Path, monkeypatch) -> None:

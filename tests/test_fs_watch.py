@@ -302,6 +302,40 @@ def test_session_dirs_under_uses_host_lister_for_non_first_adapter_store(
     assert walked == []
 
 
+def test_session_dirs_under_jsonl_adapter_store_still_discovers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A jsonl adapter store that is not adapter root 0 must keep file locators."""
+    first = tmp_path / "antigravity-store"
+    first.mkdir()
+    jsonl_store = tmp_path / "jsonl-projects"
+    project = jsonl_store / "-home-rgoswami-proj"
+    project.mkdir(parents=True)
+    jsonl = project / "aaaaaaaa-bbbb-4ccc-8ddd-000000000099.jsonl"
+    jsonl.write_text(
+        '{"type": "user", "message": {"role": "user", "content": "hi"},'
+        ' "sessionId": "aaaaaaaa-bbbb-4ccc-8ddd-000000000099"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [first, jsonl_store],
+    )
+    walked: list[str] = []
+    from anqa.session.watch import discover_dirs as real_discover
+
+    def tracked(root: Path) -> list[Path]:
+        walked.append(str(root.resolve()))
+        return real_discover(root)
+
+    monkeypatch.setattr("anqa.session.watch.discover_dirs", tracked)
+    found = {p.resolve() for p in session_dirs_under([jsonl_store])}
+    assert jsonl.resolve() in found or project.resolve() in found
+    assert jsonl_store.resolve() in {Path(p).resolve() for p in walked}
+    targets = {p.resolve() for p in watch_target_paths([jsonl_store], list(found))}
+    assert jsonl.resolve() in targets or project.resolve() in targets
+
+
 def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
     session = _write_session(tmp_path, "sess")
     hits: list[int] = []

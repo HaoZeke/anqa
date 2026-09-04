@@ -522,6 +522,7 @@ class SessionCatalogCache:
         self._revision = 0
         self._deltas: deque[_CatalogDelta] = deque(maxlen=self._DELTA_KEEP)
         self._on_rebuilt: object | None = None
+        self._seeded = False
 
     def __call__(self) -> list[JsonObject]:
         """Return the warm catalog snapshot (``SessionLister``)."""
@@ -613,6 +614,7 @@ class SessionCatalogCache:
             self._mono = 0.0
             self._fingerprint = None
             self._deltas.clear()
+            self._seeded = False
 
     def _is_fresh_locked(
         self,
@@ -665,6 +667,7 @@ class SessionCatalogCache:
             if self._rows is not None:
                 return
             self._install_rows_locked(rows)
+            self._seeded = True
 
     def _kick_rebuild(self, *, force: bool = False) -> None:
         """Start a single-flight rebuild if the snapshot is missing or stale."""
@@ -700,10 +703,16 @@ class SessionCatalogCache:
                 host_root=self._host_root,
             )
             with self._lock:
+                seeded = self._seeded
+                self._seeded = False
                 prev_ids = (
-                    {str(row.get("sessionId") or "").strip() for row in self._rows}
-                    if self._rows is not None
-                    else None
+                    None
+                    if seeded
+                    else (
+                        {str(row.get("sessionId") or "").strip() for row in self._rows}
+                        if self._rows is not None
+                        else None
+                    )
                 )
                 self._install_rows_locked(rows)
                 self._mono = self._time.monotonic()

@@ -151,6 +151,91 @@ def test_catalog_rebuild_invokes_on_rebuilt(tmp_path: Path) -> None:
     assert hits == [1]
 
 
+def test_first_rebuild_after_snapshot_seed_invokes_on_rebuilt(tmp_path: Path) -> None:
+    """Seeded snapshot ids matching the first rebuild must still notify clients."""
+    from anqa.session.mtime_export import default_catalog_snapshot
+
+    traces = tmp_path / "sessions"
+    _write_sess(traces, "snap-sess", "From disk")
+    writer = SessionCatalogCache(traces_path=traces, include_host=False)
+    assert len(writer.get(force=True)) == 1
+    dest = default_catalog_snapshot(traces)
+    assert dest.is_file()
+
+    hits: list[int] = []
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache._on_rebuilt = lambda: hits.append(1)
+    rows = cache.get(force=True)
+    assert {str(row.get("sessionId")) for row in rows} == {"snap-sess"}
+    assert hits == [1]
+    cache.get(force=True)
+    assert hits == [1]
+
+
+def test_get_force_seeds_row_format_2_snapshot_while_rebuild_blocked(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Cold get(force=True) must serve operator rowFormat 2 cache files."""
+    import anqa.session.catalog as catalog_mod
+    from anqa.session.mtime_export import default_catalog_snapshot
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    dest = default_catalog_snapshot(traces)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(traces),
+                "stamps": [],
+                "sessions": [
+                    {
+                        "sessionId": "fmt2-force",
+                        "path": "grok:fmt2-force",
+                        "title": "Format two",
+                        "status": "complete",
+                        "harness": "grok",
+                        "sortEpoch": 1_700_000_000,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    release = threading.Event()
+    started = threading.Event()
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return []
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+
+    class _JumpClock:
+        def __init__(self) -> None:
+            self._n = 0
+
+        def monotonic(self) -> float:
+            self._n += 1
+            return float(self._n * 1000.0)
+
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    cache._time = _JumpClock()
+    rows = cache.get(force=True)
+    assert started.wait(timeout=2)
+    assert {str(row.get("sessionId")) for row in rows} == {"fmt2-force"}
+    with cache._lock:
+        assert cache._building is True
+    listed = cache.list_for_rpc(limit=50)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    release.set()
+
+
 def test_catalog_rebuild_skips_on_rebuilt_when_ids_unchanged(tmp_path: Path) -> None:
     """TTL/force rescan of the same sessions must not wake every client."""
     work = tmp_path / "work"

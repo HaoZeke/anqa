@@ -264,6 +264,35 @@ def _immediate_session_children(path: Path) -> list[Path]:
     return out
 
 
+def is_host_directory_store(root: Path) -> bool:
+    """True when *root* is a grok-style directory session tree.
+
+    Host trees have percent-encoded cwd buckets or immediate session
+    directories. Jsonl adapter stores (dash-encoded project trees, dated
+    rollouts) have neither at the store root, so they stay on adapter
+    discover.
+    """
+    path = Path(root).expanduser()
+    if not path.is_dir():
+        return False
+    try:
+        with os.scandir(path) as it:
+            tops = list(it)
+    except OSError:
+        return False
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False):
+            continue
+        name = ent.name
+        if is_host_skip_dir_name(name):
+            continue
+        if is_encoded_cwd_name(name):
+            return True
+        if _dir_is_session(Path(ent.path)):
+            return True
+    return False
+
+
 def list_host_session_dirs(root: Path) -> list[Path]:
     """Host session dirs by tree shape: children or one encoded-cwd level.
 
@@ -340,6 +369,7 @@ __all__ = [
     "list_host_session_dirs",
     "is_adapter_store_root",
     "is_encoded_cwd_name",
+    "is_host_directory_store",
     "session_dir_for_watch_path",
     "session_run_dir",
     "is_host_skip_dir_name",
