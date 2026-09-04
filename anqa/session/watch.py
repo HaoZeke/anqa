@@ -132,10 +132,11 @@ def watch_target_paths(
 ) -> list[Path]:
     """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
 
-    Membership dirs plus *session_dirs* only. Cwd-bucket children stay
-    off the set when *session_dirs* is the dropped parent list. A new
-    session dir is a membership event on that bucket; the next collect
-    adds the parent.
+    Membership dirs plus listed session directories. A file locator
+    contributes its parent directory so nested jsonl writes stay
+    visible. Cwd-bucket children stay off the set when *session_dirs*
+    is the dropped parent list. A new session dir is a membership
+    event on that bucket; the next collect adds the parent.
     """
     out: list[Path] = []
     seen: set[str] = set()
@@ -152,7 +153,8 @@ def watch_target_paths(
     for path in membership_watch_dirs(roots):
         _add(path)
     for session in session_dirs:
-        _add(Path(session))
+        loc = Path(session)
+        _add(loc.parent if loc.is_file() else loc)
     return out
 
 
