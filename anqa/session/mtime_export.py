@@ -85,6 +85,24 @@ def default_catalog_snapshot(root: Path) -> Path:
     return cache_dir() / f"catalog-{key}.json"
 
 
+def load_catalog_snapshot_rows(dest: Path) -> list[JsonObject]:
+    """Return rows from an existing snapshot file, or empty if missing or stale.
+
+    Does not walk the store or rebuild. Used to seed a cold catalog cache
+    from ``default_catalog_snapshot`` files already on disk.
+
+    :param dest: Snapshot path (usually :func:`default_catalog_snapshot`).
+    :returns: Cached session rows, or an empty list.
+    """
+    cached = _read_payload(dest)
+    if cached is None or not _snapshot_current(cached):
+        return []
+    sessions = cached.get("sessions")
+    if not isinstance(sessions, list):
+        return []
+    return [as_json_object(row) for row in sessions if isinstance(row, dict)]
+
+
 def _stamp_ns(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None

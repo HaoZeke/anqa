@@ -69,6 +69,79 @@ def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypa
     assert {str(r["sessionId"]) for r in later["sessions"]} == {f"s{i}" for i in range(5)}
 
 
+class _JumpClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        self.now += 1_000.0
+        return self.now
+
+
+def _write_snapshot_rows(root: Path, names: list[str]) -> None:
+    from anqa.control.contract import PROTOCOL_VERSION
+    from anqa.session.mtime_export import SNAPSHOT_ROW_FORMAT, default_catalog_snapshot
+
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": PROTOCOL_VERSION,
+                "rowFormat": SNAPSHOT_ROW_FORMAT,
+                "root": str(root),
+                "stamps": [],
+                "sessions": [
+                    {
+                        "sessionId": name,
+                        "path": f"grok:{name}",
+                        "locator": str(root / name),
+                        "title": name,
+                        "status": "complete",
+                    }
+                    for name in names
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_get_force_seeds_snapshot_rows_before_rebuild_timeout(tmp_path: Path, monkeypatch) -> None:
+    """get(force=True) returns on-disk snapshot rows when the rebuild is still running."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_snapshot_rows(traces, ["seed-a", "seed-b"])
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocked(*_args: object, **_kwargs: object) -> list[object]:
+        started.set()
+        if not release.wait(timeout=8):
+            return []
+        return []
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache._time = _JumpClock()
+    try:
+        rows = cache.get(force=True)
+        assert started.wait(timeout=2)
+        assert {str(row.get("sessionId")) for row in rows} == {"seed-a", "seed-b"}
+        with cache._lock:
+            assert cache._building is True
+        listed = cache.list_for_rpc(limit=50)
+        assert listed["total"] == 2
+        assert listed["matched"] == 2
+        assert listed.get("building") is True
+        assert listed.get("incomplete") is True
+        assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"seed-a", "seed-b"}
+    finally:
+        release.set()
+
+
 def test_catalog_rebuild_invokes_on_rebuilt(tmp_path: Path) -> None:
     """Owner can notify attach clients when a cold scan finishes."""
     work = tmp_path / "work"
