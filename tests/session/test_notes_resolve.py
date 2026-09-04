@@ -49,7 +49,6 @@ def test_resolve_session_locator_skips_catalog_walk(
 
     monkeypatch.setattr(catalog_mod, "list_session_catalog", _boom)
     monkeypatch.setattr(sources_mod, "collect_session_dirs", _boom)
-    monkeypatch.setattr(catalog_mod, "collect_session_dirs", _boom)
 
     assert resolve_session_locator("only-sess", traces_path=store) == sess.resolve()
     assert resolve_session_locator(str(sess), traces_path=store) == sess.resolve()

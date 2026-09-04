@@ -616,7 +616,10 @@ METHODS: tuple[MethodSpec, ...] = (
         extra_md=(
             "`notes/list` and `notes/upsert` do not wait on catalog discovery.\n"
             "A notes call that exceeds the owner bound is recorded here and\n"
-            "returns an error instead of hanging the client."
+            "returns an error instead of hanging the client. Cold\n"
+            "`session/overview` and `session/timeline` resolve a session by\n"
+            "directory name on catalog scan roots; they do not list every\n"
+            "sibling session."
         ),
     ),
     MethodSpec(

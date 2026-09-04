@@ -177,3 +177,30 @@ async def test_diagnostics_exposes_active_rpc_and_bounded_timeout(
 def test_explicit_store_skips_host_include() -> None:
     assert daemon_mod.include_host_for_explicit_store(Path("/tmp/store")) is False
     assert daemon_mod.include_host_for_explicit_store(None) is None
+
+
+def test_domain_resolve_is_name_lookup_and_keeps_host_include(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cold overview/timeline resolve by name. Auto-start does not pin host off."""
+    from anqa.session import sources as sources_mod
+
+    store = tmp_path / "store"
+    sess = _write_sess(store, "owner-sess")
+
+    def hang(*_a: object, **_k: object) -> object:
+        raise AssertionError("collect_session_dirs must not run")
+
+    monkeypatch.setattr(sources_mod, "collect_session_dirs", hang)
+    server = daemon_mod.build_domain_control_server(
+        socket_path=tmp_path / "sock",
+        traces_path=store,
+        include_host=None,
+    )
+    cache = getattr(server, "_catalog_cache", None)
+    assert isinstance(cache, SessionCatalogCache)
+    assert cache._include_host is None
+    found = server._resolve_session("owner-sess")
+    assert found == sess.resolve()
+    found_ref = server._resolve_session("grok:owner-sess")
+    assert found_ref == sess.resolve()
