@@ -185,6 +185,113 @@ def test_first_rebuild_after_snapshot_seed_invokes_on_rebuilt(tmp_path: Path) ->
     assert hits == [1]
 
 
+def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
+    from anqa.session.mtime_export import default_catalog_snapshot
+
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(root),
+                "stamps": [],
+                "sessions": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dest
+
+
+def test_get_force_seeds_row_format_2_snapshot_while_rebuild_blocked(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Cold get(force=True) must serve operator rowFormat 2 cache files."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "fmt2-force",
+                "path": "grok:fmt2-force",
+                "title": "Format two",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+    release = threading.Event()
+    started = threading.Event()
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return []
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+
+    class _JumpClock:
+        def __init__(self) -> None:
+            self._n = 0
+
+        def monotonic(self) -> float:
+            self._n += 1
+            return float(self._n * 1000.0)
+
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    cache._time = _JumpClock()
+    rows = cache.get(force=True)
+    assert started.wait(timeout=2)
+    assert {str(row.get("sessionId")) for row in rows} == {"fmt2-force"}
+    with cache._lock:
+        assert cache._building is True
+    listed = cache.list_for_rpc(limit=50)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    assert listed["incomplete"] is True
+    release.set()
+
+
+def test_first_rebuild_after_row_format_2_seed_invokes_on_rebuilt(tmp_path: Path) -> None:
+    """A format-2 seed must not suppress the first catalog-ready notify."""
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_sess(traces, "fmt2-sess", "From disk")
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "fmt2-sess",
+                "path": "grok:fmt2-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+    hits: list[int] = []
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache._on_rebuilt = lambda: hits.append(1)
+    cache._seed_from_snapshots()
+    with cache._lock:
+        seeded = {str(row.get("sessionId") or "") for row in (cache._rows or [])}
+        assert cache._rows_seeded is True
+    assert seeded == {"fmt2-sess"}
+    rows = cache.get(force=True)
+    assert {str(row.get("sessionId")) for row in rows} == {"fmt2-sess"}
+    assert hits == [1]
+    cache.get(force=True)
+    assert hits == [1]
+
+
 def test_catalog_cache_second_get_is_cached(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

@@ -929,6 +929,27 @@ class _JumpClock:
         return float(self._n * 1000.0)
 
 
+def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
+    """Write an operator-shaped catalog snapshot (version 1.0.0, rowFormat 2)."""
+    from anqa.session.mtime_export import default_catalog_snapshot
+
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(root),
+                "stamps": [],
+                "sessions": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dest
+
+
 def _block_catalog_scan(
     monkeypatch: pytest.MonkeyPatch, release: threading.Event
 ) -> threading.Event:
@@ -983,6 +1004,54 @@ async def test_catalog_warm_seeds_snapshot_rows_while_rebuild_blocked(
     assert listed["building"] is True
     assert listed["incomplete"] is True
     assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"snap-sess"}
+    release.set()
+
+
+@pytest.mark.asyncio
+async def test_catalog_warm_seeds_row_format_2_snapshot_while_rebuild_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Warm must serve operator rowFormat 2 cache files, not complete rows=0."""
+    import logging
+
+    daemon = import_module("anqa.control.daemon")
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "fmt2-warm",
+                "path": "grok:fmt2-warm",
+                "title": "From format 2",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+    release = threading.Event()
+    started = _block_catalog_scan(monkeypatch, release)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    cache._time = _JumpClock()
+    with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
+        await daemon._catalog_warm_once(cache)
+    assert started.wait(timeout=2)
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("warm complete rows=0" in msg for msg in messages)
+    assert any("warm incomplete rows=1" in msg for msg in messages)
+    with cache._lock:
+        seeded = list(cache._rows or [])
+        building = bool(cache._building)
+    assert building is True
+    assert {str(row.get("sessionId")) for row in seeded} == {"fmt2-warm"}
+    listed = cache.list_for_rpc(limit=50)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    assert listed["incomplete"] is True
+    assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"fmt2-warm"}
     release.set()
 
 
