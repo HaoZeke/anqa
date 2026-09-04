@@ -28,6 +28,7 @@ from .mtime_export import (
     default_catalog_snapshot,
     load_or_rebuild_catalog,
     load_or_rebuild_refs,
+    read_catalog_snapshot_rows,
 )
 from .query import apply_catalog_presence_row, catalog_presence, catalog_presence_from_meta
 from .sources import (
@@ -622,6 +623,48 @@ class SessionCatalogCache:
             and (now - self._mono) < self._ttl
         )
 
+    def _seed_from_snapshots(self) -> None:
+        """Install on-disk snapshot rows when the in-memory cache is empty."""
+        with self._lock:
+            if self._rows is not None:
+                return
+        roots = catalog_scan_roots(
+            traces_path=self._traces_path,
+            include_host=self._include_host,
+            host_root=self._host_root,
+        )
+        rows: list[JsonObject] = []
+        seen: set[str] = set()
+        for root in roots:
+            dest = default_catalog_snapshot(root.path)
+            for row in read_catalog_snapshot_rows(dest):
+                sid = str(row.get("sessionId") or "").strip()
+                path = str(row.get("path") or "").strip()
+                key = sid or path
+                if key and key in seen:
+                    continue
+                if key:
+                    seen.add(key)
+                rows.append(row)
+        if not rows:
+            return
+        rows.sort(
+            key=lambda r: (
+                -catalog_row_sort_epoch(r),
+                str(r.get("sessionId") or ""),
+            )
+        )
+        with self._lock:
+            if self._rows is not None:
+                return
+            self._install_rows_locked(rows)
+
+    @property
+    def building(self) -> bool:
+        """True while a catalog rebuild thread is running."""
+        with self._lock:
+            return bool(self._building)
+
     def _kick_rebuild(self, *, force: bool = False) -> None:
         """Start a single-flight rebuild if the snapshot is missing or stale."""
         import threading
@@ -679,7 +722,10 @@ class SessionCatalogCache:
         """Return catalog rows, rebuilding when stale, forced, or roots changed.
 
         Callers that must not stall (``session/list``) use :meth:`list_for_rpc`.
+        Seeds from :func:`default_catalog_snapshot` files before waiting so a
+        cold owner does not return empty while a long rebuild is still running.
         """
+        self._seed_from_snapshots()
         self._kick_rebuild(force=force)
         deadline = self._time.monotonic() + 120.0
         while self._time.monotonic() < deadline:
@@ -931,8 +977,9 @@ class SessionCatalogCache:
         """Page or delta ``session/list`` from the current snapshot.
 
         Never waits for a cold full-tree scan. When the cache is empty or
-        stale, a background rebuild is started and this call returns the
-        current rows (possibly empty) with ``incomplete`` / ``building`` set.
+        stale, on-disk :func:`default_catalog_snapshot` rows are installed
+        first, a background rebuild is started, and this call returns the
+        current rows with ``incomplete`` / ``building`` set.
 
         When *since_revision* matches :attr:`revision`, no rows are transferred.
         When the client is one or more tracked revisions behind, return only
@@ -941,6 +988,7 @@ class SessionCatalogCache:
         """
         from .access import filter_session_catalog
 
+        self._seed_from_snapshots()
         self._kick_rebuild(force=False)
         with self._lock:
             rows = list(self._rows) if self._rows is not None else []

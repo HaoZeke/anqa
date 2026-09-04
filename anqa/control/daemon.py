@@ -285,7 +285,10 @@ async def _catalog_warm_once(cache: SessionCatalogCache) -> None:
     """Load the catalog snapshot once at serve start."""
     try:
         rows = await asyncio.to_thread(lambda: cache.get(force=True))
-        logger.info("control catalog warm complete rows=%s", len(rows))
+        if cache.building:
+            logger.info("control catalog warm incomplete rows=%s", len(rows))
+        else:
+            logger.info("control catalog warm complete rows=%s", len(rows))
     except Exception:
         logger.debug("control catalog warm failed", exc_info=True)
 
