@@ -919,17 +919,6 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     assert by_path[store_dir.resolve()] is True
 
 
-class _JumpClock:
-    """Monotonic clock that expires the catalog get() wait on the first loop."""
-
-    def __init__(self) -> None:
-        self._n = 0
-
-    def monotonic(self) -> float:
-        self._n += 1
-        return float(self._n * 1000.0)
-
-
 def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
     dest = default_catalog_snapshot(root)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -994,7 +983,6 @@ async def test_catalog_warm_seeds_snapshot_rows_while_rebuild_blocked(
     release = threading.Event()
     started = _block_catalog_scan(monkeypatch, release)
     cache = SessionCatalogCache(traces_path=traces, include_host=False)
-    cache._time = _JumpClock()
     with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
         await daemon._catalog_warm_once(cache)
     assert started.wait(timeout=2)
@@ -1015,6 +1003,50 @@ async def test_catalog_warm_seeds_snapshot_rows_while_rebuild_blocked(
 
 
 @pytest.mark.asyncio
+async def test_catalog_warm_logs_incomplete_without_joining_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Warm must log snapshot rows immediately; it must not join get() 120s."""
+    import logging
+    import time
+
+    daemon = import_module("anqa.control.daemon")
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "Daemon session",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+    release = threading.Event()
+    started = _block_catalog_scan(monkeypatch, release)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    t0 = time.perf_counter()
+    with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
+        await daemon._catalog_warm_once(cache)
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 1.0
+    assert started.wait(timeout=2)
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("warm complete rows=0" in msg for msg in messages)
+    assert any("warm incomplete rows=1" in msg for msg in messages)
+    with cache._lock:
+        assert cache._building is True
+        assert {str(row.get("sessionId")) for row in (cache._rows or [])} == {"snap-sess"}
+    release.set()
+
+
+@pytest.mark.asyncio
 async def test_catalog_warm_does_not_log_complete_zero_while_rebuild_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1029,7 +1061,6 @@ async def test_catalog_warm_does_not_log_complete_zero_while_rebuild_runs(
     release = threading.Event()
     started = _block_catalog_scan(monkeypatch, release)
     cache = SessionCatalogCache(traces_path=traces, include_host=False)
-    cache._time = _JumpClock()
     with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
         await daemon._catalog_warm_once(cache)
     assert started.wait(timeout=2)
