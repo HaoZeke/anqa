@@ -155,6 +155,8 @@ and stamps its own source.
 `notes/list` and `notes/upsert` do not wait on catalog discovery.
 A notes call that exceeds the owner bound is recorded here and
 returns an error instead of hanging the client.
+`session/overview` and `session/timeline` resolve a session by name
+on the catalog scan roots and do not list every sibling.
 
 ## Notifications
 

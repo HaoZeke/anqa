@@ -152,6 +152,27 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     assert calls == []
 
 
+def test_resolve_session_reference_does_not_collect_all_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Id resolve is a name lookup. It must not list every session dir."""
+    from anqa.session import catalog as catalog_mod
+    from anqa.session import sources as sources_mod
+
+    store = tmp_path / "sessions"
+    sess = _write_session(store / "%2Fproj", "only-me")
+
+    def hang(*_a: object, **_k: object) -> object:
+        raise AssertionError("collect_session_dirs must not run")
+
+    monkeypatch.setattr(sources_mod, "collect_session_dirs", hang)
+    monkeypatch.setattr(catalog_mod, "collect_session_dirs", hang, raising=False)
+    found = resolve_session_reference("only-me", traces_path=store, include_host=False)
+    assert found == sess.resolve()
+    found_ref = resolve_session_reference("grok:only-me", traces_path=store, include_host=False)
+    assert found_ref == sess.resolve()
+
+
 def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:
     """Serve must resolve session ids from the warm catalog, not a second walk."""
     from anqa.session.catalog import SessionCatalogCache

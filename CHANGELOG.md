@@ -129,6 +129,8 @@ Cursor (`cursor`) are registered.
 - `notes/list` and `notes/upsert` stay responsive while a catalog store
   is building. `diagnostics` reports the active RPC and a bounded notes
   failure. `anqad -P STORE` scans that store only.
+- `session/overview` and `session/timeline` resolve a session by name on
+  the catalog scan roots. They do not list every sibling directory.
 
 ### Examples
 
