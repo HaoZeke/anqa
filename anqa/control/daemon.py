@@ -282,13 +282,21 @@ def build_domain_control_server(
 
 
 async def _catalog_warm_once(cache: SessionCatalogCache) -> None:
-    """Load the catalog snapshot once at serve start."""
+    """Load the catalog snapshot once at serve start.
+
+    Uses :meth:`SessionCatalogCache.list_for_rpc` so a cold owner seeds
+    on-disk snapshot rows and logs without joining the 120s ``get()``
+    wait. ``complete rows=0`` is only logged when the rebuild has
+    finished and there are no rows to serve.
+    """
     try:
-        rows = await asyncio.to_thread(lambda: cache.get(force=True))
-        if cache.building:
-            logger.info("control catalog warm incomplete rows=%s", len(rows))
+        listed = await asyncio.to_thread(lambda: cache.list_for_rpc(limit=0))
+        total_raw = listed.get("total")
+        n = total_raw if isinstance(total_raw, int) else 0
+        if listed.get("building") or listed.get("incomplete"):
+            logger.info("control catalog warm incomplete rows=%s", n)
         else:
-            logger.info("control catalog warm complete rows=%s", len(rows))
+            logger.info("control catalog warm complete rows=%s", n)
     except Exception:
         logger.debug("control catalog warm failed", exc_info=True)
 
