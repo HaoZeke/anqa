@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from pathlib import Path
 
@@ -25,6 +27,14 @@ def _write_session(root: Path, name: str) -> Path:
     workspace.mkdir(parents=True)
     (workspace / "a.py").write_text("print(1)\n", encoding="utf-8")
     return session
+
+
+def _wait_subscribed(watch: TraceTreeWatch) -> None:
+    """start() is True when the thread is up; writes need the watch armed."""
+    wait_until_sync(
+        lambda: bool(watch.subscribed_paths()),
+        description="watch subscribed after path collect",
+    )
 
 
 def test_subscribe_paths_are_membership_and_session_dirs(tmp_path: Path) -> None:
@@ -73,6 +83,7 @@ def test_watch_start_stop_fires_on_plane_write(tmp_path: Path) -> None:
     w = TraceTreeWatch(tmp_path, lambda: hits.append(1), session_dir=session)
     assert w.start() is True
     try:
+        _wait_subscribed(w)
         assert not any("workspace" in p.parts for p in w.subscribed_paths())
         (session / "summary.json").write_text('{"title": "x"}\n', encoding="utf-8")
         wait_until_sync(lambda: bool(hits), description="FS watch callback after write")
@@ -92,6 +103,7 @@ def test_watch_workspace_write_does_not_fire(tmp_path: Path) -> None:
     )
     assert w.start() is True
     try:
+        _wait_subscribed(w)
         time.sleep(0.3)
         hits.clear()
         (session / "workspace" / "src" / "a.py").write_text("print(2)\n", encoding="utf-8")
@@ -130,6 +142,7 @@ def test_watch_resubscribes_plane_files_of_session_created_after_start(
     w = TraceTreeWatch(traces, lambda: None, on_paths=lambda paths: hits.append(list(paths)))
     assert w.start() is True
     try:
+        _wait_subscribed(w)
         assert not any(p.name == "late-sess" for p in w.subscribed_paths())
         session = traces / "late-sess"
         session.mkdir()
@@ -207,6 +220,35 @@ def test_start_is_true_when_watch_never_yields(tmp_path: Path, monkeypatch) -> N
     w.stop()
 
 
+def test_start_is_true_when_collect_paths_exceeds_ready_timeout(tmp_path: Path, caplog) -> None:
+    """An existing directory store keeps the watch when path collect exceeds 2s."""
+    _write_session(tmp_path, "sess")
+    w = TraceTreeWatch(tmp_path, lambda: None)
+    real = w._collect_paths
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_collect() -> list[Path]:
+        entered.set()
+        release.wait(timeout=3.0)
+        return real()
+
+    w._collect_paths = slow_collect
+    t0 = time.perf_counter()
+    with caplog.at_level(logging.WARNING, logger="anqa.control.daemon"):
+        ok = w.start()
+    elapsed = time.perf_counter() - t0
+    try:
+        assert entered.wait(1.0)
+        assert ok is True
+        assert elapsed < 2.0
+        assert w._thread is not None and w._thread.is_alive()
+        assert not any("control FS watch failed" in rec.getMessage() for rec in caplog.records)
+    finally:
+        release.set()
+        w.stop()
+
+
 def test_session_dirs_under_uses_named_host_root(tmp_path: Path) -> None:
     host = tmp_path / "sessions"
     nested = host / "%2Fproj" / "sid"
@@ -224,6 +266,7 @@ def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
     hits: list[int] = []
     w = TraceTreeWatch(tmp_path, lambda: hits.append(1), session_dir=session)
     assert w.start() is True
+    _wait_subscribed(w)
     collects = {"n": 0}
     real = w._collect_paths
 
@@ -323,6 +366,7 @@ def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path
     )
     assert w.start() is True
     try:
+        _wait_subscribed(w)
         session = bucket / "late-host"
         session.mkdir()
         (session / "summary.json").write_text("{}", encoding="utf-8")
