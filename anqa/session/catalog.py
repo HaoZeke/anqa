@@ -34,6 +34,7 @@ from .sources import (
     SessionOrigin,
     SessionScanRoot,
     collect_session_dirs,
+    find_named_session_dir,
     session_run_dir,
     session_scan_roots,
 )
@@ -675,6 +676,10 @@ class SessionCatalogCache:
                 self._building = False
             self._build_done.set()
 
+    def start_rebuild(self, *, force: bool = False) -> None:
+        """Kick a background catalog rebuild. Does not wait for rows."""
+        self._kick_rebuild(force=force)
+
     def get(self, *, force: bool = False) -> list[JsonObject]:
         """Return catalog rows, rebuilding when stale, forced, or roots changed.
 
@@ -1126,6 +1131,46 @@ def _adapter_host_catalog_rows(
     return rows
 
 
+def resolve_session_locator(
+    reference: str,
+    *,
+    traces_path: Path | None = None,
+) -> Path | None:
+    """Resolve a session id or path without a catalog or host-store walk.
+
+    Used by notes RPC and other callers that must not wait on
+    :func:`list_session_catalog` or :func:`collect_session_dirs`.
+
+    :param reference: Absolute/relative path, directory name, or ``harness:id``.
+    :param traces_path: Optional store to search by name (CLI ``-P``).
+    :returns: Existing locator, or None when not found on this cheap path.
+    """
+    ref = (reference or "").strip()
+    if not ref:
+        return None
+    candidate = Path(ref).expanduser()
+    if candidate.is_dir() or candidate.is_file():
+        try:
+            return candidate.resolve()
+        except OSError:
+            return candidate
+    sid = ref
+    parsed = parse_session_ref_string(ref)
+    if parsed is not None:
+        sid = parsed[1]
+    if traces_path is not None:
+        found = find_named_session_dir(Path(traces_path), sid)
+        if found is not None:
+            return found
+    if parsed is None:
+        return None
+    item = adapter(parsed[0])
+    if item is None:
+        return None
+    hit = item.ref_for_id(sid)
+    return None if hit is None else hit.locator
+
+
 def resolve_session_reference(
     reference: str,
     *,
@@ -1180,6 +1225,7 @@ __all__ = [
     "catalog_scan_roots",
     "effective_include_host",
     "list_session_catalog",
+    "resolve_session_locator",
     "resolve_session_reference",
     "catalog_row_for_ref",
     "public_catalog_row",

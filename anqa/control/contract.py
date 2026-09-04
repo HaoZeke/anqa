@@ -595,6 +595,31 @@ METHODS: tuple[MethodSpec, ...] = (
         extra_md="",  # filled after CONTENT_TYPES table in emit
     ),
     MethodSpec(
+        name="diagnostics",
+        role="Active RPC, recent bounded failures, and whether the catalog is building",
+        params=(),
+        result=(
+            FieldSpec(
+                "active", "In-flight methods (`method`, `elapsedMs`, `session`).", json_type="array"
+            ),
+            FieldSpec(
+                "failures",
+                "Recent bounded RPC failures (`method`, `code`, `message`, `elapsedMs`).",
+                json_type="array",
+            ),
+            FieldSpec(
+                "catalogBuilding",
+                "True while a catalog store scan is in flight.",
+                json_type="boolean",
+            ),
+        ),
+        extra_md=(
+            "`notes/list` and `notes/upsert` do not wait on catalog discovery.\n"
+            "A notes call that exceeds the owner bound is recorded here and\n"
+            "returns an error instead of hanging the client."
+        ),
+    ),
+    MethodSpec(
         name="notes/list",
         role="Notes snapshot (`revision`, schema, notes)",
         params=(_SESSION,),
@@ -817,6 +842,7 @@ def render_control_doc() -> str:
     notify_rows = tuple((f"`{spec.name}`", spec.when) for spec in NOTIFICATIONS)
     list_extra = next(spec.extra_md for spec in METHODS if spec.name == "session/list")
     notes_extra = next(spec.extra_md for spec in METHODS if spec.name == "notes/upsert")
+    diag_extra = next(spec.extra_md for spec in METHODS if spec.name == "diagnostics")
     body = f"""# Control
 
 One process owns a per-user Unix socket. The four clients — [terminal
@@ -909,6 +935,10 @@ The owner accepts either and replies in the same frame the client used.
 ### Notes revision
 
 {notes_extra}
+
+### `diagnostics`
+
+{diag_extra}
 
 ## Notifications
 
