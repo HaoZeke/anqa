@@ -11,8 +11,8 @@ from pathlib import Path
 
 from ..harness.registry import discover_dirs
 from .sources import (
-    is_adapter_store_root,
     is_encoded_cwd_name,
+    is_host_directory_store,
     is_host_skip_dir_name,
     list_host_session_dirs,
 )
@@ -79,11 +79,11 @@ def _is_named_host_root(root: Path, host_root: Path) -> bool:
         return False
 
 
-def _is_host_directory_store(root: Path, host_root: Path | None) -> bool:
-    """True for an explicit host root or any adapter directory store."""
+def _use_host_lister(root: Path, host_root: Path | None) -> bool:
+    """True for an explicit host root or a grok-shaped directory session tree."""
     if host_root is not None and _is_named_host_root(root, host_root):
         return True
-    return is_adapter_store_root(root)
+    return is_host_directory_store(root)
 
 
 def session_dirs_under(
@@ -94,10 +94,11 @@ def session_dirs_under(
 ) -> list[Path]:
     """Listed session directories under catalog *roots* (no workspace descent).
 
-    A host directory store (any adapter store, or an explicit *host_root*)
-    uses the shallow host lister. Other directory roots use adapter
-    discover. Extra adapter stores (``list_sessions=False``) contribute
-    no session dirs — membership watch only, never a recursive walk.
+    A grok/host directory session store (or an explicit *host_root*) uses
+    the shallow host lister. Jsonl adapter stores still run adapter
+    discover so file locators stay on the watch set. Extra adapter
+    stores (``list_sessions=False``) contribute no session dirs —
+    membership watch only, never a recursive walk.
     """
     if not list_sessions:
         return []
@@ -109,9 +110,7 @@ def session_dirs_under(
         if not root.is_dir():
             continue
         listed = (
-            list_host_session_dirs(root)
-            if _is_host_directory_store(root, named)
-            else discover_dirs(root)
+            list_host_session_dirs(root) if _use_host_lister(root, named) else discover_dirs(root)
         )
         listed = drop_subagent_sessions(listed)
         for session in listed:

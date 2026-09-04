@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -300,6 +301,50 @@ def test_session_dirs_under_uses_host_lister_for_non_first_adapter_store(
     found = session_dirs_under([grok])
     assert [p.resolve() for p in found] == [nested.resolve()]
     assert walked == []
+
+
+def test_session_dirs_under_jsonl_adapter_store_still_discovers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A dash-encoded jsonl store that is not adapter root 0 keeps file locators."""
+    first = tmp_path / "antigravity-store"
+    first.mkdir()
+    jsonl_store = tmp_path / "jsonl-projects"
+    project = jsonl_store / "-home-rgoswami-proj"
+    project.mkdir(parents=True)
+    sid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    jsonl = project / f"{sid}.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "type": "user",
+                "sessionId": sid,
+                "message": {"role": "user", "content": "hi"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [first, jsonl_store],
+    )
+    walked: list[str] = []
+    from anqa.session import watch as watch_mod
+
+    real = watch_mod.discover_dirs
+
+    def tracked(root: Path) -> list[Path]:
+        walked.append(str(root))
+        return real(root)
+
+    monkeypatch.setattr(watch_mod, "discover_dirs", tracked)
+    found = session_dirs_under([jsonl_store])
+    resolved = {p.resolve() for p in found}
+    assert jsonl.resolve() in resolved or project.resolve() in resolved
+    assert walked == [str(jsonl_store)]
+    targets = {p.resolve() for p in watch_target_paths([jsonl_store], found)}
+    assert jsonl.resolve() in targets or project.resolve() in targets
 
 
 def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
