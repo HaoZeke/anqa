@@ -25,6 +25,75 @@ def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
     return sd
 
 
+def test_get_force_seeds_snapshot_rows_before_rebuild_wait(tmp_path: Path, monkeypatch) -> None:
+    """Cold get(force=True) must return on-disk snapshot rows while rebuild runs."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    _write_sess(traces, "snap-sess", "From disk")
+    writer = SessionCatalogCache(traces_path=traces, include_host=False)
+    assert len(writer.get(force=True)) == 1
+
+    release = threading.Event()
+    started = threading.Event()
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+
+    class _JumpClock:
+        def __init__(self) -> None:
+            self._n = 0
+
+        def monotonic(self) -> float:
+            self._n += 1
+            return float(self._n * 1000.0)
+
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    cache._time = _JumpClock()
+    rows = cache.get(force=True)
+    assert started.wait(timeout=2)
+    assert {str(row.get("sessionId")) for row in rows} == {"snap-sess"}
+    with cache._lock:
+        assert cache._building is True
+    release.set()
+
+
+def test_list_for_rpc_cold_seeds_snapshot_rows(tmp_path: Path, monkeypatch) -> None:
+    """Cold session/list must return on-disk snapshot rows without waiting."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    _write_sess(traces, "snap-sess", "From disk")
+    writer = SessionCatalogCache(traces_path=traces, include_host=False)
+    assert len(writer.get(force=True)) == 1
+
+    release = threading.Event()
+    started = threading.Event()
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    listed = cache.list_for_rpc(limit=50)
+    assert started.wait(timeout=2)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    assert listed["incomplete"] is True
+    assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"snap-sess"}
+    release.set()
+
+
 def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypatch) -> None:
     """First session/list must not wait for a cold full tree scan."""
     import anqa.session.catalog as catalog_mod
