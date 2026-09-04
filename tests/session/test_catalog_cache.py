@@ -12,6 +12,7 @@ from anqa.session.catalog import (
     SessionCatalogCache,
     session_meta_from_catalog_row,
 )
+from anqa.session.mtime_export import default_catalog_snapshot
 
 
 def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
@@ -25,14 +26,43 @@ def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
     return sd
 
 
+def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(root),
+                "stamps": [],
+                "sessions": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dest
+
+
 def test_get_force_seeds_snapshot_rows_before_rebuild_wait(tmp_path: Path, monkeypatch) -> None:
     """Cold get(force=True) must return on-disk snapshot rows while rebuild runs."""
     import anqa.session.catalog as catalog_mod
 
     traces = tmp_path / "sessions"
-    _write_sess(traces, "snap-sess", "From disk")
-    writer = SessionCatalogCache(traces_path=traces, include_host=False)
-    assert len(writer.get(force=True)) == 1
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
 
     release = threading.Event()
     started = threading.Event()
@@ -69,9 +99,20 @@ def test_list_for_rpc_cold_seeds_snapshot_rows(tmp_path: Path, monkeypatch) -> N
     import anqa.session.catalog as catalog_mod
 
     traces = tmp_path / "sessions"
-    _write_sess(traces, "snap-sess", "From disk")
-    writer = SessionCatalogCache(traces_path=traces, include_host=False)
-    assert len(writer.get(force=True)) == 1
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
 
     release = threading.Event()
     started = threading.Event()
@@ -168,8 +209,19 @@ def test_first_rebuild_after_snapshot_seed_invokes_on_rebuilt(tmp_path: Path) ->
     """Seeded snapshot ids must not suppress the first catalog-ready notify."""
     traces = tmp_path / "sessions"
     _write_sess(traces, "snap-sess", "From disk")
-    writer = SessionCatalogCache(traces_path=traces, include_host=False)
-    assert len(writer.get(force=True)) == 1
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
 
     hits: list[int] = []
     cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
@@ -177,6 +229,7 @@ def test_first_rebuild_after_snapshot_seed_invokes_on_rebuilt(tmp_path: Path) ->
     cache._seed_from_snapshots()
     with cache._lock:
         seeded = {str(row.get("sessionId") or "") for row in (cache._rows or [])}
+        assert cache._rows_seeded is True
     assert seeded == {"snap-sess"}
     rows = cache.get(force=True)
     assert {str(row.get("sessionId")) for row in rows} == {"snap-sess"}

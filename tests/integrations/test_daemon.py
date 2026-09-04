@@ -16,6 +16,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from anqa.session.mtime_export import default_catalog_snapshot
 from async_wait import wait_until, wait_until_sync
 
 
@@ -929,6 +930,24 @@ class _JumpClock:
         return float(self._n * 1000.0)
 
 
+def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(root),
+                "stamps": [],
+                "sessions": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dest
+
+
 def _block_catalog_scan(
     monkeypatch: pytest.MonkeyPatch, release: threading.Event
 ) -> threading.Event:
@@ -957,11 +976,20 @@ async def test_catalog_warm_seeds_snapshot_rows_while_rebuild_blocked(
     from anqa.session.catalog import SessionCatalogCache
 
     traces = tmp_path / "sessions"
-    _write_session(traces, "snap-sess")
-    writer = SessionCatalogCache(traces_path=traces, include_host=False)
-    written = writer.get(force=True)
-    assert len(written) == 1
-    assert written[0]["sessionId"] == "snap-sess"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "Daemon session",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
 
     release = threading.Event()
     started = _block_catalog_scan(monkeypatch, release)
