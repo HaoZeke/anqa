@@ -823,6 +823,13 @@ def test_ensure_does_not_stop_owner_when_protocol_probe_fails(
     assert stopped == []
 
 
+def _session_dir_subscribed(server: object, session_dir: Path) -> bool:
+    """True when a plane watch has handed *session_dir* to watchfiles."""
+    want = session_dir.resolve()
+    watches = getattr(server, "_plane_watches", ())
+    return any(want in {path.resolve() for path in watch.subscribed_paths()} for watch in watches)
+
+
 @pytest.mark.asyncio
 async def test_serve_watch_apply_runs_off_observer_timer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -859,10 +866,16 @@ async def test_serve_watch_apply_runs_off_observer_timer(
     task = asyncio.create_task(
         daemon.serve_control_forever(server, write_pid=False, warm_interval=3600.0)
     )
+    client = None
     try:
         await wait_until(sock.exists, description="control socket accepts")
         client = client_mod.ControlClient(sock, client_name="watch-apply", timeout=15)
         await client.initialize()
+        await wait_until(
+            lambda: _session_dir_subscribed(server, session_dir),
+            timeout=8.0,
+            description="plane watch subscribed session dir",
+        )
         (session_dir / "updates.jsonl").write_text("{}\n{}\n", encoding="utf-8")
         await wait_until(
             lambda: bool(apply_hits),
@@ -875,9 +888,14 @@ async def test_serve_watch_apply_runs_off_observer_timer(
         assert listed["matched"] >= 1
         assert elapsed < 0.2
     finally:
+        if client is not None:
+            try:
+                await asyncio.wait_for(client.close(), timeout=2.0)
+            except (TimeoutError, OSError):
+                pass
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.wait_for(task, timeout=5.0)
     assert apply_hits
     stack = str(apply_hits[0]["stack"])
     assert "TraceTreeWatch._fire" not in stack

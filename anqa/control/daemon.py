@@ -627,6 +627,7 @@ async def serve_control_forever(
         asyncio.create_task(asyncio.to_thread(_warm))
 
     watches: list[TraceTreeWatch] = []
+    server._plane_watches = watches  # type: ignore[attr-defined]
     loop = asyncio.get_running_loop()
     uniq_specs: list[tuple[Path, bool]] = []
     if isinstance(cache, SessionCatalogCache):
