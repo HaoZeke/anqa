@@ -126,9 +126,11 @@ def watch_target_paths(
 ) -> list[Path]:
     """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
 
-    *expand_children* is the directory-session path: one extra
-    level so new session dirs are subscribed. Extra adapter stores
-    (sqlite / jsonl) pass ``False`` and watch membership dirs only.
+    Subscribe membership dirs plus *session_dirs* (the dropped parent
+    list). Do not iterdir cwd buckets: that re-adds every subagent
+    sibling. Extra adapter stores (sqlite / jsonl) pass
+    ``expand_children=False`` and an empty session list, so only
+    membership dirs are watched.
     """
     out: list[Path] = []
     seen: set[str] = set()
@@ -144,15 +146,6 @@ def watch_target_paths(
 
     for path in membership_watch_dirs(roots):
         _add(path)
-        if not expand_children:
-            continue
-        try:
-            children = list(path.iterdir())
-        except OSError:
-            children = []
-        for child in children:
-            if child.is_dir() and not is_host_skip_dir_name(child.name):
-                _add(child)
     for session in session_dirs:
         _add(Path(session))
     return out

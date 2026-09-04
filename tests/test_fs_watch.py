@@ -13,6 +13,7 @@ from anqa.session.watch import (
     plane_event_path,
     plane_file_paths,
     session_dirs_under,
+    watch_target_paths,
 )
 from async_wait import wait_until_sync
 
@@ -390,3 +391,53 @@ def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path
     finally:
         w.stop()
     assert any(Path(p).name == "summary.json" for batch in hits for p in batch)
+
+
+def _host_bucket_tree(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    host = tmp_path / "sessions"
+    bucket = host / "%2Fhome%2Fproj"
+    parent = _write_session(bucket, "parent")
+    sibling = _write_session(bucket, "child-sub")
+    (sibling / "summary.json").write_text(
+        '{"info":{"id":"child-sub"},"session_kind":"subagent"}',
+        encoding="utf-8",
+    )
+    (parent / "subagents" / "child-sub").mkdir(parents=True)
+    return host, bucket, parent, sibling
+
+
+def test_watch_target_paths_skips_cwd_bucket_subagent_siblings(tmp_path: Path) -> None:
+    """Membership dirs plus listed parents; dropped cwd siblings stay off the set."""
+    host, bucket, parent, sibling = _host_bucket_tree(tmp_path)
+    listed = session_dirs_under([host], host_root=host)
+    assert {p.resolve() for p in listed} == {parent.resolve()}
+    paths = watch_target_paths([host], listed, expand_children=True)
+    resolved = {p.resolve() for p in paths}
+    assert host.resolve() in resolved
+    assert bucket.resolve() in resolved
+    assert parent.resolve() in resolved
+    assert sibling.resolve() not in resolved
+
+
+def test_watch_target_paths_does_not_expand_unlisted_cwd_children(tmp_path: Path) -> None:
+    """expand_children must not iterdir a cwd bucket back onto the target list."""
+    host = tmp_path / "sessions"
+    bucket = host / "%2Fproj"
+    parent = _write_session(bucket, "parent")
+    unlisted = _write_session(bucket, "unlisted")
+    paths = watch_target_paths([host], [parent], expand_children=True)
+    resolved = {p.resolve() for p in paths}
+    assert host.resolve() in resolved
+    assert bucket.resolve() in resolved
+    assert parent.resolve() in resolved
+    assert unlisted.resolve() not in resolved
+
+
+def test_collect_paths_skips_cwd_bucket_subagent_siblings(tmp_path: Path) -> None:
+    host, bucket, parent, sibling = _host_bucket_tree(tmp_path)
+    w = TraceTreeWatch(host, lambda: None, host_root=host)
+    resolved = {p.resolve() for p in w._collect_paths()}
+    assert host.resolve() in resolved
+    assert bucket.resolve() in resolved
+    assert parent.resolve() in resolved
+    assert sibling.resolve() not in resolved
