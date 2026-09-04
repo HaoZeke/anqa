@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
@@ -67,12 +68,20 @@ def test_path_relevant_ignores_workspace() -> None:
     assert not TraceTreeWatch.path_relevant("/x/random.bin")
 
 
+def _wait_watch_armed(watch: TraceTreeWatch) -> None:
+    wait_until_sync(
+        lambda: bool(watch.subscribed_paths()),
+        description="watch thread subscribed paths",
+    )
+
+
 def test_watch_start_stop_fires_on_plane_write(tmp_path: Path) -> None:
     hits: list[int] = []
     session = _write_session(tmp_path, "sess")
     w = TraceTreeWatch(tmp_path, lambda: hits.append(1), session_dir=session)
     assert w.start() is True
     try:
+        _wait_watch_armed(w)
         assert not any("workspace" in p.parts for p in w.subscribed_paths())
         (session / "summary.json").write_text('{"title": "x"}\n', encoding="utf-8")
         wait_until_sync(lambda: bool(hits), description="FS watch callback after write")
@@ -92,6 +101,7 @@ def test_watch_workspace_write_does_not_fire(tmp_path: Path) -> None:
     )
     assert w.start() is True
     try:
+        _wait_watch_armed(w)
         time.sleep(0.3)
         hits.clear()
         (session / "workspace" / "src" / "a.py").write_text("print(2)\n", encoding="utf-8")
@@ -130,6 +140,7 @@ def test_watch_resubscribes_plane_files_of_session_created_after_start(
     w = TraceTreeWatch(traces, lambda: None, on_paths=lambda paths: hits.append(list(paths)))
     assert w.start() is True
     try:
+        _wait_watch_armed(w)
         assert not any(p.name == "late-sess" for p in w.subscribed_paths())
         session = traces / "late-sess"
         session.mkdir()
@@ -189,6 +200,13 @@ def test_session_dirs_under_drops_subagent(tmp_path: Path) -> None:
     assert found == {"parent"}
 
 
+def test_start_is_false_when_root_is_missing(tmp_path: Path) -> None:
+    missing = tmp_path / "no-such-store"
+    w = TraceTreeWatch(missing, lambda: None)
+    assert w.start() is False
+    assert w._thread is None
+
+
 def test_start_is_true_when_watch_never_yields(tmp_path: Path, monkeypatch) -> None:
     _write_session(tmp_path, "sess")
 
@@ -205,6 +223,39 @@ def test_start_is_true_when_watch_never_yields(tmp_path: Path, monkeypatch) -> N
     assert w.start() is True
     assert time.perf_counter() - t0 < 1.0
     w.stop()
+
+
+def test_start_is_true_when_collect_paths_exceeds_ready_timeout(tmp_path: Path, caplog) -> None:
+    """An existing directory store keeps the watch when path collect is slow."""
+    _write_session(tmp_path, "sess")
+    w = TraceTreeWatch(tmp_path, lambda: None)
+    real = w._collect_paths
+
+    def slow() -> list[Path]:
+        deadline = time.monotonic() + 2.3
+        while time.monotonic() < deadline:
+            if w._stop.is_set():
+                return []
+            time.sleep(0.05)
+        return real()
+
+    w._collect_paths = slow
+    t0 = time.perf_counter()
+    with caplog.at_level(logging.WARNING):
+        assert w.start() is True
+    assert time.perf_counter() - t0 < 2.0
+    try:
+        assert w._thread is not None and w._thread.is_alive()
+        messages = [record.getMessage() for record in caplog.records]
+        assert not any("watch failed" in msg for msg in messages)
+        wait_until_sync(
+            lambda: bool(w.subscribed_paths()),
+            description="slow collect still arms subscribed paths",
+            timeout=4.0,
+        )
+    finally:
+        w.stop()
+    assert w.subscribed_paths()
 
 
 def test_session_dirs_under_uses_named_host_root(tmp_path: Path) -> None:
@@ -224,6 +275,7 @@ def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
     hits: list[int] = []
     w = TraceTreeWatch(tmp_path, lambda: hits.append(1), session_dir=session)
     assert w.start() is True
+    _wait_watch_armed(w)
     collects = {"n": 0}
     real = w._collect_paths
 
@@ -323,6 +375,7 @@ def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path
     )
     assert w.start() is True
     try:
+        _wait_watch_armed(w)
         session = bucket / "late-host"
         session.mkdir()
         (session / "summary.json").write_text("{}", encoding="utf-8")
