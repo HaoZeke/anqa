@@ -236,3 +236,23 @@ def test_cold_notes_resolve_finds_session_on_other_catalog_root(
         include_host=False,
     )
     assert pinned._resolve_session("foreign-sess") is None
+
+
+def test_domain_notes_resolve_skips_adapter_ref_for_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A harness:id miss must not walk the adapter host store."""
+    store = tmp_path / "store"
+    sess = _write_sess(store, "in-store")
+
+    def _boom(self: object, _sid: str) -> object:
+        raise AssertionError("notes resolve called adapter.ref_for_id")
+
+    monkeypatch.setattr("anqa.harness.grok.GrokAdapter.ref_for_id", _boom)
+    server = daemon_mod.build_domain_control_server(
+        socket_path=tmp_path / "sock",
+        traces_path=store,
+        include_host=False,
+    )
+    assert server._resolve_session("grok:in-store") == sess.resolve()
+    assert server._resolve_session("grok:missing-id") is None
