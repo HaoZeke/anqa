@@ -17,7 +17,7 @@ from ..paths import resolve_catalog_root
 from ..session.catalog import (
     SessionCatalogCache,
     catalog_scan_roots,
-    resolve_session_locator,
+    resolve_session_reference,
 )
 from ..session.sources import session_dir_for_watch_path
 from ..session.subagents import session_changed_targets
@@ -263,7 +263,7 @@ def build_domain_control_server(
         found = catalog_cache.resolve(reference)
         if found is not None:
             return found
-        return resolve_session_locator(
+        return resolve_session_reference(
             reference,
             traces_path=tr,
             include_host=include_host,

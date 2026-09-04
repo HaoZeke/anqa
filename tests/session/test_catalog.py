@@ -155,23 +155,31 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
 def test_resolve_session_reference_does_not_collect_all_sessions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Name resolve must not list every sibling session directory."""
-    from anqa.session import catalog as catalog_mod
+    """Id resolve is a name lookup. It must not list every session dir."""
+    from anqa.session import sources as sources_mod
 
-    store = tmp_path / "store"
-    bucket = store / "%2Fhome%2Fproj"
-    target = bucket / "sess-named"
-    target.mkdir(parents=True)
-    (target / "summary.json").write_text("{}", encoding="utf-8")
-    (target / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    store = tmp_path / "sessions"
+    sess = _write_session(store, "only-me")
+    nested = store / "%2Fproj" / "cwd-sess"
+    nested.mkdir(parents=True)
+    (nested / "summary.json").write_text(
+        json.dumps({"info": {"id": "cwd-sess"}, "generated_title": "cwd"}),
+        encoding="utf-8",
+    )
+    (nested / "updates.jsonl").write_text("", encoding="utf-8")
+    (nested / "events.jsonl").write_text("{}\n", encoding="utf-8")
 
-    def _boom(*_a: object, **_k: object) -> object:
-        raise AssertionError("resolve_session_reference called collect_session_dirs")
+    def hang(*_a: object, **_k: object) -> object:
+        raise AssertionError("collect_session_dirs must not run")
 
-    monkeypatch.setattr("anqa.session.sources.collect_session_dirs", _boom)
-    monkeypatch.setattr(catalog_mod, "list_session_catalog", _boom)
-    found = resolve_session_reference("sess-named", traces_path=store, include_host=False)
-    assert found == target.resolve()
+    monkeypatch.setattr(sources_mod, "collect_session_dirs", hang)
+
+    found = resolve_session_reference("only-me", traces_path=store, include_host=False)
+    assert found == sess.resolve()
+    found_ref = resolve_session_reference("grok:only-me", traces_path=store, include_host=False)
+    assert found_ref == sess.resolve()
+    found_cwd = resolve_session_reference("cwd-sess", traces_path=store, include_host=False)
+    assert found_cwd == nested.resolve()
 
 
 def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:

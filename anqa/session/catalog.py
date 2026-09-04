@@ -1184,6 +1184,10 @@ def resolve_session_reference(
 ) -> Path | None:
     """Resolve a path or catalog session id to an existing session directory.
 
+    Name lookup only: a directory path, then :func:`find_named_session_dir`
+    on each :func:`catalog_scan_roots` entry. Does not list every sibling
+    session (that walk loads list-meta on a host store).
+
     :param reference: Absolute/relative path, or a session directory name / id.
     :param traces_path: Optional store path override.
     :param include_host: Host inclusion (True/False force; None includes host).
@@ -1199,17 +1203,17 @@ def resolve_session_reference(
             return candidate.resolve()
         except OSError:
             return candidate
+    parsed = parse_session_ref_string(ref)
+    needle = parsed[1] if parsed is not None else ref
     roots = catalog_scan_roots(
         traces_path=traces_path,
         include_host=include_host,
         host_root=host_root,
     )
-    parsed = parse_session_ref_string(ref)
-    sid = parsed[1] if parsed is not None else ref
     for root in roots:
-        found = find_named_session_dir(root.path, sid)
-        if found is not None:
-            return found
+        named = find_named_session_dir(root.path, needle)
+        if named is not None:
+            return named
     return None
 
 

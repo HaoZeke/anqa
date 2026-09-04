@@ -317,6 +317,8 @@ Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
 free (`--no-anqad` attaches only). Quitting a client leaves anqad
 running. `notes/list` and `notes/upsert` do not wait on catalog
 discovery; `diagnostics` reports the active RPC and a bounded failure.
+Cold `session/overview` and `session/timeline` resolve a session by
+name on catalog scan roots (no sibling listing).
 `anqad -P STORE` scans that store only. Debug every method:
 `ANQA_SERVE_LOG_LEVEL=DEBUG anqad` (foreground) or
 `ANQA_SERVE_LOG_LEVEL=DEBUG anqad restart`. Methods, framing, and

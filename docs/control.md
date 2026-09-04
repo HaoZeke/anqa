@@ -154,7 +154,10 @@ and stamps its own source.
 
 `notes/list` and `notes/upsert` do not wait on catalog discovery.
 A notes call that exceeds the owner bound is recorded here and
-returns an error instead of hanging the client.
+returns an error instead of hanging the client. Cold
+`session/overview` and `session/timeline` resolve a session by
+directory name on catalog scan roots; they do not list every
+sibling session.
 
 ## Notifications
 
