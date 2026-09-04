@@ -220,6 +220,8 @@ def resolve_session_ref(
         )
         if cached is not None:
             return cached
+        if not walk_adapters:
+            return None
         return found.ref_for_id(sid)
     cached = _from_cache(raw)
     if cached is not None:

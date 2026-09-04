@@ -127,8 +127,10 @@ Cursor (`cursor`) are registered.
   incompatible handshake change.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.
 - `notes/list` and `notes/upsert` stay responsive while a catalog store
-  is building. `diagnostics` reports the active RPC and a bounded notes
-  failure. `anqad -P STORE` scans that store only.
+  is building. Session resolve is a name lookup on catalog scan roots
+  (no `collect_session_dirs`, no adapter `ref_for_id`). `diagnostics`
+  reports the active RPC and a bounded notes failure. `anqad -P STORE`
+  scans that store only.
 
 ### Examples
 

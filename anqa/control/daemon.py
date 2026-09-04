@@ -263,7 +263,12 @@ def build_domain_control_server(
         found = catalog_cache.resolve(reference)
         if found is not None:
             return found
-        return resolve_session_locator(reference, traces_path=tr)
+        return resolve_session_locator(
+            reference,
+            traces_path=tr,
+            include_host=include_host,
+            host_root=host_root,
+        )
 
     server = ControlServer(
         socket_path=socket_path,

@@ -33,7 +33,6 @@ from .query import apply_catalog_presence_row, catalog_presence, catalog_presenc
 from .sources import (
     SessionOrigin,
     SessionScanRoot,
-    collect_session_dirs,
     find_named_session_dir,
     session_run_dir,
     session_scan_roots,
@@ -1135,14 +1134,20 @@ def resolve_session_locator(
     reference: str,
     *,
     traces_path: Path | None = None,
+    include_host: bool | None = None,
+    host_root: Path | None = None,
 ) -> Path | None:
     """Resolve a session id or path without a catalog or host-store walk.
 
     Used by notes RPC and other callers that must not wait on
     :func:`list_session_catalog` or :func:`collect_session_dirs`.
+    Named lookup walks :func:`catalog_scan_roots` (one scandir per root).
+    A ``harness:id`` miss does not call ``adapter.ref_for_id``.
 
     :param reference: Absolute/relative path, directory name, or ``harness:id``.
     :param traces_path: Optional store to search by name (CLI ``-P``).
+    :param include_host: Host inclusion for named lookup on adapter stores.
+    :param host_root: Host root override for that scan.
     :returns: Existing locator, or None when not found on this cheap path.
     """
     ref = (reference or "").strip()
@@ -1158,17 +1163,16 @@ def resolve_session_locator(
     parsed = parse_session_ref_string(ref)
     if parsed is not None:
         sid = parsed[1]
-    if traces_path is not None:
-        found = find_named_session_dir(Path(traces_path), sid)
+    roots = catalog_scan_roots(
+        traces_path=traces_path,
+        include_host=include_host,
+        host_root=host_root,
+    )
+    for root in roots:
+        found = find_named_session_dir(root.path, sid)
         if found is not None:
             return found
-    if parsed is None:
-        return None
-    item = adapter(parsed[0])
-    if item is None:
-        return None
-    hit = item.ref_for_id(sid)
-    return None if hit is None else hit.locator
+    return None
 
 
 def resolve_session_reference(
@@ -1200,22 +1204,12 @@ def resolve_session_reference(
         include_host=include_host,
         host_root=host_root,
     )
+    parsed = parse_session_ref_string(ref)
+    sid = parsed[1] if parsed is not None else ref
     for root in roots:
-        direct = root.path / ref
-        if direct.is_dir():
-            try:
-                return direct.resolve()
-            except OSError:
-                return direct
-    # Directory name only. List-meta for every sibling is a multi-second tax on
-    # each session/overview and session/timeline call. Id≠dirname uses the
-    # warm catalog on the control owner (SessionCatalogCache.resolve).
-    for session_dir in collect_session_dirs(roots):
-        if session_dir.name == ref:
-            try:
-                return session_dir.resolve()
-            except OSError:
-                return session_dir
+        found = find_named_session_dir(root.path, sid)
+        if found is not None:
+            return found
     return None
 
 

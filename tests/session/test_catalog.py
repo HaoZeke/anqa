@@ -152,6 +152,28 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     assert calls == []
 
 
+def test_resolve_session_reference_does_not_collect_all_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Name resolve must not list every sibling session directory."""
+    from anqa.session import catalog as catalog_mod
+
+    store = tmp_path / "store"
+    bucket = store / "%2Fhome%2Fproj"
+    target = bucket / "sess-named"
+    target.mkdir(parents=True)
+    (target / "summary.json").write_text("{}", encoding="utf-8")
+    (target / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+
+    def _boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("resolve_session_reference called collect_session_dirs")
+
+    monkeypatch.setattr("anqa.session.sources.collect_session_dirs", _boom)
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", _boom)
+    found = resolve_session_reference("sess-named", traces_path=store, include_host=False)
+    assert found == target.resolve()
+
+
 def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:
     """Serve must resolve session ids from the warm catalog, not a second walk."""
     from anqa.session.catalog import SessionCatalogCache
