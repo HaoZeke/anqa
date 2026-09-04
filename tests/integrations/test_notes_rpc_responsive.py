@@ -204,3 +204,35 @@ def test_domain_resolve_is_name_lookup_and_keeps_host_include(
     assert found == sess.resolve()
     found_ref = server._resolve_session("grok:owner-sess")
     assert found_ref == sess.resolve()
+
+
+def test_cold_notes_resolve_finds_session_on_other_catalog_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default owner (include_host unset) names a session outside traces_path."""
+    from anqa.session import sources as sources_mod
+
+    grok_store = tmp_path / "grok-store"
+    other = tmp_path / "other-store"
+    _write_sess(grok_store, "grok-only")
+    foreign = _write_sess(other, "foreign-sess")
+    monkeypatch.setattr(sources_mod, "_adapter_store_roots", lambda: [other])
+    monkeypatch.setattr(
+        sources_mod,
+        "collect_session_dirs",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("cold notes resolve listed sibling sessions")
+        ),
+    )
+    server = daemon_mod.build_domain_control_server(
+        socket_path=tmp_path / "sock",
+        traces_path=grok_store,
+        include_host=None,
+    )
+    assert server._resolve_session("foreign-sess") == foreign.resolve()
+    pinned = daemon_mod.build_domain_control_server(
+        socket_path=tmp_path / "sock-pin",
+        traces_path=grok_store,
+        include_host=False,
+    )
+    assert pinned._resolve_session("foreign-sess") is None
