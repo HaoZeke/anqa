@@ -272,6 +272,36 @@ def test_session_dirs_under_uses_named_host_root(tmp_path: Path) -> None:
     assert [p.resolve() for p in found] == [nested.resolve()]
 
 
+def test_session_dirs_under_uses_host_lister_for_non_first_adapter_store(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A grok/host directory store that is not adapter root 0 must not fan discover."""
+    first = tmp_path / "antigravity-store"
+    first.mkdir()
+    grok = tmp_path / "grok-sessions"
+    nested = grok / "%2Fproj" / "sid"
+    nested.mkdir(parents=True)
+    (nested / "summary.json").write_text("{}", encoding="utf-8")
+    (nested / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    junk = nested / "workspace" / "deep"
+    junk.mkdir(parents=True)
+    (junk / "summary.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [first, grok],
+    )
+    walked: list[str] = []
+
+    def boom(root: Path) -> list[Path]:
+        walked.append(str(root))
+        raise AssertionError("discover_dirs must not run on a host directory store")
+
+    monkeypatch.setattr("anqa.session.watch.discover_dirs", boom)
+    found = session_dirs_under([grok])
+    assert [p.resolve() for p in found] == [nested.resolve()]
+    assert walked == []
+
+
 def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
     session = _write_session(tmp_path, "sess")
     hits: list[int] = []
